@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background-color: #f5f7f6;
+  @apply text-ink-900 antialiased;
+}
+
+::selection {
+  @apply bg-brand-200 text-brand-950;
+}
+
+:focus-visible:not(input):not(select):not(textarea):not(a) {
+  outline: 2px solid theme("colors.brand.500");
+  outline-offset: 2px;
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-ink-200/80 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.05)];
+  }
+  .card-hover {
+    @apply transition duration-150 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-[0_6px_16px_-6px_rgba(6,78,59,0.18)];
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3 py-1.5 text-sm font-medium text-ink-800 shadow-sm transition hover:border-ink-300 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-transparent bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm shadow-brand-600/25 transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 shadow-sm transition hover:border-red-300 hover:bg-red-50 disabled:opacity-50;
+  }
+  .input {
+    @apply w-full rounded-lg border border-ink-200 bg-white px-2.5 py-1.5 text-sm text-ink-900 outline-none transition focus:border-brand-600 focus:ring-2 focus:ring-brand-600/20;
+  }
+  .label {
+    @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-500;
+  }
+  .th {
+    @apply border-b border-ink-200 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-ink-500;
+  }
+  .td {
+    @apply px-3 py-2 text-sm text-ink-800;
+  }
+}
+
+.badge {
+  @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ring-black/5;
+}
+
+.link-brand {
+  @apply font-medium text-brand-700 underline-offset-2 hover:text-brand-800 hover:underline;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  @apply rounded bg-ink-300;
+}
+
+/* ------------------------------------------------------------------ */
+/* Motion                                                              */
+/* ------------------------------------------------------------------ */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes barGrow {
+  from {
+    width: 0;
+  }
+}
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes pulseSoft {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(16, 185, 129, 0);
+  }
+}
+
+/* Page-level entrance (mounted by app/template.tsx on every navigation). */
+.anim-in {
+  animation: fadeUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Staggered children for grids and lists. Add `.stagger` to the container. */
+.stagger > * {
+  animation: fadeUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0.03s; }
+.stagger > *:nth-child(2) { animation-delay: 0.07s; }
+.stagger > *:nth-child(3) { animation-delay: 0.11s; }
+.stagger > *:nth-child(4) { animation-delay: 0.15s; }
+.stagger > *:nth-child(5) { animation-delay: 0.19s; }
+.stagger > *:nth-child(6) { animation-delay: 0.23s; }
+.stagger > *:nth-child(7) { animation-delay: 0.27s; }
+.stagger > *:nth-child(8) { animation-delay: 0.31s; }
+.stagger > *:nth-child(n + 9) { animation-delay: 0.35s; }
+
+/* Progress bars fill from zero when the dashboard mounts. */
+.bar-grow {
+  animation: barGrow 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Shimmer placeholder used by the loading skeletons. */
+.skeleton {
+  @apply relative overflow-hidden rounded-lg bg-ink-100;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+/* Small live indicator dot (sync health, active states). */
+.pulse-dot {
+  animation: pulseSoft 2s ease-in-out infinite;
+}
+
+.btn {
+  transform: translateZ(0);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+tbody tr {
+  transition: background-color 0.15s ease;
+}
+tbody tr:hover {
+  background-color: rgba(236, 253, 245, 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-in,
+  .stagger > *,
+  .bar-grow,
+  .skeleton::after,
+  .pulse-dot {
+    animation: none !important;
+  }
+  .btn:active:not(:disabled) {
+    transform: none;
+  }
+}

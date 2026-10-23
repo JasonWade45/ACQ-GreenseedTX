@@ -1,0 +1,42 @@
+# Dependencies / build output
+node_modules/
+.next/
+out/
+dist/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# Local databases & runtime artifacts
+*.db
+*.db-shm
+*.db-wal
+*.db.bak-*
+*.sqlite3
+backend/uploads/
+backend/logs/
+*.log
+*.tsbuildinfo
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+frontend/.env.local
+frontend/.env*.local
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

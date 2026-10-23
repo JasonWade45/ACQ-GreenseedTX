@@ -1,0 +1,2654 @@
+{
+  "version": 1,
+  "sections": [
+    {
+      "id": "leads",
+      "label": "Leads",
+      "items": [
+        {
+          "id": "lead-add",
+          "title": "Create lead",
+          "method": "POST",
+          "path": "/lead/add",
+          "description": "Create a new lead in REsimpli.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "firstName",
+              "objectPath": "contactDetails",
+              "label": "First name",
+              "required": true,
+              "type": "string",
+              "description": "First name for new contact."
+            },
+            {
+              "key": "lastName",
+              "objectPath": "contactDetails",
+              "label": "Last name",
+              "required": false,
+              "type": "string",
+              "description": "Last name for new contact."
+            },
+            {
+              "key": "phoneNumbers",
+              "objectPath": "contactDetails",
+              "label": "Phone numbers",
+              "required": true,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "phoneNumber",
+                  "label": "Phone number",
+                  "required": true,
+                  "type": "string",
+                  "format": "phone",
+                  "description": "10-digit phone number."
+                },
+                {
+                  "key": "isPrimary",
+                  "label": "Is primary",
+                  "required": false,
+                  "type": "boolean",
+                  "description": "Primary phone flag."
+                }
+              ],
+              "description": "Phone numbers for contact."
+            },
+            {
+              "key": "emails",
+              "objectPath": "contactDetails",
+              "label": "Emails",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "email",
+                  "label": "Email",
+                  "required": true,
+                  "type": "string",
+                  "description": "Email address value."
+                },
+                {
+                  "key": "isPrimary",
+                  "label": "Is primary",
+                  "required": false,
+                  "type": "boolean",
+                  "description": "Primary email flag."
+                }
+              ],
+              "description": "Email addresses for contact."
+            },
+            {
+              "key": "mailingAddress",
+              "objectPath": "contactDetails",
+              "label": "Mailing address",
+              "required": false,
+              "type": "string",
+              "description": "Mailing address for contact."
+            },
+            {
+              "key": "websiteUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Website URL",
+              "required": false,
+              "type": "string",
+              "description": "Website URL."
+            },
+            {
+              "key": "facebookUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Facebook URL",
+              "required": false,
+              "type": "string",
+              "description": "Facebook profile/page URL."
+            },
+            {
+              "key": "instagramUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Instagram URL",
+              "required": false,
+              "type": "string",
+              "description": "Instagram profile URL."
+            },
+            {
+              "key": "youtubeUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "YouTube URL",
+              "required": false,
+              "type": "string",
+              "description": "YouTube channel URL."
+            },
+            {
+              "key": "linkedinUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "LinkedIn URL",
+              "required": false,
+              "type": "string",
+              "description": "LinkedIn profile URL."
+            },
+            {
+              "key": "twitterUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Twitter URL",
+              "required": false,
+              "type": "string",
+              "description": "Twitter/X profile URL."
+            },
+            {
+              "key": "birthDate",
+              "objectPath": "contactDetails",
+              "label": "Birth date",
+              "required": false,
+              "type": "string",
+              "format": "date",
+              "description": "Birth date."
+            },
+            {
+              "key": "anniversaryDate",
+              "objectPath": "contactDetails",
+              "label": "Anniversary date",
+              "required": false,
+              "type": "string",
+              "format": "date",
+              "description": "Anniversary date."
+            },
+            {
+              "key": "company",
+              "objectPath": "contactDetails",
+              "label": "Company",
+              "required": false,
+              "type": "string",
+              "description": "Company name."
+            },
+            {
+              "key": "companyIds",
+              "objectPath": "contactDetails",
+              "label": "Company IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Company ObjectIds."
+            },
+            {
+              "key": "marketingOptIn",
+              "objectPath": "contactDetails",
+              "label": "Marketing opt-in",
+              "required": false,
+              "type": "boolean",
+              "description": "Opt-in for marketing communication."
+            },
+            {
+              "key": "preferredContactMethod",
+              "objectPath": "contactDetails",
+              "label": "Preferred contact method",
+              "required": false,
+              "type": "string",
+              "enum": [
+                "phone",
+                "email",
+                "text"
+              ],
+              "description": "Preferred contact method: phone, email, or text."
+            },
+            {
+              "key": "doNotCall",
+              "objectPath": "contactDetails",
+              "label": "Do not call",
+              "required": false,
+              "type": "boolean",
+              "description": "Do not call flag."
+            },
+            {
+              "key": "doNotEmail",
+              "objectPath": "contactDetails",
+              "label": "Do not email",
+              "required": false,
+              "type": "boolean",
+              "description": "Do not email flag."
+            },
+            {
+              "key": "doNotText",
+              "objectPath": "contactDetails",
+              "label": "Do not text",
+              "required": false,
+              "type": "boolean",
+              "description": "Do not text flag."
+            },
+            {
+              "key": "propertyType",
+              "label": "Property type",
+              "required": true,
+              "type": "string",
+              "enum": [
+                "land",
+                "residential"
+              ],
+              "description": "Property type: land or residential."
+            },
+            {
+              "key": "apn",
+              "label": "APN",
+              "required": true,
+              "type": "string",
+              "description": "APN is required when propertyType is land.",
+              "condition": {
+                "field": "propertyType",
+                "equals": "land",
+                "branch": "then"
+              }
+            },
+            {
+              "key": "referenceId",
+              "label": "Reference ID",
+              "required": false,
+              "type": "string",
+              "description": "External reference ID. Shown when propertyType is land.",
+              "condition": {
+                "field": "propertyType",
+                "equals": "land",
+                "branch": "then"
+              }
+            },
+            {
+              "key": "address",
+              "label": "Address",
+              "required": false,
+              "type": "string",
+              "description": "Property address."
+            },
+            {
+              "key": "marketingCampignId",
+              "label": "Marketing campaign ID",
+              "required": true,
+              "type": "string",
+              "description": "Marketing campaign ObjectId."
+            },
+            {
+              "key": "marketId",
+              "label": "Market ID",
+              "required": true,
+              "type": "string",
+              "description": "Market ObjectId."
+            },
+            {
+              "key": "pipelineId",
+              "label": "Pipeline ID",
+              "required": true,
+              "type": "string",
+              "description": "Pipeline ObjectId."
+            },
+            {
+              "key": "mainStatusId",
+              "label": "Main status ID",
+              "required": true,
+              "type": "string",
+              "description": "Main status ObjectId."
+            },
+            {
+              "key": "leadCreated",
+              "label": "Lead created",
+              "required": false,
+              "type": "string",
+              "format": "date",
+              "description": "Lead created date."
+            },
+            {
+              "key": "tagIds",
+              "label": "Tag IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Array of tag ObjectIds."
+            },
+            {
+              "key": "isHotLead",
+              "label": "Is hot lead",
+              "required": false,
+              "type": "boolean",
+              "description": "Flag lead as hot."
+            },
+            {
+              "key": "comment",
+              "label": "Comment",
+              "required": false,
+              "type": "string",
+              "description": "Optional comment."
+            },
+            {
+              "key": "preferenceAnswers",
+              "objectPath": "questions",
+              "label": "Preference answers",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "questionId",
+                  "label": "Question ID",
+                  "required": false,
+                  "type": "string",
+                  "description": "Question ObjectId."
+                },
+                {
+                  "key": "value",
+                  "label": "Value",
+                  "required": false,
+                  "type": "string",
+                  "description": "Answer value."
+                }
+              ],
+              "description": "Preference answers payload."
+            }
+          ]
+        },
+        {
+          "id": "lead-delete",
+          "title": "Delete lead",
+          "method": "POST",
+          "path": "/lead/delete",
+          "description": "Soft-delete a lead by id.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "leadId",
+              "label": "Lead ID",
+              "required": true,
+              "type": "string",
+              "description": "Lead ObjectId."
+            }
+          ]
+        },
+        {
+          "id": "lead-details",
+          "title": "Lead details",
+          "method": "POST",
+          "path": "/lead/details",
+          "description": "Full lead detail by leadId.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "leadId",
+              "label": "Lead ID",
+              "required": true,
+              "type": "string",
+              "description": "Lead ObjectId."
+            }
+          ]
+        },
+        {
+          "id": "lead-list",
+          "title": "List leads",
+          "method": "POST",
+          "path": "/lead/list",
+          "description": "Paginated lead list with filters.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "searchStr",
+              "label": "Search string",
+              "required": false,
+              "type": "string",
+              "description": "Search string (lowercase). Allows empty or null."
+            },
+            {
+              "key": "mainStatusId",
+              "objectPath": "filterData",
+              "label": "Main status IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by main status ObjectIds."
+            },
+            {
+              "key": "pipelineId",
+              "objectPath": "filterData",
+              "label": "Pipeline ID",
+              "required": false,
+              "type": "string",
+              "description": "Filter by pipeline ObjectId."
+            },
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number",
+              "description": "Page number (default: 1)."
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "description": "Results per page (minimum: 1, maximum: 100).",
+              "max": 100,
+              "min": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "agents",
+      "label": "Agents",
+      "items": [
+        {
+          "id": "agent-add",
+          "title": "Add agent",
+          "method": "POST",
+          "path": "/agent/add",
+          "description": "Create a new agent in REsimpli.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "firstName",
+              "objectPath": "contactDetails",
+              "label": "First name",
+              "required": true,
+              "type": "string",
+              "description": "First name for new contact."
+            },
+            {
+              "key": "lastName",
+              "objectPath": "contactDetails",
+              "label": "Last name",
+              "required": false,
+              "type": "string",
+              "description": "Last name for new contact."
+            },
+            {
+              "key": "phoneNumbers",
+              "objectPath": "contactDetails",
+              "label": "Phone numbers",
+              "required": true,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "phoneNumber",
+                  "label": "Phone number",
+                  "required": true,
+                  "type": "string",
+                  "format": "phone",
+                  "description": "10-digit phone number."
+                },
+                {
+                  "key": "isPrimary",
+                  "label": "Is primary",
+                  "required": false,
+                  "type": "boolean",
+                  "description": "Primary phone flag."
+                }
+              ],
+              "description": "Phone numbers for contact."
+            },
+            {
+              "key": "emails",
+              "objectPath": "contactDetails",
+              "label": "Emails",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "email",
+                  "label": "Email",
+                  "required": true,
+                  "type": "string",
+                  "description": "Email address value."
+                },
+                {
+                  "key": "isPrimary",
+                  "label": "Is primary",
+                  "required": false,
+                  "type": "boolean",
+                  "description": "Primary email flag."
+                }
+              ],
+              "description": "Email addresses for contact."
+            },
+            {
+              "key": "mailingAddress",
+              "objectPath": "contactDetails",
+              "label": "Mailing address",
+              "required": false,
+              "type": "string",
+              "description": "Mailing address for contact."
+            },
+            {
+              "key": "websiteUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Website URL",
+              "required": false,
+              "type": "string",
+              "description": "Website URL."
+            },
+            {
+              "key": "facebookUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Facebook URL",
+              "required": false,
+              "type": "string",
+              "description": "Facebook profile/page URL."
+            },
+            {
+              "key": "instagramUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Instagram URL",
+              "required": false,
+              "type": "string",
+              "description": "Instagram profile URL."
+            },
+            {
+              "key": "youtubeUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "YouTube URL",
+              "required": false,
+              "type": "string",
+              "description": "YouTube channel URL."
+            },
+            {
+              "key": "linkedinUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "LinkedIn URL",
+              "required": false,
+              "type": "string",
+              "description": "LinkedIn profile URL."
+            },
+            {
+              "key": "twitterUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Twitter URL",
+              "required": false,
+              "type": "string",
+              "description": "Twitter/X profile URL."
+            },
+            {
+              "key": "birthDate",
+              "objectPath": "contactDetails",
+              "label": "Birth date",
+              "required": false,
+              "type": "string",
+              "format": "date",
+              "description": "Birth date."
+            },
+            {
+              "key": "anniversaryDate",
+              "objectPath": "contactDetails",
+              "label": "Anniversary date",
+              "required": false,
+              "type": "string",
+              "format": "date",
+              "description": "Anniversary date."
+            },
+            {
+              "key": "company",
+              "objectPath": "contactDetails",
+              "label": "Company",
+              "required": false,
+              "type": "string",
+              "description": "Company name."
+            },
+            {
+              "key": "companyIds",
+              "objectPath": "contactDetails",
+              "label": "Company IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Company ObjectIds."
+            },
+            {
+              "key": "marketingOptIn",
+              "objectPath": "contactDetails",
+              "label": "Marketing opt-in",
+              "required": false,
+              "type": "boolean",
+              "description": "Opt-in for marketing communication."
+            },
+            {
+              "key": "preferredContactMethod",
+              "objectPath": "contactDetails",
+              "label": "Preferred contact method",
+              "required": false,
+              "type": "string",
+              "enum": [
+                "phone",
+                "email",
+                "text"
+              ],
+              "description": "Preferred contact method: phone, email, or text."
+            },
+            {
+              "key": "doNotCall",
+              "objectPath": "contactDetails",
+              "label": "Do not call",
+              "required": false,
+              "type": "boolean",
+              "description": "Do not call flag."
+            },
+            {
+              "key": "doNotEmail",
+              "objectPath": "contactDetails",
+              "label": "Do not email",
+              "required": false,
+              "type": "boolean",
+              "description": "Do not email flag."
+            },
+            {
+              "key": "doNotText",
+              "objectPath": "contactDetails",
+              "label": "Do not text",
+              "required": false,
+              "type": "boolean",
+              "description": "Do not text flag."
+            },
+            {
+              "key": "assignUser",
+              "label": "Assign user",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Array of user ObjectIds to assign."
+            },
+            {
+              "key": "mainStatusId",
+              "label": "Main status ID",
+              "required": true,
+              "type": "string",
+              "description": "Main status ObjectId."
+            },
+            {
+              "key": "pipelineId",
+              "label": "Pipeline ID",
+              "required": true,
+              "type": "string",
+              "description": "Pipeline ObjectId."
+            },
+            {
+              "key": "marketingCampignId",
+              "label": "Marketing campaign ID",
+              "required": true,
+              "type": "string",
+              "description": "Marketing campaign ObjectId."
+            },
+            {
+              "key": "isVip",
+              "label": "Is VIP",
+              "required": false,
+              "type": "boolean",
+              "description": "Flag agent as VIP."
+            },
+            {
+              "key": "comment",
+              "label": "Comment",
+              "required": false,
+              "type": "string",
+              "description": "Optional comment."
+            },
+            {
+              "key": "targetCities",
+              "label": "Target cities",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Target city names."
+            },
+            {
+              "key": "targetZip",
+              "label": "Target zip",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Target ZIP codes."
+            },
+            {
+              "key": "targetCounties",
+              "label": "Target counties",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Target county names."
+            },
+            {
+              "key": "targetStates",
+              "label": "Target states",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Target state names."
+            },
+            {
+              "key": "tagIds",
+              "label": "Tag IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Array of tag ObjectIds."
+            },
+            {
+              "key": "preferenceAnswers",
+              "objectPath": "questions",
+              "label": "Preference answers",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "questionId",
+                  "label": "Question ID",
+                  "required": false,
+                  "type": "string",
+                  "description": "Question ObjectId."
+                },
+                {
+                  "key": "value",
+                  "label": "Value",
+                  "required": false,
+                  "type": "string",
+                  "description": "Answer value."
+                }
+              ],
+              "description": "Preference answers payload."
+            }
+          ]
+        },
+        {
+          "id": "agent-delete",
+          "title": "Delete agent",
+          "method": "POST",
+          "path": "/agent/delete",
+          "description": "Soft-delete an agent by id.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "id",
+              "label": "Agent ID",
+              "required": true,
+              "type": "string",
+              "description": "Agent ObjectId (required)."
+            }
+          ]
+        },
+        {
+          "id": "agent-details",
+          "title": "Agent details",
+          "method": "POST",
+          "path": "/agent/details",
+          "description": "Full agent detail by agentId.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "agentId",
+              "label": "Agent ID",
+              "required": true,
+              "type": "string",
+              "description": "Agent ObjectId (required)."
+            }
+          ]
+        },
+        {
+          "id": "agent-list",
+          "title": "List agents",
+          "method": "POST",
+          "path": "/agent/list",
+          "description": "Paginated agent list with search, filters, and sort.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "searchStr",
+              "label": "Search string",
+              "required": false,
+              "type": "string",
+              "description": "Search string (lowercase). Allows empty or null."
+            },
+            {
+              "key": "mainStatusId",
+              "objectPath": "filterData",
+              "label": "Main status IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by main status ObjectIds."
+            },
+            {
+              "key": "pipelineId",
+              "objectPath": "filterData",
+              "label": "Pipeline ID",
+              "required": false,
+              "type": "string",
+              "description": "Filter by pipeline ObjectId."
+            },
+            {
+              "key": "assignUser",
+              "objectPath": "filterData",
+              "label": "Assign user IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by assigned user ObjectIds."
+            },
+            {
+              "key": "tagIds",
+              "objectPath": "filterData",
+              "label": "Tag IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by tag ObjectIds."
+            },
+            {
+              "key": "targetCities",
+              "objectPath": "filterData",
+              "label": "Target cities",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by target cities."
+            },
+            {
+              "key": "targetStates",
+              "objectPath": "filterData",
+              "label": "Target states",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by target states."
+            },
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number",
+              "description": "Page number (default: 1)."
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "description": "Results per page (minimum: 1, maximum: 100).",
+              "max": 100,
+              "min": 1
+            },
+            {
+              "key": "sort",
+              "label": "Sort",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "fieldName",
+                  "label": "Field name",
+                  "required": true,
+                  "type": "string",
+                  "description": "Field to sort by."
+                },
+                {
+                  "key": "order",
+                  "label": "Order",
+                  "required": true,
+                  "type": "number",
+                  "description": "Sort order: 1 (asc) or -1 (desc)."
+                }
+              ],
+              "description": "Sort rules. Default: [{ fieldName: \"_id\", order: -1 }]."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "buyers",
+      "label": "Buyers",
+      "items": [
+        {
+          "id": "buyer-add",
+          "title": "Add buyer",
+          "method": "POST",
+          "path": "/buyer/add",
+          "description": "Create a new buyer via integration API key.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "firstName",
+              "objectPath": "contactDetails",
+              "label": "First name",
+              "required": true,
+              "type": "string",
+              "description": "First name for new contact."
+            },
+            {
+              "key": "lastName",
+              "objectPath": "contactDetails",
+              "label": "Last name",
+              "required": false,
+              "type": "string",
+              "description": "Last name for new contact."
+            },
+            {
+              "key": "phoneNumbers",
+              "objectPath": "contactDetails",
+              "label": "Phone numbers",
+              "required": true,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "phoneNumber",
+                  "label": "Phone number",
+                  "required": true,
+                  "type": "string",
+                  "format": "phone",
+                  "description": "10-digit phone number."
+                },
+                {
+                  "key": "isPrimary",
+                  "label": "Is primary",
+                  "required": false,
+                  "type": "boolean",
+                  "description": "Primary phone flag."
+                }
+              ],
+              "description": "Phone numbers for contact."
+            },
+            {
+              "key": "emails",
+              "objectPath": "contactDetails",
+              "label": "Emails",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "email",
+                  "label": "Email",
+                  "required": true,
+                  "type": "string",
+                  "description": "Email address value."
+                },
+                {
+                  "key": "isPrimary",
+                  "label": "Is primary",
+                  "required": false,
+                  "type": "boolean",
+                  "description": "Primary email flag."
+                }
+              ],
+              "description": "Email addresses for contact."
+            },
+            {
+              "key": "mailingAddress",
+              "objectPath": "contactDetails",
+              "label": "Mailing address",
+              "required": false,
+              "type": "string",
+              "description": "Mailing address for contact."
+            },
+            {
+              "key": "websiteUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Website URL",
+              "required": false,
+              "type": "string",
+              "description": "Website URL."
+            },
+            {
+              "key": "facebookUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Facebook URL",
+              "required": false,
+              "type": "string",
+              "description": "Facebook profile/page URL."
+            },
+            {
+              "key": "instagramUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Instagram URL",
+              "required": false,
+              "type": "string",
+              "description": "Instagram profile URL."
+            },
+            {
+              "key": "youtubeUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "YouTube URL",
+              "required": false,
+              "type": "string",
+              "description": "YouTube channel URL."
+            },
+            {
+              "key": "linkedinUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "LinkedIn URL",
+              "required": false,
+              "type": "string",
+              "description": "LinkedIn profile URL."
+            },
+            {
+              "key": "twitterUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Twitter URL",
+              "required": false,
+              "type": "string",
+              "description": "Twitter/X profile URL."
+            },
+            {
+              "key": "birthDate",
+              "objectPath": "contactDetails",
+              "label": "Birth date",
+              "required": false,
+              "type": "string",
+              "format": "date",
+              "description": "Birth date."
+            },
+            {
+              "key": "anniversaryDate",
+              "objectPath": "contactDetails",
+              "label": "Anniversary date",
+              "required": false,
+              "type": "string",
+              "format": "date",
+              "description": "Anniversary date."
+            },
+            {
+              "key": "company",
+              "objectPath": "contactDetails",
+              "label": "Company",
+              "required": false,
+              "type": "string",
+              "description": "Company name."
+            },
+            {
+              "key": "companyIds",
+              "objectPath": "contactDetails",
+              "label": "Company IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Company ObjectIds."
+            },
+            {
+              "key": "marketingOptIn",
+              "objectPath": "contactDetails",
+              "label": "Marketing opt-in",
+              "required": false,
+              "type": "boolean",
+              "description": "Opt-in for marketing communication."
+            },
+            {
+              "key": "preferredContactMethod",
+              "objectPath": "contactDetails",
+              "label": "Preferred contact method",
+              "required": false,
+              "type": "string",
+              "enum": [
+                "phone",
+                "email",
+                "text"
+              ],
+              "description": "Preferred contact method: phone, email, or text."
+            },
+            {
+              "key": "doNotCall",
+              "objectPath": "contactDetails",
+              "label": "Do not call",
+              "required": false,
+              "type": "boolean",
+              "description": "Do not call flag."
+            },
+            {
+              "key": "doNotEmail",
+              "objectPath": "contactDetails",
+              "label": "Do not email",
+              "required": false,
+              "type": "boolean",
+              "description": "Do not email flag."
+            },
+            {
+              "key": "doNotText",
+              "objectPath": "contactDetails",
+              "label": "Do not text",
+              "required": false,
+              "type": "boolean",
+              "description": "Do not text flag."
+            },
+            {
+              "key": "assignUser",
+              "label": "Assign user",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Array of user ObjectIds to assign."
+            },
+            {
+              "key": "mainStatusId",
+              "label": "Main status ID",
+              "required": true,
+              "type": "string",
+              "description": "Main status ObjectId."
+            },
+            {
+              "key": "pipelineId",
+              "label": "Pipeline ID",
+              "required": true,
+              "type": "string",
+              "description": "Pipeline ObjectId."
+            },
+            {
+              "key": "marketingCampignId",
+              "label": "Marketing campaign ID",
+              "required": true,
+              "type": "string",
+              "description": "Marketing campaign ObjectId."
+            },
+            {
+              "key": "isVip",
+              "label": "Is VIP",
+              "required": false,
+              "type": "boolean",
+              "description": "Flag buyer as VIP."
+            },
+            {
+              "key": "comment",
+              "label": "Comment",
+              "required": false,
+              "type": "string",
+              "description": "Optional comment."
+            },
+            {
+              "key": "targetCities",
+              "label": "Target cities",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Target city names."
+            },
+            {
+              "key": "targetZip",
+              "label": "Target zip",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Target ZIP codes."
+            },
+            {
+              "key": "targetCounties",
+              "label": "Target counties",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Target county names."
+            },
+            {
+              "key": "targetStates",
+              "label": "Target states",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Target state names."
+            },
+            {
+              "key": "tagIds",
+              "label": "Tag IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Array of tag ObjectIds."
+            },
+            {
+              "key": "preferenceAnswers",
+              "objectPath": "questions",
+              "label": "Preference answers",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "questionId",
+                  "label": "Question ID",
+                  "required": false,
+                  "type": "string",
+                  "description": "Question ObjectId."
+                },
+                {
+                  "key": "value",
+                  "label": "Value",
+                  "required": false,
+                  "type": "string",
+                  "description": "Answer value."
+                }
+              ],
+              "description": "Preference answers payload."
+            }
+          ]
+        },
+        {
+          "id": "buyer-delete",
+          "title": "Delete buyer",
+          "method": "POST",
+          "path": "/buyer/delete",
+          "description": "Soft-delete a buyer by id.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "id",
+              "label": "Buyer ID",
+              "required": true,
+              "type": "string",
+              "description": "Buyer ObjectId (required)."
+            }
+          ]
+        },
+        {
+          "id": "buyer-details",
+          "title": "Buyer details",
+          "method": "POST",
+          "path": "/buyer/details",
+          "description": "Full buyer detail by buyerId.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "id",
+              "label": "Buyer ID",
+              "required": true,
+              "type": "string",
+              "description": "Buyer ObjectId (required)."
+            }
+          ]
+        },
+        {
+          "id": "buyer-list",
+          "title": "List buyers",
+          "method": "POST",
+          "path": "/buyer/list",
+          "description": "Paginated buyer list with search, filters, and sort.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "searchStr",
+              "label": "Search string",
+              "required": false,
+              "type": "string",
+              "description": "Search string (lowercase). Allows empty or null."
+            },
+            {
+              "key": "mainStatusId",
+              "objectPath": "filterData",
+              "label": "Main status IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by main status ObjectIds."
+            },
+            {
+              "key": "pipelineId",
+              "objectPath": "filterData",
+              "label": "Pipeline ID",
+              "required": false,
+              "type": "string",
+              "description": "Filter by pipeline ObjectId."
+            },
+            {
+              "key": "assignUser",
+              "objectPath": "filterData",
+              "label": "Assign user IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by assigned user ObjectIds."
+            },
+            {
+              "key": "tagIds",
+              "objectPath": "filterData",
+              "label": "Tag IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by tag ObjectIds."
+            },
+            {
+              "key": "targetCities",
+              "objectPath": "filterData",
+              "label": "Target cities",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by target cities."
+            },
+            {
+              "key": "targetStates",
+              "objectPath": "filterData",
+              "label": "Target states",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by target states."
+            },
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number",
+              "description": "Page number (default: 1)."
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "description": "Results per page (minimum: 1, maximum: 100).",
+              "max": 100,
+              "min": 1
+            },
+            {
+              "key": "sort",
+              "label": "Sort",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "fieldName",
+                  "label": "Field name",
+                  "required": true,
+                  "type": "string",
+                  "description": "Field to sort by."
+                },
+                {
+                  "key": "order",
+                  "label": "Order",
+                  "required": true,
+                  "type": "number",
+                  "description": "Sort order: 1 (asc) or -1 (desc)."
+                }
+              ],
+              "description": "Sort rules. Default: [{ fieldName: \"_id\", order: -1 }]."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "vendors",
+      "label": "Vendors",
+      "items": [
+        {
+          "id": "vendor-add",
+          "title": "Add vendor",
+          "method": "POST",
+          "path": "/vendor/add",
+          "description": "Create a new vendor in REsimpli.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "firstName",
+              "objectPath": "contactDetails",
+              "label": "First name",
+              "required": true,
+              "type": "string",
+              "description": "First name for new contact."
+            },
+            {
+              "key": "lastName",
+              "objectPath": "contactDetails",
+              "label": "Last name",
+              "required": false,
+              "type": "string",
+              "description": "Last name for new contact."
+            },
+            {
+              "key": "phoneNumbers",
+              "objectPath": "contactDetails",
+              "label": "Phone numbers",
+              "required": true,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "phoneNumber",
+                  "label": "Phone number",
+                  "required": true,
+                  "type": "string",
+                  "format": "phone",
+                  "description": "10-digit phone number."
+                },
+                {
+                  "key": "isPrimary",
+                  "label": "Is primary",
+                  "required": false,
+                  "type": "boolean",
+                  "description": "Primary phone flag."
+                }
+              ],
+              "description": "Phone numbers for contact."
+            },
+            {
+              "key": "emails",
+              "objectPath": "contactDetails",
+              "label": "Emails",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "email",
+                  "label": "Email",
+                  "required": true,
+                  "type": "string",
+                  "description": "Email address value."
+                },
+                {
+                  "key": "isPrimary",
+                  "label": "Is primary",
+                  "required": false,
+                  "type": "boolean",
+                  "description": "Primary email flag."
+                }
+              ],
+              "description": "Email addresses for contact."
+            },
+            {
+              "key": "mailingAddress",
+              "objectPath": "contactDetails",
+              "label": "Mailing address",
+              "required": false,
+              "type": "string",
+              "description": "Mailing address for contact."
+            },
+            {
+              "key": "websiteUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Website URL",
+              "required": false,
+              "type": "string",
+              "description": "Website URL."
+            },
+            {
+              "key": "facebookUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Facebook URL",
+              "required": false,
+              "type": "string",
+              "description": "Facebook profile/page URL."
+            },
+            {
+              "key": "instagramUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Instagram URL",
+              "required": false,
+              "type": "string",
+              "description": "Instagram profile URL."
+            },
+            {
+              "key": "youtubeUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "YouTube URL",
+              "required": false,
+              "type": "string",
+              "description": "YouTube channel URL."
+            },
+            {
+              "key": "linkedinUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "LinkedIn URL",
+              "required": false,
+              "type": "string",
+              "description": "LinkedIn profile URL."
+            },
+            {
+              "key": "twitterUrl",
+              "objectPath": "contactDetails.socialUrls",
+              "label": "Twitter URL",
+              "required": false,
+              "type": "string",
+              "description": "Twitter/X profile URL."
+            },
+            {
+              "key": "birthDate",
+              "objectPath": "contactDetails",
+              "label": "Birth date",
+              "required": false,
+              "type": "string",
+              "format": "date",
+              "description": "Birth date."
+            },
+            {
+              "key": "anniversaryDate",
+              "objectPath": "contactDetails",
+              "label": "Anniversary date",
+              "required": false,
+              "type": "string",
+              "format": "date",
+              "description": "Anniversary date."
+            },
+            {
+              "key": "company",
+              "objectPath": "contactDetails",
+              "label": "Company",
+              "required": false,
+              "type": "string",
+              "description": "Company name."
+            },
+            {
+              "key": "companyIds",
+              "objectPath": "contactDetails",
+              "label": "Company IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Company ObjectIds."
+            },
+            {
+              "key": "marketingOptIn",
+              "objectPath": "contactDetails",
+              "label": "Marketing opt-in",
+              "required": false,
+              "type": "boolean",
+              "description": "Opt-in for marketing communication."
+            },
+            {
+              "key": "preferredContactMethod",
+              "objectPath": "contactDetails",
+              "label": "Preferred contact method",
+              "required": false,
+              "type": "string",
+              "enum": [
+                "phone",
+                "email",
+                "text"
+              ],
+              "description": "Preferred contact method: phone, email, or text."
+            },
+            {
+              "key": "doNotCall",
+              "objectPath": "contactDetails",
+              "label": "Do not call",
+              "required": false,
+              "type": "boolean",
+              "description": "Do not call flag."
+            },
+            {
+              "key": "doNotEmail",
+              "objectPath": "contactDetails",
+              "label": "Do not email",
+              "required": false,
+              "type": "boolean",
+              "description": "Do not email flag."
+            },
+            {
+              "key": "doNotText",
+              "objectPath": "contactDetails",
+              "label": "Do not text",
+              "required": false,
+              "type": "boolean",
+              "description": "Do not text flag."
+            },
+            {
+              "key": "assignUser",
+              "label": "Assign user",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Array of user ObjectIds to assign."
+            },
+            {
+              "key": "mainStatusId",
+              "label": "Main status ID",
+              "required": true,
+              "type": "string",
+              "description": "Main status ObjectId."
+            },
+            {
+              "key": "categoryId",
+              "label": "Vendor type",
+              "required": true,
+              "type": "string",
+              "description": "Vendor type / category ObjectId (required)."
+            },
+            {
+              "key": "subcategoryId",
+              "label": "Subcategory ID",
+              "required": false,
+              "type": "string",
+              "description": "Subcategory ObjectId."
+            },
+            {
+              "key": "pipelineId",
+              "label": "Pipeline ID",
+              "required": true,
+              "type": "string",
+              "description": "Pipeline ObjectId."
+            },
+            {
+              "key": "marketingCampignId",
+              "label": "Marketing campaign ID",
+              "required": true,
+              "type": "string",
+              "description": "Marketing campaign ObjectId."
+            },
+            {
+              "key": "isVip",
+              "label": "Is VIP",
+              "required": false,
+              "type": "boolean",
+              "description": "Flag vendor as VIP."
+            },
+            {
+              "key": "comment",
+              "label": "Comment",
+              "required": false,
+              "type": "string",
+              "description": "Optional comment."
+            },
+            {
+              "key": "ssnNo",
+              "label": "SSN number",
+              "required": false,
+              "type": "string",
+              "description": "Social Security Number."
+            },
+            {
+              "key": "trackPaymentFor1099",
+              "label": "Track payment for 1099",
+              "required": false,
+              "type": "string",
+              "description": "1099 payment tracking value."
+            },
+            {
+              "key": "targetCities",
+              "label": "Target cities",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Target city names."
+            },
+            {
+              "key": "targetZip",
+              "label": "Target zip",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Target ZIP codes."
+            },
+            {
+              "key": "targetCounties",
+              "label": "Target counties",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Target county names."
+            },
+            {
+              "key": "targetStates",
+              "label": "Target states",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Target state names."
+            },
+            {
+              "key": "tagIds",
+              "label": "Tag IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Array of tag ObjectIds."
+            },
+            {
+              "key": "isAccountPurpose",
+              "label": "Is account purpose",
+              "required": false,
+              "type": "boolean",
+              "description": "Flag vendor for account purpose."
+            },
+            {
+              "key": "preferenceAnswers",
+              "objectPath": "questions",
+              "label": "Preference answers",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "questionId",
+                  "label": "Question ID",
+                  "required": false,
+                  "type": "string",
+                  "description": "Question ObjectId."
+                },
+                {
+                  "key": "value",
+                  "label": "Value",
+                  "required": false,
+                  "type": "string",
+                  "description": "Answer value."
+                }
+              ],
+              "description": "Preference answers payload."
+            }
+          ]
+        },
+        {
+          "id": "vendor-delete",
+          "title": "Delete vendor",
+          "method": "POST",
+          "path": "/vendor/delete",
+          "description": "Soft-delete a vendor by id.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "id",
+              "label": "Vendor ID",
+              "required": true,
+              "type": "string",
+              "description": "Vendor ObjectId (required)."
+            }
+          ]
+        },
+        {
+          "id": "vendor-details",
+          "title": "Vendor details",
+          "method": "POST",
+          "path": "/vendor/details",
+          "description": "Full vendor detail by vendorId.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "vendorId",
+              "label": "Vendor ID",
+              "required": true,
+              "type": "string",
+              "description": "Vendor ObjectId (required)."
+            }
+          ]
+        },
+        {
+          "id": "vendor-list",
+          "title": "List vendors",
+          "method": "POST",
+          "path": "/vendor/list",
+          "description": "Paginated vendor list with search, filters, and sort.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "searchStr",
+              "label": "Search string",
+              "required": false,
+              "type": "string",
+              "description": "Search string (lowercase). Allows empty or null."
+            },
+            {
+              "key": "mainStatusId",
+              "objectPath": "filterData",
+              "label": "Main status IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by main status ObjectIds."
+            },
+            {
+              "key": "pipelineId",
+              "objectPath": "filterData",
+              "label": "Pipeline ID",
+              "required": false,
+              "type": "string",
+              "description": "Filter by pipeline ObjectId."
+            },
+            {
+              "key": "assignUser",
+              "objectPath": "filterData",
+              "label": "Assign user IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by assigned user ObjectIds."
+            },
+            {
+              "key": "tagIds",
+              "objectPath": "filterData",
+              "label": "Tag IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by tag ObjectIds."
+            },
+            {
+              "key": "targetCities",
+              "objectPath": "filterData",
+              "label": "Target cities",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by target cities."
+            },
+            {
+              "key": "targetStates",
+              "objectPath": "filterData",
+              "label": "Target states",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by target states."
+            },
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number",
+              "description": "Page number (default: 1)."
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "description": "Results per page (minimum: 1, maximum: 100).",
+              "max": 100,
+              "min": 1
+            },
+            {
+              "key": "sort",
+              "label": "Sort",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "object",
+              "arrayItemFields": [
+                {
+                  "key": "fieldName",
+                  "label": "Field name",
+                  "required": true,
+                  "type": "string",
+                  "description": "Field to sort by."
+                },
+                {
+                  "key": "order",
+                  "label": "Order",
+                  "required": true,
+                  "type": "number",
+                  "description": "Sort order: 1 (asc) or -1 (desc)."
+                }
+              ],
+              "description": "Sort rules. Default: [{ fieldName: \"_id\", order: -1 }]."
+            }
+          ]
+        },
+        {
+          "id": "vendorCategoryList",
+          "title": "Vendor categories",
+          "method": "POST",
+          "path": "/vendorCategoryList",
+          "description": "Returns all vendor categories."
+        },
+        {
+          "id": "vendorSubCategoryList",
+          "title": "Vendor subcategories",
+          "method": "POST",
+          "path": "/vendorSubCategoryList",
+          "description": "Returns vendor subcategories for a category.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "categoryId",
+              "label": "Category ID",
+              "required": true,
+              "type": "string",
+              "description": "Category ObjectId (required)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "folders",
+      "label": "Folders",
+      "items": [
+        {
+          "id": "folder-list",
+          "title": "List folders",
+          "method": "POST",
+          "path": "/folder/list",
+          "description": "Paginated folder list by module and sub module.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number",
+              "description": "Page number (minimum: 1)."
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "min": 1,
+              "max": 100,
+              "description": "Results per page (minimum: 1, maximum: 100)."
+            },
+            {
+              "key": "moduleType",
+              "label": "Module type",
+              "required": true,
+              "type": "number",
+              "enum": [1, 2, 3, 4, 5, 6, 7, 8],
+              "enumLabels": ["Lead", "Buyer", "Vendor", "Agent", "List stacking", "Inventory", "Rental", "Sold"],
+              "description": "1 = Lead, 2 = Buyer, 3 = Vendor, 4 = Agent, 5 = List stacking, 6 = Inventory, 7 = Rental, 8 = Sold."
+            },
+            {
+              "key": "subModuleId",
+              "label": "Sub module ID",
+              "required": true,
+              "type": "string",
+              "description": "Sub module ObjectId (required)."
+            },
+            {
+              "key": "searchString",
+              "label": "Search string",
+              "required": false,
+              "type": "string",
+              "description": "Optional search filter."
+            },
+            {
+              "key": "sort",
+              "label": "Sort",
+              "required": false,
+              "type": "string",
+              "description": "Optional sort string."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "label": "Files",
+      "items": [
+        {
+          "id": "file-list",
+          "title": "List files",
+          "method": "POST",
+          "path": "/file/list",
+          "description": "Paginated file list by module, sub module, folder, and optional category.",
+          "defaultBody": {
+            "category": "all"
+          },
+          "bodyFields": [
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number",
+              "description": "Page number (minimum: 1)."
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "min": 1,
+              "max": 100,
+              "description": "Results per page (minimum: 1, maximum: 100)."
+            },
+            {
+              "key": "moduleType",
+              "label": "Module type",
+              "required": true,
+              "type": "number",
+              "enum": [1, 2, 3, 4, 5, 6, 7, 8],
+              "enumLabels": ["Lead", "Buyer", "Vendor", "Agent", "List stacking", "Inventory", "Rental", "Sold"],
+              "description": "1 = Lead, 2 = Buyer, 3 = Vendor, 4 = Agent, 5 = List stacking, 6 = Inventory, 7 = Rental, 8 = Sold."
+            },
+            {
+              "key": "subModuleId",
+              "label": "Sub module ID",
+              "required": true,
+              "type": "string",
+              "description": "Sub module ObjectId (required)."
+            },
+            {
+              "key": "folderId",
+              "label": "Folder ID",
+              "required": true,
+              "type": "string",
+              "description": "Folder ObjectId (required)."
+            },
+            {
+              "key": "category",
+              "label": "Category",
+              "required": false,
+              "type": "string",
+              "enum": ["all", "photos", "videos", "docs", "others"],
+              "enumLabels": ["All", "Photos", "Videos", "Docs", "Others"],
+              "default": "all",
+              "description": "Optional file category filter. Default: all."
+            },
+            {
+              "key": "searchString",
+              "label": "Search string",
+              "required": false,
+              "type": "string",
+              "description": "Optional search filter."
+            },
+            {
+              "key": "sort",
+              "label": "Sort",
+              "required": false,
+              "type": "string",
+              "description": "Optional sort string."
+            }
+          ]
+        },
+        {
+          "id": "file-download",
+          "title": "Download file",
+          "method": "POST",
+          "path": "/file/download",
+          "description": "Download a file by fileId.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "fileId",
+              "label": "File ID",
+              "required": true,
+              "type": "string",
+              "description": "File ObjectId (required)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "appointments",
+      "label": "Appointments",
+      "items": [
+        {
+          "id": "appointmentList",
+          "title": "Appointment list",
+          "method": "POST",
+          "path": "/appointmentList",
+          "description": "Paginated appointment list with date range, assignee, status, type, subtype, qualification, upcoming/past, and search filters.",
+          "defaultBody": {
+            "appointmentType": 9,
+            "appointmentStatus": 9,
+            "qualification": 9,
+            "isUpcoming": true,
+            "startDateTime": "Sep 9, 2026",
+            "endDateTime": "Sep 9, 2026",
+            "assignUserId": [],
+            "page": 1,
+            "limit": 10
+          },
+          "bodyFields": [
+            {
+              "key": "appointmentType",
+              "label": "Appointment type",
+              "required": false,
+              "type": "number",
+              "enum": [0, 1, 2, 3, 9],
+              "enumLabels": [
+                "Seller appointment",
+                "Buyer showing",
+                "Contractor walk through",
+                "Other",
+                "All"
+              ],
+              "default": 9,
+              "description": "0 = seller appointment, 1 = buyer showing, 2 = contractor walk through, 3 = other.  Default 9 = all."
+            },
+            {
+              "key": "appointmentSubType",
+              "label": "Appointment subtype",
+              "required": true,
+              "type": "number",
+              "enum": [0, 1, 2],
+              "enumLabels": [
+                "In person by appointment",
+                "Phone appointment",
+                "Drive by appointment"
+              ],
+              "description": "Required when type is seller appointment. 0 = in person, 1 = phone, 2 = drive by.",
+              "condition": {
+                "field": "appointmentType",
+                "equals": 0,
+                "branch": "then"
+              }
+            },
+            {
+              "key": "appointmentStatus",
+              "label": "Appointment status",
+              "required": false,
+              "type": "number",
+              "enum": [ 0, 1, 2, 3, 9],
+              "enumLabels": [
+                "No answer",
+                "Kept",
+                "Not kept",
+                "Dismiss",
+                "All"
+              ],
+              "default": 9,
+              "description": "0 = no answer, 1 = kept, 2 = not kept, 3 = dismiss. Default 9 = all."
+            },
+            {
+              "key": "qualification",
+              "label": "Qualification",
+              "required": false,
+              "type": "number",
+              "enum": [ 0, 1, 9],
+              "enumLabels": [
+                "Not qualified",
+                "Qualified",
+                "All"
+              ],
+              "default": 9,
+              "description": "0 =not qualified, 1 = qualified. Default 9 = all."
+            },
+            {
+              "key": "isUpcoming",
+              "label": "Upcoming",
+              "required": false,
+              "type": "boolean",
+              "description": "True for upcoming appointments, false for past appointments."
+            },
+            {
+              "key": "startDateTime",
+              "label": "Start date",
+              "required": false,
+              "type": "string",
+              "format": "date",
+              "description": "Range start date."
+            },
+            {
+              "key": "endDateTime",
+              "label": "End date",
+              "required": false,
+              "type": "string",
+              "format": "date",
+              "description": "Range end date."
+            },
+            {
+              "key": "assignUserId",
+              "label": "Assign user IDs",
+              "required": false,
+              "type": "array",
+              "arrayItemType": "string",
+              "description": "Filter by assigned user ObjectIds. If sent, at least one ID is required."
+            },
+            
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number"
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "max": 100,
+              "min": 1,
+              "description": "Results per page (minimum: 1, maximum: 100)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "reference",
+      "label": "Reference & lookups",
+      "items": [
+        {
+          "id": "companyList",
+          "title": "Company dropdown list",
+          "method": "POST",
+          "path": "/companyList",
+          "description": "API used for company dropdown list with pagination and search."
+        },
+        {
+          "id": "geographicInfoList",
+          "title": "Geographic info list",
+          "method": "POST",
+          "path": "/geographicInfoList",
+          "description": "API used to fetch geographic info list.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "searchString",
+              "label": "Search string",
+              "required": false,
+              "type": "string",
+              "description": "Optional search filter."
+            },
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number"
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "max": 100,
+              "min": 1,
+              "description": "Results per page (minimum: 1, maximum: 100)."
+            },
+            {
+              "key": "type",
+              "label": "Geographic type",
+              "required": true,
+              "type": "number",
+              "enum": [
+                1,
+                2,
+                3,
+                4
+              ],
+              "enumLabels": [
+                "county",
+                "city",
+                "state",
+                "zipCode"
+              ],
+              "description": "Geographic type: 1 = county, 2 = city, 3 = state, 4 = zipCode."
+            }
+          ]
+        },
+        {
+          "id": "getListAndSkipTraceSourceOptions",
+          "title": "Get list purchase / skip trace source options",
+          "method": "POST",
+          "path": "/getListAndSkipTraceSourceOptions",
+          "description": "Returns source options by type: leadSource or skipTrace.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "type",
+              "label": "Type",
+              "required": true,
+              "type": "string",
+              "enum": [
+                "leadSource",
+                "skipTrace"
+              ],
+              "description": "Source type: leadSource or skipTrace."
+            }
+          ]
+        },
+        {
+          "id": "getPipelineList",
+          "title": "Get pipeline list",
+          "method": "POST",
+          "path": "/getPipelineList",
+          "description": "Retrieve all pipelines for given module IDs.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "moduleType",
+              "label": "Module type",
+              "required": true,
+              "type": "number",
+              "enum": [
+                1,
+                2,
+                3,
+                4,
+                5
+              ],
+              "enumLabels": [
+                "Lead",
+                "Buyer",
+                "Vendor",
+                "Agent",
+                "List stacking"
+              ],
+              "description": "1 = Lead, 2 = Buyer, 3 = Vendor, 4 = Agent, 5 = List stacking."
+            },
+            {
+              "key": "page",
+              "label": "Page number",
+              "required": true,
+              "type": "number"
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "max": 100,
+              "min": 1,
+              "description": "Results per page (minimum: 1, maximum: 100)."
+            },
+            {
+              "key": "searchString",
+              "label": "Search string",
+              "required": false,
+              "type": "string",
+              "description": "Optional search filter."
+            },
+            {
+              "key": "pipelineId",
+              "label": "Pipeline ID",
+              "required": false,
+              "type": "string",
+              "description": "Optional pipeline ObjectId."
+            }
+          ]
+        },
+        {
+          "id": "getUserInfo",
+          "title": "Validate integration API key",
+          "method": "POST",
+          "path": "/getUserInfo",
+          "description": "API used to validate integration access token."
+        },
+        {
+          "id": "marketingCampaignList",
+          "title": "Marketing campaign dropdown list",
+          "method": "POST",
+          "path": "/marketingCampaignList",
+          "description": "Retrieves marketing campaigns for dropdown usage.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "campaignType",
+              "label": "Campaign type",
+              "required": true,
+              "type": "number",
+              "enum": [
+                1,
+                2,
+                3,
+                4,
+                5
+              ],
+              "enumLabels": [
+                "Lead",
+                "Buyer",
+                "Vendor",
+                "Agent",
+                "List stacking"
+              ],
+              "description": "1 = Lead, 2 = Buyer, 3 = Vendor, 4 = Agent, 5 = List stacking."
+            }
+          ]
+        },
+        {
+          "id": "marketList",
+          "title": "Get markets",
+          "method": "POST",
+          "path": "/marketList",
+          "description": "API used to get markets with integration token."
+        },
+        {
+          "id": "preferenceQuestion",
+          "title": "Get preference questions",
+          "method": "POST",
+          "path": "/preferenceQuestion",
+          "description": "API used to get preference questions.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "moduleType",
+              "label": "Module type",
+              "required": true,
+              "type": "number",
+              "enum": [
+                1,
+                2,
+                3,
+                4,
+                5
+              ],
+              "enumLabels": [
+                "Lead",
+                "Buyer",
+                "Vendor",
+                "Agent",
+                "List stacking"
+              ],
+              "description": "1 = Lead, 2 = Buyer, 3 = Vendor, 4 = Agent, 5 = List stacking."
+            },
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number"
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "max": 100,
+              "min": 1,
+              "description": "Results per page (minimum: 1, maximum: 100)."
+            },
+            {
+              "key": "searchStr",
+              "label": "Search string",
+              "required": false,
+              "type": "string",
+              "description": "Optional search filter."
+            }
+          ]
+        },
+        {
+          "id": "tagList",
+          "title": "Global tags list",
+          "method": "POST",
+          "path": "/tagList",
+          "description": "API used to fetch tags.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "tagType",
+              "label": "Tag type",
+              "required": true,
+              "type": "number",
+              "enum": [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7
+              ],
+              "description": "1 = Leads, 2 = Cash buyer / Buyers, 3 = Vendors, 4 = Dispo, 5 = Agents, 6 = Inventory, 7 = List stacking."
+            },
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number"
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "max": 100,
+              "min": 1,
+              "description": "Results per page (minimum: 1, maximum: 100)."
+            },
+            {
+              "key": "searchStr",
+              "label": "Search string",
+              "required": false,
+              "type": "string",
+              "description": "Optional search filter."
+            }
+          ]
+        },
+        {
+          "id": "callLogList",
+          "title": "Call log list",
+          "method": "POST",
+          "path": "/callLogList",
+          "description": "API used to fetch call log list.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "moduleId",
+              "label": "Module ID",
+              "required": true,
+              "type": "number",
+              "enum": [
+                1,
+                2,
+                3,
+                4,
+                5
+              ],
+              "enumLabels": [
+                "Lead",
+                "Buyer",
+                "Vendor",
+                "Agent",
+                "List stacking"
+              ],
+              "description": "1 = Lead, 2 = Buyer, 3 = Vendor, 4 = Agent, 5 = List stacking."
+            },
+            {
+              "key": "subModuleId",
+              "label": "Sub module ID",
+              "required": true,
+              "type": "string",
+              "description": "Sub module ObjectId (required)."
+            },
+            {
+              "key": "type",
+              "label": "Type",
+              "required": true,
+              "type": "number",
+              "enum": [
+                1,
+                2
+              ],
+              "enumLabels": [
+                "All",
+                "Conversation"
+              ],
+              "description": "1 = All, 2 = Conversation."
+            },
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number"
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "max": 100,
+              "min": 1,
+              "description": "Results per page (minimum: 1, maximum: 100)."
+            }
+          ]
+        },
+        {
+          "id": "activityList",
+          "title": "Activity list",
+          "method": "POST",
+          "path": "/activityList",
+          "description": "API used to fetch activity list.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "moduleId",
+              "label": "Module ID",
+              "required": true,
+              "type": "number",
+              "enum": [
+                1,
+                2,
+                3,
+                4,
+                5
+              ],
+              "enumLabels": [
+                "Lead",
+                "Buyer",
+                "Vendor",
+                "Agent",
+                "List stacking"
+              ],
+              "description": "1 = Lead, 2 = Buyer, 3 = Vendor, 4 = Agent, 5 = List stacking."
+            },
+            {
+              "key": "subModuleId",
+              "label": "Sub module ID",
+              "required": true,
+              "type": "string",
+              "description": "Sub module ObjectId (required)."
+            },
+            {
+              "key": "type",
+              "label": "Type",
+              "required": true,
+              "type": "number",
+              "enum": [
+                1,
+                2
+              ],
+              "enumLabels": [
+                "All",
+                "Conversation"
+              ],
+              "description": "1 = All, 2 = Conversation."
+            },
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number"
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "max": 100,
+              "min": 1,
+              "description": "Results per page (minimum: 1, maximum: 100)."
+            }
+          ]
+        },
+        {
+          "id": "userList",
+          "title": "User list",
+          "method": "POST",
+          "path": "/userList",
+          "description": "Returns account users for dropdown usage.",
+          "defaultBody": {},
+          "bodyFields": [
+            {
+              "key": "page",
+              "label": "Page",
+              "required": true,
+              "type": "number"
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+              "required": true,
+              "type": "number",
+              "max": 100,
+              "min": 1,
+              "description": "Results per page (minimum: 1, maximum: 100)."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
