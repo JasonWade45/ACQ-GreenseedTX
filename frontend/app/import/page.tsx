@@ -25,6 +25,7 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   existing_resimpli: { label: "Existing CRM record", className: "bg-ink-100 text-ink-700" },
   rejected: { label: "Rejected", className: "bg-red-100 text-red-800" },
   imported: { label: "Imported", className: "bg-green-100 text-green-800" },
+  updated: { label: "Updated", className: "bg-blue-100 text-blue-800" },
   failed: { label: "Failed", className: "bg-red-100 text-red-800" },
   skipped: { label: "Skipped", className: "bg-ink-100 text-ink-600" },
 };
@@ -47,6 +48,7 @@ export default function ImportPage() {
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<CommitResult | null>(null);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [updateMatched, setUpdateMatched] = useState(true);
   const [aiMap, setAiMap] = useState<AiMapResult | null>(null);
   const [extConfig, setExtConfig] = useState<ExternalConfig | null>(null);
   const [extEnabled, setExtEnabled] = useState(false);
@@ -81,6 +83,22 @@ export default function ImportPage() {
       setInspection(data);
       setMapping(data.auto_mapping);
       setSheet(data.active_sheet || "");
+      if (data.unmapped_headers.length > 0) {
+        // Alias rules ran during upload — ask the AI model to fill what is left
+        // (it validates against the real headers and falls back to rules).
+        setBusy("aimap");
+        try {
+          const mapped = await apiPost<AiMapResult>("/api/imports/ai-map", {
+            file: data.stored_path,
+            sheet_name: data.active_sheet || null,
+            mapping: { ...data.auto_mapping },
+          });
+          setMapping(mapped.mapping);
+          setAiMap(mapped);
+        } catch {
+          // Keep the rule-based mapping — never block the import on the AI pass.
+        }
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -143,7 +161,13 @@ export default function ImportPage() {
       : "This does NOT write to REsimpli — the leads stay local only.";
     if (
       !window.confirm(
-        `Import ${preview.counts.new || 0} new seller lead(s)?\n\n${crmLine}\n\n${skipDuplicates ? "Duplicate candidates will be skipped." : "Duplicate candidates will be imported too."}`,
+        `Import ${preview.counts.new || 0} new seller lead(s)?\n\n${crmLine}\n\n${
+          !skipDuplicates
+            ? "Duplicate candidates will be imported too."
+            : updateMatched
+              ? "Duplicate candidates keep their existing data — empty fields (name, phone, prices…) get filled in from this file."
+              : "Duplicate candidates will be skipped."
+        }`,
       )
     ) {
       return;
@@ -154,6 +178,7 @@ export default function ImportPage() {
     try {
       const data = await apiPost<CommitResult>(`/api/imports/${preview.batch.id}/commit`, {
         skip_duplicates: skipDuplicates,
+        update_matched: updateMatched,
         external: { enabled: extEnabled },
       });
       setReport(data);
@@ -210,6 +235,9 @@ export default function ImportPage() {
           <div className="font-semibold">Import report</div>
           <ul className="mt-1 list-disc pl-5">
             <li>{report.imported} lead(s) created in the local database</li>
+            {report.updated > 0 && (
+              <li>{report.updated} existing lead(s) updated — empty fields filled from this file</li>
+            )}
             <li>{report.skipped} row(s) skipped (duplicates / rejected)</li>
             {report.failed > 0 && <li className="text-red-700">{report.failed} row(s) failed — see errors below</li>}
             {report.external.enabled && (
@@ -218,6 +246,11 @@ export default function ImportPage() {
                 {report.external.skipped_no_phone > 0 && (
                   <span className="text-ink-600">
                     , {report.external.skipped_no_phone} kept local only (no phone — REsimpli requires one)
+                  </span>
+                )}
+                {report.external.skipped_existing_crm > 0 && (
+                  <span className="text-ink-600">
+                    , {report.external.skipped_existing_crm} person(s) already in REsimpli (not duplicated)
                   </span>
                 )}
                 {report.external.failed > 0 && (
@@ -408,8 +441,9 @@ export default function ImportPage() {
                     </Badge>
                   </div>
                   <div className="mt-0.5 text-xs text-ink-500">
-                    {b.imported_count} imported · {b.duplicate_count} duplicates · {b.rejected_count} rejected ·{" "}
-                    {b.failed_count} failed
+                    {b.imported_count} imported
+                    {b.updated_count ? ` · ${b.updated_count} updated` : ""} · {b.duplicate_count} duplicates ·{" "}
+                    {b.rejected_count} rejected · {b.failed_count} failed
                   </div>
                   <div className="mt-0.5 text-[11px] text-ink-400">{fmtDateTime(b.created_at)}</div>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -560,6 +594,15 @@ export default function ImportPage() {
                 onChange={(e) => setSkipDuplicates(e.target.checked)}
               />
               Skip all duplicate candidates (recommended)
+            </label>
+            <label className="flex items-center gap-1.5 text-sm" title="Never overwrites existing values">
+              <input
+                type="checkbox"
+                checked={updateMatched}
+                disabled={!skipDuplicates}
+                onChange={(e) => setUpdateMatched(e.target.checked)}
+              />
+              Fill missing fields on matching leads (recommended)
             </label>
             <a className="btn" href={`/api/imports/${preview.batch.id}/rejected.csv`}>
               Download rejected rows

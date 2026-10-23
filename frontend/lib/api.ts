@@ -405,6 +405,7 @@ export interface ExternalConfig {
 
 export interface CommitResult {
   imported: number;
+  updated: number;
   failed: number;
   skipped: number;
   errors: string[];
@@ -414,6 +415,7 @@ export interface CommitResult {
     pushed: number;
     failed: number;
     skipped_no_phone: number;
+    skipped_existing_crm: number;
     errors: string[];
     ids: Record<string, string> | null;
   };
@@ -429,6 +431,7 @@ export interface ImportBatch {
   warning_count: number;
   rejected_count: number;
   imported_count: number;
+  updated_count?: number;
   failed_count: number;
   created_at?: string;
   finished_at?: string;

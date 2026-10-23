@@ -36,6 +36,7 @@ class TemplatePayload(BaseModel):
 class CommitPayload(BaseModel):
     record_ids: Optional[list[str]] = None
     skip_duplicates: bool = True
+    update_matched: bool = False
     external: Optional[dict[str, Any]] = None
 
 
@@ -140,6 +141,7 @@ def commit(batch_id: str, payload: CommitPayload, db: Session = Depends(get_db))
             batch_id,
             record_ids=payload.record_ids,
             skip_duplicates=payload.skip_duplicates,
+            update_matched=payload.update_matched,
             external=payload.external,
         )
     except (ResimpliAuthError, ResimpliError) as exc:

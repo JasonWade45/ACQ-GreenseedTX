@@ -52,7 +52,7 @@ Migrations run automatically on startup (Alembic → `backend/alembic`).
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m ruff check .     # lint
-.\.venv\Scripts\python.exe -m pytest           # 71 tests
+.\.venv\Scripts\python.exe -m pytest           # 76 tests
 cd ..\frontend
 npm run lint                                   # eslint (next/core-web-vitals)
 npm run typecheck                              # tsc --noEmit
@@ -110,14 +110,23 @@ actually loaded (never the key itself).
    property address — address-only rows import as `never`-contacted leads (contact
    info is never invented). Compound cells understood automatically: `4 & 2`,
    `3 beds 3 baths 2,007 sqft`, `$133,916 Redfin`, `200k`; **ranges**
-   (`200k to 250k`) are left blank with a warning instead of guessed.
+    (`200k to 250k`) are left blank with a warning instead of guessed.
+    The commit's **"fill missing fields on matching leads"** checkbox (on by default)
+    completes existing leads instead of skipping their rows: only *empty* fields are
+    written (names/phones from a richer re-upload land on the lead that owns the row's
+    property — never overwriting what is already known), each fill is counted as
+    `updated` in the report, and a duplicate row whose property lead is still
+    nameless completes that lead too.
 3. **External CRM push (opt-in per batch)** — the commit panel can also create every
-   new lead in **REsimpli itself** via the official `/lead/add` (live account IDs are
-   pre-filled and editable under *External CRM*; rows without a 10-digit phone are
-   skipped there but kept locally). Local stays authoritative: a failed push never
-   rolls back your imported rows and each error is listed in the **import report**
-   (imported / duplicates / rejected / pushed / failed). No message of any kind is
-   ever sent — creation only.
+    new lead in **REsimpli itself** via the official `/lead/add` (live account IDs are
+    pre-filled and editable under *External CRM*; rows without a 10-digit phone are
+    skipped there but kept locally). Local stays authoritative: a failed push never
+    rolls back your imported rows and each error is listed in the **import report**
+    (imported / updated / duplicates / rejected / pushed / failed). A seller is pushed
+    **at most once** — a person already present in REsimpli (or created by an earlier
+    row of the same batch, e.g. their second property) is counted under
+    `already in REsimpli (not duplicated)`. No message of any kind is ever
+    sent — creation only.
 
 ### 3.1 AI: Groq (fast, recommended) → Ollama (local) → rules
 
@@ -224,7 +233,7 @@ acquisitions-assistant/
 │   │   └── scheduler.py   # optional periodic sync (APScheduler)
 │   ├── alembic/           # migrations
 │   ├── sample_data/       # sample CSV + XLSX to try the importer
-│   ├── tests/             # 71 pytest tests (isolated temp DB, mock client, live-shape pins)
+│   ├── tests/             # 76 pytest tests (isolated temp DB, mock client, live-shape pins)
 │   ├── pyproject.toml     # ruff + pytest config
 │   └── .env               # local secrets (git-ignored)
 ├── frontend/

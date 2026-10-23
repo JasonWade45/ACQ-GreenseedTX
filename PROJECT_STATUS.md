@@ -25,13 +25,14 @@ sellers — automatically or otherwise.**
 | M10 | Property-fact extraction, pre-call plans, comps brief | ✅ done | `property_extract.py` lifts `propertyInfo`/`valuation`/`taxInfo`/`mortgageInfo` out of stored payloads (672/677 properties now have beds/baths/sqft/value/county/lat-lot); `call_plans` table + `GET/POST/PATCH /ai/call-plan/{id}` (Groq opener + tickable questions/points, persisted checkboxes, DNC/no-phone/thin refusals); `GET /leads/{id}/comps` = subject facts + ±20% criteria + Zillow/Redfin/Realtor links, comps array always empty (no MLS feed → never fabricated) |
 | M11 | AI column mapping, missing-info report, name dedupe, external REsimpli push | ✅ done | `ai_service.ai_map_columns` (Groq fills only unmapped targets against real headers, rules win first) + `POST /imports/ai-map`; missing-info stats (`phone/email/address/name`) in the preview response and as amber tiles; name-level dedupe (`_norm_name` punctuation-free + SQL first-name / Python last-name fallback) marking `likely_duplicate`; commit optionally pushes each new lead to `/lead/add` (live account IDs in `KNOWN_LEAD_IDS`, overridable via `GET/POST /imports/external-config`) with keep-local-on-failure, phone guard and per-row error report; structured import report in the UI |
 | M12 | Relaxed import rules, compound property parsing, CRM push report, git/GitHub delivery | ✅ done | any row with phone / email / name / address imports (address-only → warning + `never`, nothing invented); `extract_property_details` reads `4 & 2`, `3 & 1 and half`, `3 beds 3 baths 2,007 sqft`; `normalize_money` reads `$133,916 Redfin` / `200k` and **leaves ranges blank** instead of guessing; no-phone pushes reported as `skipped_no_phone` (not `failed`); **Upload list** button on `/leads`; first commit `10aff38` pushed to github.com/JasonWade45/ACQ-GreenseedTX |
+| M13 | Camp Leads import completion: header fix, fill-only update path, smart targets, no-dup push | ✅ done | the owner's real 175-row `Camp Leads - Form responses 1.csv` now imports with every column (trailing-space headers `Seller's name ` / `Phone number ` were silently unmapped → 167 nameless/phoneless leads); `update_matched` commit fills only empty fields on the lead that owns the row's **property** (address target wins over the contact match); within-file phone duplicates on a *different* property flow into the DB dedupe instead of being hard-skipped; commit-time `person_already_in_crm()` guard + preview `person_in_crm` flag → a seller is pushed to REsimpli at most once across properties. **Real run:** 175 rows → first pass `imported 1 / updated 154 / pushed 30 / failed 0 / skipped_existing_crm 124`, second pass `updated 12 / pushed 0` → nameless import leads **167 → 2** (the 2 leftover rows have no name/phone in the source file: addresses `New Month`, `Enzo`); `ImportBatch.updated_count` column + migration `8d4f1a6c2b93`; frontend update checkbox / `updated` badge / report lines |
 
 ## 2. Verification evidence (run for this delivery)
 
 | Check | Command | Result |
 |-------|---------|--------|
 | Backend lint | `backend> .venv\Scripts\python -m ruff check .` | **All checks passed** (0 errors) |
-| Backend tests | `backend> .venv\Scripts\python -m pytest` | **71 passed** |
+| Backend tests | `backend> .venv\Scripts\python -m pytest` | **76 passed** |
 | Frontend lint | `frontend> npm run lint` (next/core-web-vitals) | **No ESLint warnings or errors** |
 | Frontend types | `frontend> npm run typecheck` | **OK** (`tsc --noEmit`) |
 | Frontend build | `frontend> npm run build` | **Compiled successfully**, 12/12 static pages |
@@ -55,6 +56,7 @@ sellers — automatically or otherwise.**
 | AI column map (live) | `POST /api/imports/ai-map` (weird-header CSV: `Owner`, `Prop Addr`, `Call This Number`, `Mailbox`, `Why They Selling`, `What Is It Worth`) | `engine:"groq"` — mapped phone/email/address/motivation/estimated_value correctly, rules mapping (`Owner` → manager) preserved, 0 unmapped headers |
 | `/lead/add` auth probe (live) | `ResimpliClient.add_lead({})` with the real key | **HTTP 400** (validation rejection, not 401) — token accepted, endpoint reachable, no lead created |
 | External lead push (live) | upload → preview → commit with `external.enabled` (1 clearly-labelled test row) | local `imported: 1`, `external: {pushed: 1, failed: 0}`; created lead `6ad959c494b0f7730e7b11ae` verified back via `/lead/details`: `createdVia:"OPENAPI"`, pipeline `Active Leads`, status `New Leads`, `contactData` = `ZZ Test Lead` / `+12145550142` / email ✓ (kept as a visible test record — see next steps) |
+| Camp file, real run (live) | upload `uploads/65a454c570fa6d95_Camp Leads - Form responses 1.csv` → auto-map (0 unmapped essential headers) → preview → commit `update_matched + external.enabled` → repeat | pass 1: `imported 1 / updated 154 / skipped 20 / failed 0`, `external: pushed 30, skipped_no_phone 1, skipped_existing_crm 124, errors []` (30 real `/lead/add` calls, every id read back); pass 2: `updated 12 / pushed 0`; nameless import leads **167 → 2** (source rows without any name/phone); both passes re-verified from the DB (targets = the address twins, CRM leads untouched) |
 
 Test suites: `tests/test_leads.py`, `tests/test_sync_import.py`,
 `tests/test_import_ai_ext.py`, `tests/test_work_ai.py`,
@@ -90,6 +92,9 @@ Ollama → deterministic rules, Groq key blanked).
 | Commit rolled the whole batch back when a REsimpli push failed, silently losing the already-clean local rows | `import_service.py:commit_import` | pushes are per-row with no transaction rollback: local lead is always kept, failure recorded under `external.errors`, auth failure sets a sticky `auth_dead` flag that stops further pushes in the batch |
 | A clean property list (175 rows, address + facts only, no contact data) was rejected 175/175 by the contact requirement — unusable for owners who import raw list pulls | `import_service.py:normalize_row` | reject only rows with **nothing** (no phone/email/name/address); address-only rows import with a warning and `contact_status: never` |
 | Compound cells (`4 & 2`, `3 beds 3 baths 2,007 sqft`, `$133,916 Redfin`) all failed numeric parsing, and ranges like `200k to 250k` would have needed a guess | `normalization.py` | `extract_property_details()` fills beds/baths/sqft from compound text (multi-unit ambiguity left blank with a warning); `normalize_money()` takes a single embedded number and refuses multi-number strings — never invents a figure |
+| CSV headers with a **trailing space** (`Seller's name `, `Phone number `) matched nothing: the mapper strips headers but DictReader kept the raw key → the real Camp file mapped address/MV/Zillow but silently lost every seller name and phone (167 leads imported nameless and never pushable) | `import_service.py:_read_rows` | each DictReader row key is stripped before matching; aliases added (`sellersname`, `killernameputyournamehere`, `mv`, `bedsbath…`) |
+| Duplicate rows in a preview carried no target, so the commit skipped them instead of filling the matched lead — and the same seller's *second property* was hard-skipped as a within-file duplicate, leaving its property lead nameless forever | `import_service.py:preview_import` / `FileSeenIndex` | preview stores `matched_lead_id` (address match preferred over contact match) + `person_in_crm`; a within-file phone/email duplicate **on a different address** now falls through to the DB dedupe (`check()` reports which key matched and `by_row` compares addresses) |
+| A phone repeated on a second property in the same commit could be pushed to REsimpli twice: the preview-time `person_in_crm` flag cannot see a lead pushed moments earlier in the same batch | `import_service.py:commit_import` | `person_already_in_crm()` re-checks the DB immediately before every push (phone → any lead with an `external_id`, excluding the row's own target); counted as `skipped_existing_crm` |
 
 ## 4. Known limitations / deliberately unfinished
 
@@ -119,8 +124,15 @@ Ollama → deterministic rules, Groq key blanked).
    bounded per-lead detail budget (`SYNC_DETAIL_BUDGET`, default 250).
 5. **No authentication** — the server binds `127.0.0.1`; add auth before any network
    exposure.
-6. **`.gitignore` written but the project is not a git repository** — nothing has been
-   committed (no commit was requested).
+6. **Two address-key formats coexist**: import writes pipe keys
+   (`2203 cripple creek drive|arlington|tx|76014`) while the REsimpli sync writes
+   space keys (`3736 hyde park drive mesquite tx 75150`), so a CRM lead and its
+   import twin for the *same* address never match each other on address (phone
+   matching carries the dedupe; the import twin's pipe key always resolves to
+   the twin). Unifying `sync_service` onto `address_key()` would let address
+   matching collapse those pairs — deliberately deferred. Likewise 2 Camp rows
+   (addresses `New Month`, `Enzo`) carry no name/phone in the source file and
+   stay as `(no name)` leads — nothing was invented for them.
 7. **Groq free tier = 8000 tokens/min** → sustained throughput ≈ 3–4 analyses/min;
    batch runs self-pace (`GROQ_BATCH_SPACING_SECONDS=16`) and a full 704-lead
    upgrade happens across repeated 200-lead background runs. Single-lead analysis
@@ -171,5 +183,5 @@ Ollama → deterministic rules, Groq key blanked).
 | Daily follow-up queue (overdue first, callbacks top, outcome-driven completion) | ✅ |
 | AI analysis + message drafting | ✅ **Groq live-verified** (analysis, drafts, background batch); rules fallback; Ollama verified but disabled on this CPU box |
 | **No automatic seller communication of any kind** | ✅ enforced in code, tests and UI copy |
-| Lint + typecheck + tests green | ✅ ruff / eslint / tsc / 71 pytest |
+| Lint + typecheck + tests green | ✅ ruff / eslint / tsc / 76 pytest |
 | `PROJECT_STATUS.md` + `README.md` maintained | ✅ this file + `README.md` |

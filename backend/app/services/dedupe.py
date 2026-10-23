@@ -250,19 +250,25 @@ class FileSeenIndex:
     phone: dict[str, int] = field(default_factory=dict)
     email: dict[str, int] = field(default_factory=dict)
     address: dict[str, int] = field(default_factory=dict)
+    by_row: dict[int, Candidate] = field(default_factory=dict)
 
-    def check(self, candidate: Candidate, row_number: int) -> tuple[bool, str]:
+    def check(self, candidate: Candidate, row_number: int) -> tuple[bool, str, str, int]:
         if candidate.external_id and candidate.external_id in self.external:
-            return True, f"Duplicate of row {self.external[candidate.external_id]} (same REsimpli id)"
+            first = self.external[candidate.external_id]
+            return True, f"Duplicate of row {first} (same REsimpli id)", "external", first
         if candidate.phone_normalized and candidate.phone_normalized in self.phone:
-            return True, f"Duplicate of row {self.phone[candidate.phone_normalized]} (same phone)"
+            first = self.phone[candidate.phone_normalized]
+            return True, f"Duplicate of row {first} (same phone)", "phone", first
         if candidate.email_normalized and candidate.email_normalized in self.email:
-            return True, f"Duplicate of row {self.email[candidate.email_normalized]} (same email)"
+            first = self.email[candidate.email_normalized]
+            return True, f"Duplicate of row {first} (same email)", "email", first
         if candidate.address_key and candidate.address_key in self.address:
-            return True, f"Duplicate of row {self.address[candidate.address_key]} (same property address)"
-        return False, ""
+            first = self.address[candidate.address_key]
+            return True, f"Duplicate of row {first} (same property address)", "address", first
+        return False, "", "", -1
 
     def add(self, candidate: Candidate, row_number: int) -> None:
+        self.by_row.setdefault(row_number, candidate)
         if candidate.external_id:
             self.external.setdefault(candidate.external_id, row_number)
         if candidate.phone_normalized:

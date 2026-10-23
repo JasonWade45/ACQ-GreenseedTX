@@ -57,7 +57,7 @@ FIELD_SPECS: list[dict[str, Any]] = [
     {"key": "external_ref", "label": "Existing REsimpli lead ID", "aliases": ["resimpliid", "resimpli", "externalid", "leadid", "lead", "crmid", "resimplileadid"], "type": "string"},
     {"key": "first_name", "label": "First name", "aliases": ["firstname", "first", "fname", "sellerfirst", "sellerfirstname", "contactfirst"], "type": "string"},
     {"key": "last_name", "label": "Last name", "aliases": ["lastname", "last", "lname", "sellerlast", "sellerlastname", "contactlast"], "type": "string"},
-    {"key": "full_name", "label": "Full name", "aliases": ["name", "sellername", "fullname", "contactname", "seller", "leadname", "ownername", "sellerfullname"], "type": "string"},
+    {"key": "full_name", "label": "Full name", "aliases": ["name", "sellername", "sellersname", "fullname", "contactname", "seller", "leadname", "ownername", "sellerfullname"], "type": "string"},
     {"key": "phone", "label": "Phone number", "aliases": ["phone", "phonenumber", "mobile", "cell", "cellphone", "telephone", "mobilephone", "primaryphone", "sellerphone", "contactphone", "phone1"], "type": "phone"},
     {"key": "phone2", "label": "Alternate phone", "aliases": ["phone2", "phonenumber2", "altphone", "alternatephone", "secondaryphone", "homephone"], "type": "phone"},
     {"key": "email", "label": "Email address", "aliases": ["email", "emailaddress", "mail", "primaryemail", "selleremail", "contactemail", "e-mail"], "type": "email"},
@@ -72,12 +72,12 @@ FIELD_SPECS: list[dict[str, Any]] = [
     {"key": "last_contact_date", "label": "Last contact date", "aliases": ["lastcontact", "lastcontactdate", "lastcontacted", "lastactivitydate", "lasttouch", "contactdate"], "type": "date"},
     {"key": "last_contact_outcome", "label": "Last contact outcome", "aliases": ["lastoutcome", "outcome", "lastresult", "callresult", "lastcontactoutcome", "disposition"], "type": "string"},
     {"key": "lead_status", "label": "Lead status", "aliases": ["status", "leadstatus", "stage", "pipelinestatus", "currentstatus"], "type": "string"},
-    {"key": "assigned_manager", "label": "Assigned acquisitions manager", "aliases": ["assignedto", "assignee", "manager", "agent", "owner", "assignedmanager", "acquisitionsmanager", "rep"], "type": "string"},
+    {"key": "assigned_manager", "label": "Assigned acquisitions manager", "aliases": ["assignedto", "assignee", "manager", "agent", "owner", "assignedmanager", "acquisitionsmanager", "rep", "killernameputyournamehere"], "type": "string"},
     {"key": "motivation", "label": "Seller motivation", "aliases": ["motivation", "reasonforselling", "whyselling", "seller motivation"], "type": "string"},
     {"key": "asking_price", "label": "Asking price", "aliases": ["askingprice", "price", "listprice", "wholesaleprice", "sellerprice", "asking"], "type": "number"},
-    {"key": "estimated_value", "label": "Estimated property value", "aliases": ["estimatedvalue", "arv", "marketvalue", "value", "estvalue"], "type": "number"},
+    {"key": "estimated_value", "label": "Estimated property value", "aliases": ["estimatedvalue", "arv", "marketvalue", "value", "estvalue", "mv"], "type": "number"},
     {"key": "repair_estimate", "label": "Repair estimate", "aliases": ["repaircost", "repairs", "repair estimate", "repair", "rehabestimate", "rehab"], "type": "number"},
-    {"key": "bedrooms", "label": "Bedrooms", "aliases": ["beds", "bedrooms", "bed", "br"], "type": "number"},
+    {"key": "bedrooms", "label": "Bedrooms", "aliases": ["beds", "bedrooms", "bed", "br", "bedsbathandsqft", "bedsbathssqft", "bedsbathsandsqft"], "type": "number"},
     {"key": "bathrooms", "label": "Bathrooms", "aliases": ["baths", "bathrooms", "bath", "ba"], "type": "number"},
     {"key": "square_footage", "label": "Square footage", "aliases": ["sqft", "squarefeet", "size", "squarefootage"], "type": "number"},
     {"key": "appointment_date", "label": "Appointment date", "aliases": ["appointment", "appointmentdate", "showingdate", "meetingdate"], "type": "datetime"},
@@ -93,6 +93,16 @@ def _canon(header: str) -> str:
 
 CANON_TARGETS = {spec["key"]: {_canon(a) for a in spec["aliases"]} | {_canon(spec["key"])} for spec in FIELD_SPECS}
 KEY_BY_CANON = {k: spec["key"] for spec in FIELD_SPECS for k in CANON_TARGETS[spec["key"]]}
+
+# Preview statuses that point at an already-known lead. With `update_matched`
+# the commit fills in the blanks of that lead instead of skipping the row.
+DUP_STATUSES = {
+    "exact_duplicate",
+    "likely_duplicate",
+    "existing_resimpli",
+    "same_seller_diff_property",
+    "same_property_diff_seller",
+}
 
 # --------------------------------------------------------------------------- #
 # External creation (/lead/add) configuration
@@ -211,7 +221,19 @@ def _read_rows(path: Path, sheet_name: Optional[str]) -> tuple[list[str], list[d
                 dialect = csv.excel
             reader = csv.DictReader(fh, dialect=dialect)
             headers = [h.strip() for h in (reader.fieldnames or [])]
-            records = [dict(row) for row in reader if any(not is_empty(v) for v in row.values())]
+            records = []
+            for row in reader:
+                if not any(not is_empty(v) for v in row.values()):
+                    continue
+                # DictReader keys rows by the RAW header text — strip it so the
+                # values line up with the stripped `headers` the mapper uses
+                # (a column called "Phone number " must still be found).
+                clean: dict[str, Any] = {}
+                for key, value in row.items():
+                    if key is None:
+                        continue  # cells past the last header
+                    clean[str(key).strip()] = value
+                records.append(clean)
         return headers, records, ["CSV"]
     raise ValueError(f"Unsupported file type '{suffix}'. Upload .csv or .xlsx")
 
@@ -617,16 +639,24 @@ def preview_import(
             missing["address"] += 1
         if not (row.full_name or (row.first_name and row.last_name)):
             missing["name"] += 1
+        match = None
         if row.errors:
             status = "rejected"
             reason = "; ".join(row.errors)
         else:
-            dup, dup_reason = seen.check(Candidate(
+            dup, dup_reason, dup_key, dup_row = seen.check(Candidate(
                 external_id=row.external_ref,
                 phone_normalized=row.phone_normalized,
                 email_normalized=row.email_normalized,
                 address_key=row.address_key,
             ), index)
+            if dup and dup_key in ("phone", "email"):
+                earlier = seen.by_row.get(dup_row)
+                if not (earlier and earlier.address_key and earlier.address_key == row.address_key):
+                    # Same seller on a DIFFERENT property is not a verbatim
+                    # duplicate — fall through to the DB dedupe below so an
+                    # update import can complete the lead owning THIS property.
+                    dup = False
             if dup:
                 status = "exact_duplicate"
                 reason = f"Duplicate within file: {dup_reason}"
@@ -656,6 +686,33 @@ def preview_import(
                     # treated as an existing CRM record for reporting purposes.
                     reason = "REsimpli id supplied but not found locally"
                     row.warnings.append(reason)
+        payload = row.to_payload()
+        if match is not None and status in DUP_STATUSES:
+            # Update target: prefer the lead matched by PROPERTY — often a
+            # nameless import twin that still needs the seller info — over the
+            # contact match, which usually already carries a full CRM identity
+            # (the same seller recorded on a synced CRM lead).
+            target_ids: list[str] = []
+            if row.address_key:
+                addr_match = find_matches(db, Candidate(address_key=row.address_key))
+                if addr_match.matched_lead_ids:
+                    target_ids = list(addr_match.matched_lead_ids)
+            if not target_ids and match.matched_lead_ids:
+                target_ids = [match.matched_lead_ids[0]]
+            if target_ids:
+                payload["matched_lead_id"] = target_ids[0]
+                if match.matched_lead_ids and target_ids[0] != match.matched_lead_ids[0]:
+                    reason = (reason or "") + " — updating the matching property lead"
+            # If the row's person already lives in REsimpli, pushing this row
+            # again would duplicate them there — the commit must not.
+            if match.matched_lead_ids:
+                in_crm = (
+                    db.query(Lead.id)
+                    .filter(Lead.id.in_(match.matched_lead_ids), Lead.external_id.isnot(None))
+                    .first()
+                )
+                if in_crm:
+                    payload["person_in_crm"] = True
         counts[status] = counts.get(status, 0) + 1
         warning_count += len(row.warnings)
         db.add(
@@ -664,7 +721,7 @@ def preview_import(
                 row_number=index,
                 status=status,
                 reason=reason,
-                payload=row.to_payload(),
+                payload=payload,
                 warnings=row.warnings,
                 external_ref=row.external_ref,
             )
@@ -708,10 +765,16 @@ def commit_import(
     batch_id: str,
     record_ids: Optional[list[str]] = None,
     skip_duplicates: bool = True,
+    update_matched: bool = False,
     external: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Write the selected preview records into the local database.
 
+    `update_matched` fills the EMPTY fields of the local lead a duplicate row
+    matched (never overwrites) and counts it as `updated` — re-uploading a
+    richer file (seller name, phone, prices) completes leads that were imported
+    earlier without contact info. `skip_duplicates` alone keeps the old
+    skip-as-duplicate behaviour for rows nothing can be learned from.
     `external` (optional) enables creation inside REsimpli through the
     documented `/lead/add` endpoint. It requires the account-specific
     pipeline/status/market/campaign ObjectIds, which only the account owner can
@@ -748,63 +811,139 @@ def commit_import(
             )
         client = get_client()
 
-    imported = failed = skipped = 0
-    external_pushed = external_failed = external_no_phone = 0
+    imported = failed = skipped = updated = 0
+    external_pushed = external_failed = external_no_phone = external_existing_crm = 0
     auth_dead = False
     errors: list[str] = []
     external_errors: list[str] = []
+
+    def person_already_in_crm(lead: Lead, payload: dict[str, Any]) -> bool:
+        """True when this seller (phone) is already represented in REsimpli.
+
+        The preview-time `person_in_crm` flag catches CRM-synced leads, but a
+        row committed earlier in THIS run may have pushed the same person too —
+        re-check the DB right before each push so two properties of one seller
+        never create two REsimpli leads.
+        """
+        if payload.get("person_in_crm"):
+            return True
+        digits = payload.get("phone_normalized")
+        if not digits:
+            return False
+        return (
+            db.query(Lead.id)
+            .filter(
+                Lead.phone_normalized == digits,
+                Lead.external_id.isnot(None),
+                Lead.id != lead.id,
+            )
+            .first()
+            is not None
+        )
+
+    def push_external(
+        lead: Lead,
+        payload: dict[str, Any],
+        record: ImportRecord,
+        local_verb: str,
+        success_verb: str,
+    ) -> None:
+        """Create the lead in REsimpli via /lead/add. Failures keep it local."""
+        nonlocal external_pushed, external_failed, external_no_phone, auth_dead
+        if auth_dead:
+            external_failed += 1
+            external_errors.append(
+                f"Row {record.row_number}: skipped after an earlier authentication failure"
+            )
+            record.reason = (record.reason or "") + f" — {local_verb}; REsimpli push skipped (auth failure)"
+        elif len("".join(ch for ch in (payload.get("phone_normalized") or "") if ch.isdigit())) < 10:
+            # /lead/add requires a phone number — keep the lead local instead.
+            external_no_phone += 1
+            record.reason = (record.reason or "") + f" — {local_verb}; REsimpli push skipped (no phone)"
+        else:
+            try:
+                body = _build_external_lead_body(payload, external_ids)
+                response = client.add_lead(body)
+                data = response.get("data") if isinstance(response, dict) else None
+                external_id = None
+                if isinstance(data, dict):
+                    external_id = data.get("_id") or data.get("id") or data.get("leadId")
+                if external_id:
+                    lead.external_id = str(external_id)
+                    lead.last_synced_at = datetime.utcnow()
+                record.reason = (record.reason or "") + f" — {success_verb} ({external_id})"
+                external_pushed += 1
+            except ResimpliAuthError as exc:
+                # Keep the local lead: the report shows the push failure.
+                auth_dead = True
+                external_failed += 1
+                external_errors.append(
+                    f"Row {record.row_number}: {exc} — further REsimpli pushes stopped"
+                )
+                record.error = str(exc)
+                record.reason = (record.reason or "") + f" — {local_verb}; REsimpli push failed (auth)"
+            except ResimpliError as exc:
+                # Do not blindly retry writes: surface for manual review.
+                external_failed += 1
+                external_errors.append(f"Row {record.row_number}: {exc} (verify in REsimpli before retrying)")
+                record.error = str(exc)
+                record.reason = (record.reason or "") + f" — {local_verb}; REsimpli push failed"
+
     for record in records:
         if record.status == "rejected":
             skipped += 1
             continue
-        if skip_duplicates and record.status in {"exact_duplicate", "likely_duplicate", "existing_resimpli", "same_seller_diff_property", "same_property_diff_seller"}:
-            record.status = "skipped"
-            record.reason = (record.reason or "") + " — skipped as duplicate"
-            skipped += 1
-            continue
         payload = record.payload or {}
+        if record.status in DUP_STATUSES:
+            matched_id = payload.get("matched_lead_id")
+            if update_matched and matched_id:
+                # Fill in the matched lead's empty fields (never overwrite)…
+                matched = db.get(Lead, str(matched_id))
+                if matched is None:
+                    record.status = "skipped"
+                    record.reason = (record.reason or "") + " — matched lead no longer exists"
+                    skipped += 1
+                    continue
+                before = _lead_snapshot(db, matched)
+                try:
+                    lead = _create_lead_from_payload(db, payload, batch, lead=matched)
+                    record.lead_id = lead.id
+                    if _lead_snapshot(db, lead) == before:
+                        record.status = "skipped"
+                        record.reason = (record.reason or "") + " — duplicate already up to date"
+                        skipped += 1
+                        continue
+                    record.status = "updated"
+                    updated += 1
+                    record.reason = (record.reason or "") + " — updated existing lead (filled in missing fields)"
+                    # …and push it to REsimpli when it now has a phone and no CRM id yet.
+                    if external_enabled and client is not None and not lead.external_id:
+                        if person_already_in_crm(lead, payload):
+                            external_existing_crm += 1
+                            record.reason = (record.reason or "") + " — person already exists in REsimpli (push skipped)"
+                        else:
+                            push_external(lead, payload, record, "lead updated", "updated in REsimpli")
+                except Exception as exc:  # noqa: BLE001
+                    db.rollback()
+                    record.status = "failed"
+                    record.error = f"{exc.__class__.__name__}: {exc}"
+                    failed += 1
+                    errors.append(f"Row {record.row_number}: {exc}")
+                continue
+            if skip_duplicates:
+                record.status = "skipped"
+                record.reason = (record.reason or "") + " — skipped as duplicate"
+                skipped += 1
+                continue
         try:
             lead = _create_lead_from_payload(db, payload, batch)
             record.lead_id = lead.id
             if external_enabled and client is not None:
-                if auth_dead:
-                    external_failed += 1
-                    external_errors.append(
-                        f"Row {record.row_number}: skipped after an earlier authentication failure"
-                    )
-                    record.reason = (record.reason or "") + " — created locally; REsimpli push skipped (auth failure)"
-                elif len("".join(ch for ch in (payload.get("phone_normalized") or "") if ch.isdigit())) < 10:
-                    # /lead/add requires a phone number — keep the lead local instead.
-                    external_no_phone += 1
-                    record.reason = (record.reason or "") + " — created locally; REsimpli push skipped (no phone)"
+                if person_already_in_crm(lead, payload) or lead.external_id:
+                    external_existing_crm += 1
+                    record.reason = (record.reason or "") + " — person already exists in REsimpli (push skipped)"
                 else:
-                    try:
-                        body = _build_external_lead_body(payload, external_ids)
-                        response = client.add_lead(body)
-                        data = response.get("data") if isinstance(response, dict) else None
-                        external_id = None
-                        if isinstance(data, dict):
-                            external_id = data.get("_id") or data.get("id") or data.get("leadId")
-                        if external_id:
-                            lead.external_id = str(external_id)
-                            lead.last_synced_at = datetime.utcnow()
-                        record.reason = (record.reason or "") + f" — created in REsimpli ({external_id})"
-                        external_pushed += 1
-                    except ResimpliAuthError as exc:
-                        # Keep the local lead: the report shows the push failure.
-                        auth_dead = True
-                        external_failed += 1
-                        external_errors.append(
-                            f"Row {record.row_number}: {exc} — further REsimpli pushes stopped"
-                        )
-                        record.error = str(exc)
-                        record.reason = (record.reason or "") + " — created locally; REsimpli push failed (auth)"
-                    except ResimpliError as exc:
-                        # Do not blindly retry writes: surface for manual review.
-                        external_failed += 1
-                        external_errors.append(f"Row {record.row_number}: {exc} (verify in REsimpli before retrying)")
-                        record.error = str(exc)
-                        record.reason = (record.reason or "") + " — created locally; REsimpli push failed"
+                    push_external(lead, payload, record, "created locally", "created in REsimpli")
             record.status = "imported"
             imported += 1
         except Exception as exc:  # noqa: BLE001
@@ -815,6 +954,7 @@ def commit_import(
             errors.append(f"Row {record.row_number}: {exc}")
 
     batch.imported_count = imported
+    batch.updated_count = updated
     batch.failed_count = failed
     batch.skipped_count = skipped
     batch.status = "committed" if failed == 0 else "partially_committed"
@@ -827,17 +967,20 @@ def commit_import(
         batch.id,
         {
             "imported": imported,
+            "updated": updated,
             "failed": failed,
             "skipped": skipped,
             "external": external_enabled,
             "external_pushed": external_pushed,
             "external_failed": external_failed,
             "external_no_phone": external_no_phone,
+            "external_existing_crm": external_existing_crm,
         },
     )
     return {
         "batch": _serialize_batch(db, batch),
         "imported": imported,
+        "updated": updated,
         "failed": failed,
         "skipped": skipped,
         "errors": errors[:25],
@@ -847,59 +990,107 @@ def commit_import(
             "pushed": external_pushed,
             "failed": external_failed,
             "skipped_no_phone": external_no_phone,
+            "skipped_existing_crm": external_existing_crm,
             "errors": external_errors[:25],
             "ids": external_ids or None,
         },
     }
 
 
-def _create_lead_from_payload(db: Session, payload: dict[str, Any], batch: ImportBatch) -> Lead:
+def _lead_snapshot(db: Session, lead: Lead) -> tuple:
+    """Scalar identity/contact/property values used to detect a real change.
+
+    The property links are re-queried (not read from the cached relationship)
+    so a property added during the update shows up as a change.
+    """
+    from app.models import LeadProperty
+
+    links = db.query(LeadProperty).filter(LeadProperty.lead_id == lead.id).all()
+    primary_link = next((lp for lp in links if lp.is_primary), None) or (links[0] if links else None)
+    primary = primary_link.property if primary_link else None
+    prop_state = None
+    if primary is not None:
+        prop_state = (
+            primary.asking_price,
+            primary.estimated_value,
+            primary.repair_estimate,
+            primary.bedrooms,
+            primary.bathrooms,
+            primary.square_footage,
+        )
+    return (
+        lead.first_name,
+        lead.last_name,
+        lead.full_name,
+        lead.primary_phone,
+        lead.phone_normalized,
+        lead.email,
+        lead.email_normalized,
+        lead.notes,
+        lead.assigned_manager,
+        lead.lead_source,
+        lead.source_status,
+        bool(lead.do_not_contact),
+        len(links),
+        prop_state,
+    )
+
+
+def _create_lead_from_payload(
+    db: Session, payload: dict[str, Any], batch: ImportBatch, lead: Optional[Lead] = None
+) -> Lead:
     external_ref = payload.get("external_ref")
-    lead: Optional[Lead] = None
-    if external_ref:
-        lead = db.query(Lead).filter(Lead.external_id == str(external_ref)).first()
-    if lead is None and payload.get("phone_normalized"):
-        lead = db.query(Lead).filter(Lead.phone_normalized == payload["phone_normalized"]).first()
-    if lead is None and payload.get("email_normalized"):
-        lead = db.query(Lead).filter(Lead.email_normalized == payload["email_normalized"]).first()
+    if lead is None:
+        if external_ref:
+            lead = db.query(Lead).filter(Lead.external_id == str(external_ref)).first()
+        if lead is None and payload.get("phone_normalized"):
+            lead = db.query(Lead).filter(Lead.phone_normalized == payload["phone_normalized"]).first()
+        if lead is None and payload.get("email_normalized"):
+            lead = db.query(Lead).filter(Lead.email_normalized == payload["email_normalized"]).first()
 
     created = lead is None
     if lead is None:
         lead = Lead(origin="import", import_batch_id=batch.id)
         db.add(lead)
 
-    lead.external_id = str(external_ref) if external_ref else lead.external_id
-    lead.first_name = payload.get("first_name") or lead.first_name
-    lead.last_name = payload.get("last_name") or lead.last_name
-    lead.full_name = payload.get("full_name") or lead.full_name or " ".join(
-        p for p in (payload.get("first_name"), payload.get("last_name")) if p
+    # Fill-in-only semantics: an existing value on the lead always wins, so a
+    # re-import can complete a record but can never overwrite what is known.
+    if external_ref and not lead.external_id:
+        lead.external_id = str(external_ref)
+    lead.first_name = lead.first_name or payload.get("first_name")
+    lead.last_name = lead.last_name or payload.get("last_name")
+    lead.full_name = lead.full_name or payload.get("full_name") or " ".join(
+        p for p in (lead.first_name, lead.last_name) if p
     )
-    if payload.get("phone_display"):
-        lead.primary_phone = payload["phone_display"]
-    elif payload.get("phone"):
-        lead.primary_phone = payload["phone"]
-    lead.phone_normalized = payload.get("phone_normalized") or lead.phone_normalized
-    lead.email = payload.get("email") or lead.email
-    lead.email_normalized = payload.get("email_normalized") or lead.email_normalized
-    lead.lead_source = payload.get("lead_source") or lead.lead_source
-    lead.assigned_manager = payload.get("assigned_manager") or lead.assigned_manager
+    if not lead.primary_phone:
+        if payload.get("phone_display"):
+            lead.primary_phone = payload["phone_display"]
+        elif payload.get("phone"):
+            lead.primary_phone = payload["phone"]
+    lead.phone_normalized = lead.phone_normalized or payload.get("phone_normalized")
+    lead.email = lead.email or payload.get("email")
+    lead.email_normalized = lead.email_normalized or payload.get("email_normalized")
+    lead.lead_source = lead.lead_source or payload.get("lead_source")
+    lead.assigned_manager = lead.assigned_manager or payload.get("assigned_manager")
     lead.do_not_contact = bool(payload.get("do_not_contact")) or lead.do_not_contact
-    if payload.get("lead_status"):
+    apply_status = bool(payload.get("lead_status")) and (created or not lead.source_status)
+    if apply_status:
         lead.source_status = payload["lead_status"]
-    if payload.get("creation_date"):
+    if payload.get("creation_date") and not lead.original_creation_date:
         try:
             lead.original_creation_date = datetime.fromisoformat(payload["creation_date"]).date()
         except ValueError:
             pass
-    if payload.get("last_contact_date"):
+    if payload.get("last_contact_date") and not lead.last_contact_at:
         try:
             lead.last_contact_at = datetime.fromisoformat(payload["last_contact_date"])
         except ValueError:
             pass
-    if payload.get("notes"):
+    if payload.get("notes") and not lead.notes:
         lead.notes = payload["notes"]
 
-    lead.import_batch_id = batch.id
+    if created:
+        lead.import_batch_id = batch.id
 
     if payload.get("address_line1"):
         prop = link_property(
@@ -912,12 +1103,12 @@ def _create_lead_from_payload(db: Session, payload: dict[str, Any], batch: Impor
             property_type=payload.get("property_type"),
             replace=created,
         )
-        prop.asking_price = payload.get("asking_price") or prop.asking_price
-        prop.estimated_value = payload.get("estimated_value") or prop.estimated_value
-        prop.repair_estimate = payload.get("repair_estimate") or prop.repair_estimate
-        prop.bedrooms = payload.get("bedrooms") or prop.bedrooms
-        prop.bathrooms = payload.get("bathrooms") or prop.bathrooms
-        prop.square_footage = payload.get("square_footage") or prop.square_footage
+        prop.asking_price = prop.asking_price or payload.get("asking_price")
+        prop.estimated_value = prop.estimated_value or payload.get("estimated_value")
+        prop.repair_estimate = prop.repair_estimate or payload.get("repair_estimate")
+        prop.bedrooms = prop.bedrooms or payload.get("bedrooms")
+        prop.bathrooms = prop.bathrooms or payload.get("bathrooms")
+        prop.square_footage = prop.square_footage or payload.get("square_footage")
 
     db.flush()
 
@@ -925,47 +1116,79 @@ def _create_lead_from_payload(db: Session, payload: dict[str, Any], batch: Impor
     from app.services.pipeline import map_stage
     from app.services.settings_service import stage_mapping
 
-    if payload.get("lead_status"):
+    if apply_status:
         lead.pipeline_stage = map_stage(payload["lead_status"], stage_mapping(db))
 
     if payload.get("last_contact_outcome"):
+        from app.models import Activity
         from app.services.pipeline import infer_outcome_from_text
 
         outcome = infer_outcome_from_text(payload["last_contact_outcome"]) or "other"
-        lead.contact_status = outcome
-        db.add(
-            ActivityPlaceholder(lead_id=lead.id, outcome=outcome, occurred_at=lead.last_contact_at, summary=payload["last_contact_outcome"], source="import")
+        fresh_contact = created or lead.contact_status in (None, "", "never_contacted")
+        duplicate_activity = (
+            not created
+            and db.query(Activity.id)
+            .filter(
+                Activity.lead_id == lead.id,
+                Activity.source == "import",
+                Activity.summary == payload["last_contact_outcome"],
+            )
+            .first()
+            is not None
         )
+        if fresh_contact and not duplicate_activity:
+            lead.contact_status = outcome
+            db.add(
+                ActivityPlaceholder(lead_id=lead.id, outcome=outcome, occurred_at=lead.last_contact_at, summary=payload["last_contact_outcome"], source="import")
+            )
 
     if payload.get("follow_up_date"):
         try:
             due = datetime.fromisoformat(payload["follow_up_date"])
-            db.add(
-                Followup(
-                    lead_id=lead.id,
-                    due_at=due,
-                    reason="Imported follow-up date",
-                    suggested_next_action="Contact the seller per the imported schedule",
-                    creation_source="import",
-                    priority=3,
-                    status="open",
-                )
+            # Re-importing must not stack duplicate tasks on an existing lead.
+            has_open_followup = (
+                not created
+                and db.query(Followup.id)
+                .filter(Followup.lead_id == lead.id, Followup.status == "open")
+                .first()
+                is not None
             )
+            if not has_open_followup:
+                db.add(
+                    Followup(
+                        lead_id=lead.id,
+                        due_at=due,
+                        reason="Imported follow-up date",
+                        suggested_next_action="Contact the seller per the imported schedule",
+                        creation_source="import",
+                        priority=3,
+                        status="open",
+                    )
+                )
         except ValueError:
             pass
 
     if payload.get("appointment_date"):
         try:
             when = datetime.fromisoformat(payload["appointment_date"])
-            db.add(
-                Appointment(
-                    lead_id=lead.id,
-                    scheduled_at=when,
-                    status="scheduled",
-                    notes="Imported appointment",
-                    source="import",
-                )
+            # Same rule as follow-ups: never stack appointments on re-import.
+            has_scheduled_appointment = (
+                not created
+                and db.query(Appointment.id)
+                .filter(Appointment.lead_id == lead.id, Appointment.status == "scheduled")
+                .first()
+                is not None
             )
+            if not has_scheduled_appointment:
+                db.add(
+                    Appointment(
+                        lead_id=lead.id,
+                        scheduled_at=when,
+                        status="scheduled",
+                        notes="Imported appointment",
+                        source="import",
+                    )
+                )
         except ValueError:
             pass
 
@@ -1036,6 +1259,7 @@ def _serialize_batch(db: Session, batch: ImportBatch) -> dict[str, Any]:
         "warning_count": batch.warning_count,
         "rejected_count": batch.rejected_count,
         "imported_count": batch.imported_count,
+        "updated_count": batch.updated_count,
         "failed_count": batch.failed_count,
         "error": batch.error,
         "created_at": batch.created_at.isoformat() if batch.created_at else None,
