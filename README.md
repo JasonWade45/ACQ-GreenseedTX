@@ -52,7 +52,7 @@ Migrations run automatically on startup (Alembic → `backend/alembic`).
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m ruff check .     # lint
-.\.venv\Scripts\python.exe -m pytest           # 68 tests
+.\.venv\Scripts\python.exe -m pytest           # 71 tests
 cd ..\frontend
 npm run lint                                   # eslint (next/core-web-vitals)
 npm run typecheck                              # tsc --noEmit
@@ -106,6 +106,11 @@ actually loaded (never the key itself).
    (phone / email / address / name), then commit. Sample files:
    `backend/sample_data/sample_seller_leads.csv` (and `.xlsx`).
    A rejected-rows CSV and a REsimpli-shaped template CSV are downloadable per batch.
+   Rows only need **one identifiable thing**: a phone, an email, a seller name or a
+   property address — address-only rows import as `never`-contacted leads (contact
+   info is never invented). Compound cells understood automatically: `4 & 2`,
+   `3 beds 3 baths 2,007 sqft`, `$133,916 Redfin`, `200k`; **ranges**
+   (`200k to 250k`) are left blank with a warning instead of guessed.
 3. **External CRM push (opt-in per batch)** — the commit panel can also create every
    new lead in **REsimpli itself** via the official `/lead/add` (live account IDs are
    pre-filled and editable under *External CRM*; rows without a 10-digit phone are
@@ -179,7 +184,9 @@ Captured in `docs/resimpli-openapi-endpoints.json`.
   (`RESIMPLI_RATE_LIMIT_PER_MINUTE`, default 100) and retries with exponential backoff.
 * Used here: `getUserInfo`, `userList`, `lead/list`, `lead/details`, `activityList`,
   `callLogList`, `appointmentList`, plus `lead/add` when an import commit opts into
-  the external push (live account IDs built in, overridable per account).
+   the external push (live account IDs built in, overridable per account).
+   Rows without a 10-digit phone are counted as `skipped_no_phone` in the report —
+   kept locally, never a failure.
 
 **Documented limitations that shape this app:**
 
@@ -217,7 +224,7 @@ acquisitions-assistant/
 │   │   └── scheduler.py   # optional periodic sync (APScheduler)
 │   ├── alembic/           # migrations
 │   ├── sample_data/       # sample CSV + XLSX to try the importer
-│   ├── tests/             # 68 pytest tests (isolated temp DB, mock client, live-shape pins)
+│   ├── tests/             # 71 pytest tests (isolated temp DB, mock client, live-shape pins)
 │   ├── pyproject.toml     # ruff + pytest config
 │   └── .env               # local secrets (git-ignored)
 ├── frontend/

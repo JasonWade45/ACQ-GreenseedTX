@@ -21,16 +21,17 @@ sellers — automatically or otherwise.**
 | M6 | Daily work queue, follow-ups, appointments | ✅ done | `app/services/workqueue.py`, `app/api/routes_work.py`; 10 ordered sections; outcome-driven completion |
 | M7 | Local AI analysis + reviewed drafting (no-send) | ✅ done | `app/services/ai_service.py`; **Groq live-verified** (`engine: "groq"`, `openai/gpt-oss-120b`): analysis + follow-up drafts from real records, DNC/context refusals intact; background batch with paced 8k-TPM-safe runs; Ollama verified but disabled locally (CPU too slow), rules fallback otherwise |
 | M8 | Dashboard metrics, reports, exports, settings, audit | ✅ done | `app/services/metrics.py`, `routes_reports.py`, `routes_settings.py`; funnel denominators documented; CSV export kinds: leads/aging/followups/activities |
-| M9 | Next.js frontend + full verification pass | ✅ done | 10 routes render, `npm run lint` / `typecheck` / `build` all clean; backend tests green (59 at M9, **68** after M11); `ruff check` clean |
+| M9 | Next.js frontend + full verification pass | ✅ done | 10 routes render, `npm run lint` / `typecheck` / `build` all clean; backend tests green (59 at M9, **71** after M11/M12); `ruff check` clean |
 | M10 | Property-fact extraction, pre-call plans, comps brief | ✅ done | `property_extract.py` lifts `propertyInfo`/`valuation`/`taxInfo`/`mortgageInfo` out of stored payloads (672/677 properties now have beds/baths/sqft/value/county/lat-lot); `call_plans` table + `GET/POST/PATCH /ai/call-plan/{id}` (Groq opener + tickable questions/points, persisted checkboxes, DNC/no-phone/thin refusals); `GET /leads/{id}/comps` = subject facts + ±20% criteria + Zillow/Redfin/Realtor links, comps array always empty (no MLS feed → never fabricated) |
 | M11 | AI column mapping, missing-info report, name dedupe, external REsimpli push | ✅ done | `ai_service.ai_map_columns` (Groq fills only unmapped targets against real headers, rules win first) + `POST /imports/ai-map`; missing-info stats (`phone/email/address/name`) in the preview response and as amber tiles; name-level dedupe (`_norm_name` punctuation-free + SQL first-name / Python last-name fallback) marking `likely_duplicate`; commit optionally pushes each new lead to `/lead/add` (live account IDs in `KNOWN_LEAD_IDS`, overridable via `GET/POST /imports/external-config`) with keep-local-on-failure, phone guard and per-row error report; structured import report in the UI |
+| M12 | Relaxed import rules, compound property parsing, CRM push report, git/GitHub delivery | ✅ done | any row with phone / email / name / address imports (address-only → warning + `never`, nothing invented); `extract_property_details` reads `4 & 2`, `3 & 1 and half`, `3 beds 3 baths 2,007 sqft`; `normalize_money` reads `$133,916 Redfin` / `200k` and **leaves ranges blank** instead of guessing; no-phone pushes reported as `skipped_no_phone` (not `failed`); **Upload list** button on `/leads`; first commit `10aff38` pushed to github.com/JasonWade45/ACQ-GreenseedTX |
 
 ## 2. Verification evidence (run for this delivery)
 
 | Check | Command | Result |
 |-------|---------|--------|
 | Backend lint | `backend> .venv\Scripts\python -m ruff check .` | **All checks passed** (0 errors) |
-| Backend tests | `backend> .venv\Scripts\python -m pytest` | **68 passed** |
+| Backend tests | `backend> .venv\Scripts\python -m pytest` | **71 passed** |
 | Frontend lint | `frontend> npm run lint` (next/core-web-vitals) | **No ESLint warnings or errors** |
 | Frontend types | `frontend> npm run typecheck` | **OK** (`tsc --noEmit`) |
 | Frontend build | `frontend> npm run build` | **Compiled successfully**, 12/12 static pages |
@@ -50,6 +51,7 @@ sellers — automatically or otherwise.**
 | Property extraction (live) | offline backfill over stored payloads | 704 payloads parsed, 672 properties filled (beds/baths/sqft/year/lot/lat/value/county), `extra` blocks merged block-wise — 0 errors |
 | Call plan (live) | `POST /api/ai/call-plan/{id}` | `engine=groq`, 4 s: opener with address, 8 questions (3 required: motivation/timeline/price), 5 talking points citing extracted facts (equity, mortgage, build year); `PATCH` persists `asked`/`used` flags; DNC + no-phone + thin-lead refusals verified |
 | Comps brief (live) | `GET /api/leads/{id}/comps` | subject 4bd/2.5ba/2522 sqft + criteria (beds 3–5, sqft ±20%, price ±20% of estimate, same ZIP, sold ≤12 mo) + 5 sourced value refs + portal links; `comps: []` always |
+| Relaxed import + parser (live) | upload → preview → commit (4-row property list mimicking the owner's 175-row file) | `rejected: 0` (was 175/175 before), address-only warnings fire, `4 & 2`→4/2, `3 beds 3 baths 2,007 sqft`→3/3/2007, `3 & 1 and half`→3/1.5, `$133,916 Redfin`→133916, both ranges left blank with warnings; commit `imported 4, pushed 0, failed 0, skipped_no_phone 4, errors []`; smoke leads removed after verification |
 | AI column map (live) | `POST /api/imports/ai-map` (weird-header CSV: `Owner`, `Prop Addr`, `Call This Number`, `Mailbox`, `Why They Selling`, `What Is It Worth`) | `engine:"groq"` — mapped phone/email/address/motivation/estimated_value correctly, rules mapping (`Owner` → manager) preserved, 0 unmapped headers |
 | `/lead/add` auth probe (live) | `ResimpliClient.add_lead({})` with the real key | **HTTP 400** (validation rejection, not 401) — token accepted, endpoint reachable, no lead created |
 | External lead push (live) | upload → preview → commit with `external.enabled` (1 clearly-labelled test row) | local `imported: 1`, `external: {pushed: 1, failed: 0}`; created lead `6ad959c494b0f7730e7b11ae` verified back via `/lead/details`: `createdVia:"OPENAPI"`, pipeline `Active Leads`, status `New Leads`, `contactData` = `ZZ Test Lead` / `+12145550142` / email ✓ (kept as a visible test record — see next steps) |
@@ -86,6 +88,8 @@ Ollama → deterministic rules, Groq key blanked).
 | First test file with no fixtures failed at setup: `clean_db` purged tables before the session-scoped `client` ran migrations — alphabetical file order made it look random | `tests/conftest.py` | `init_db()` (idempotent `create_all`) at conftest import; alembic-in-tests falls back cleanly |
 | Name-level dedupe missed identical sellers like `O'Brien` vs `obrien`: the normalizer stripped punctuation **and** re-inserted spaces into glued runs | `dedupe.py:_norm_name` | punctuation removed without space insertion (SQLite never tokenises on it anyway) + Jr/Sr/II/III/IV suffixes dropped; name match runs before the address fallback |
 | Commit rolled the whole batch back when a REsimpli push failed, silently losing the already-clean local rows | `import_service.py:commit_import` | pushes are per-row with no transaction rollback: local lead is always kept, failure recorded under `external.errors`, auth failure sets a sticky `auth_dead` flag that stops further pushes in the batch |
+| A clean property list (175 rows, address + facts only, no contact data) was rejected 175/175 by the contact requirement — unusable for owners who import raw list pulls | `import_service.py:normalize_row` | reject only rows with **nothing** (no phone/email/name/address); address-only rows import with a warning and `contact_status: never` |
+| Compound cells (`4 & 2`, `3 beds 3 baths 2,007 sqft`, `$133,916 Redfin`) all failed numeric parsing, and ranges like `200k to 250k` would have needed a guess | `normalization.py` | `extract_property_details()` fills beds/baths/sqft from compound text (multi-unit ambiguity left blank with a warning); `normalize_money()` takes a single embedded number and refuses multi-number strings — never invents a figure |
 
 ## 4. Known limitations / deliberately unfinished
 
@@ -101,8 +105,9 @@ Ollama → deterministic rules, Groq key blanked).
    the client throttles to `RESIMPLI_RATE_LIMIT_PER_MINUTE` (default 100, set to 400
    locally).
 2. **External push skips rows without a valid 10-digit phone**: REsimpli's `/lead/add`
-   requires one, so phone-less rows are imported locally only (reported in the import
-   summary as `skipped, no phone`). Account IDs now ship as live-extracted defaults
+   requires one, so phone-less rows are imported locally only (counted as
+   `skipped_no_phone` in the commit report — not a failure). Account IDs now ship as
+   live-extracted defaults
    (`KNOWN_LEAD_IDS`) and are overridable per account through
    `GET/POST /api/imports/external-config` / Settings; `/lead/add` itself is
    live-verified. One test lead (`ZZ Test Lead`) remains in the account as proof —
@@ -166,5 +171,5 @@ Ollama → deterministic rules, Groq key blanked).
 | Daily follow-up queue (overdue first, callbacks top, outcome-driven completion) | ✅ |
 | AI analysis + message drafting | ✅ **Groq live-verified** (analysis, drafts, background batch); rules fallback; Ollama verified but disabled on this CPU box |
 | **No automatic seller communication of any kind** | ✅ enforced in code, tests and UI copy |
-| Lint + typecheck + tests green | ✅ ruff / eslint / tsc / 68 pytest |
+| Lint + typecheck + tests green | ✅ ruff / eslint / tsc / 71 pytest |
 | `PROJECT_STATUS.md` + `README.md` maintained | ✅ this file + `README.md` |

@@ -37,6 +37,7 @@ from app.services.leads import link_property, refresh_lead_rollups, serialize_le
 from app.services.normalization import (
     address_key,
     clean_str,
+    extract_property_details,
     is_empty,
     normalize_email,
     normalize_money,
@@ -481,10 +482,32 @@ def normalize_row(row: dict[str, Any], mapping: dict[str, str], row_number: int)
         setattr(result, attr, number)
         result.warnings.extend(warns)
 
-    for target, attr in (("bedrooms", "bedrooms"), ("bathrooms", "bathrooms"), ("square_footage", "square_footage")):
-        number, warns = normalize_money(value_for(target))
-        setattr(result, attr, number)
-        result.warnings.extend(warns)
+    # Beds / baths / sqft: one cell often carries a compound description
+    # ('4 & 2', '3 beds 3 baths 2,007 sqft') — extract first, fall back to a
+    # plain number, and cross-fill the other fields when only one cell was filled.
+    own: dict[str, tuple[Optional[float], Optional[float], Optional[float]]] = {}
+    detail_warns: list[str] = []
+    for target in ("bedrooms", "bathrooms", "square_footage"):
+        beds_n, baths_n, sqft_n, warns = extract_property_details(value_for(target))
+        own[target] = (beds_n, baths_n, sqft_n)
+        detail_warns.extend(warns)
+    for target, index, raw in (
+        ("bedrooms", 0, value_for("bedrooms")),
+        ("bathrooms", 1, value_for("bathrooms")),
+        ("square_footage", 2, value_for("square_footage")),
+    ):
+        value = own[target][index]
+        if value is None:
+            value, warns = normalize_money(raw)
+            result.warnings.extend(warns)
+        if value is None:
+            for src in ("bedrooms", "bathrooms", "square_footage"):
+                candidate = own[src][index]
+                if candidate is not None:
+                    value = candidate
+                    break
+        setattr(result, target, value)
+    result.warnings.extend(dict.fromkeys(detail_warns))
 
     appt, warns, _a = parse_datetime_flexible(value_for("appointment_date"), "appointment_date")
     result.appointment_date = appt.isoformat() if appt else None
@@ -497,18 +520,24 @@ def normalize_row(row: dict[str, Any], mapping: dict[str, str], row_number: int)
     result.do_not_contact = _truthy(value_for("do_not_contact"))
     result.external_ref = clean_str(value_for("external_ref"))
 
-    # Validation
+    # Validation: reject only rows with nothing to identify them. A property
+    # address alone is a usable lead (contact_status stays `never`); missing
+    # contact info is reported as a warning, never invented.
     has_phone = bool(result.phone_normalized)
     has_email = bool(result.email_normalized)
     has_name = bool(result.first_name or result.last_name)
     has_address = bool(result.address_line1)
-    if not (has_phone or has_email):
-        if not (has_name and has_address):
-            result.errors.append("Row needs at least a phone or email (or a name plus property address)")
-        else:
+    if not (has_phone or has_email or has_name or has_address):
+        result.errors.append("Row has no phone, email, seller name or property address — nothing to import")
+    elif not (has_phone or has_email):
+        if has_name and has_address:
             result.warnings.append("No phone or email — matching will rely on name + address")
-    if not has_name and not has_address:
-        result.errors.append("Row has neither a seller name nor a property address")
+        elif has_name:
+            result.warnings.append("No phone or email — matching will rely on the seller name alone")
+        else:
+            result.warnings.append(
+                "Address-only row — no seller contact info (kept locally; REsimpli push needs a phone)"
+            )
     if result.do_not_contact:
         result.warnings.append("Marked Do Not Contact — outreach will be blocked")
 
@@ -720,7 +749,7 @@ def commit_import(
         client = get_client()
 
     imported = failed = skipped = 0
-    external_pushed = external_failed = 0
+    external_pushed = external_failed = external_no_phone = 0
     auth_dead = False
     errors: list[str] = []
     external_errors: list[str] = []
@@ -746,8 +775,7 @@ def commit_import(
                     record.reason = (record.reason or "") + " — created locally; REsimpli push skipped (auth failure)"
                 elif len("".join(ch for ch in (payload.get("phone_normalized") or "") if ch.isdigit())) < 10:
                     # /lead/add requires a phone number — keep the lead local instead.
-                    external_failed += 1
-                    external_errors.append(f"Row {record.row_number}: no valid 10-digit phone for /lead/add")
+                    external_no_phone += 1
                     record.reason = (record.reason or "") + " — created locally; REsimpli push skipped (no phone)"
                 else:
                     try:
@@ -804,6 +832,7 @@ def commit_import(
             "external": external_enabled,
             "external_pushed": external_pushed,
             "external_failed": external_failed,
+            "external_no_phone": external_no_phone,
         },
     )
     return {
@@ -817,6 +846,7 @@ def commit_import(
             "enabled": external_enabled,
             "pushed": external_pushed,
             "failed": external_failed,
+            "skipped_no_phone": external_no_phone,
             "errors": external_errors[:25],
             "ids": external_ids or None,
         },

@@ -413,6 +413,7 @@ export interface CommitResult {
     enabled: boolean;
     pushed: number;
     failed: number;
+    skipped_no_phone: number;
     errors: string[];
     ids: Record<string, string> | null;
   };

@@ -149,7 +149,15 @@ def split_full_name(full: Any, first: Any = None, last: Any = None) -> tuple[Opt
     return parts[0], " ".join(parts[1:])
 
 
+_NUMBER_TOKEN = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
+
+
 def normalize_money(value: Any) -> tuple[Optional[float], list[str]]:
+    """Parse a number, tolerating labels ('2,007 sqft', '$133,916 Redfin', '500k approx').
+
+    Strings holding more than one number (ranges like '200k to 250k' or multi-unit
+    prices) return None — a single invented figure would be worse than no figure.
+    """
     raw = value
     if is_empty(raw):
         return None, []
@@ -159,18 +167,63 @@ def normalize_money(value: Any) -> tuple[Optional[float], list[str]]:
     warnings: list[str] = []
     negative = text.startswith("(") and text.endswith(")")
     text = text.strip("()").replace("$", "").replace(",", "").strip()
-    if text.endswith("k") or text.endswith("K"):
-        text = text[:-1]
-        try:
-            return float(text) * (1000 if not negative else -1000), warnings
-        except ValueError:
-            return None, [f"Could not parse numeric value '{raw}'"]
     try:
-        number = float(text)
-        return (-number if negative else number), warnings
+        return (-1 if negative else 1) * float(text), warnings
     except ValueError:
-        warnings.append(f"Could not parse numeric value '{raw}'")
-        return None, warnings
+        pass
+    scale = 1000.0 if re.search(r"\d\s*[kK]\b", text) else 1.0
+    tokens = _NUMBER_TOKEN.findall(text)
+    if len(tokens) == 1:
+        try:
+            number = float(tokens[0].replace(",", ""))
+        except ValueError:
+            number = None
+        if number is not None:
+            return (-number if negative else number) * scale, warnings
+    if len(tokens) > 1:
+        shown = ", ".join(t.strip() for t in tokens[:3])
+        return None, [f"'{str(raw).strip()}' holds multiple values ({shown}) — left blank rather than guess"]
+    return None, [f"Could not parse numeric value '{raw}'"]
+
+
+_BED_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:\+\s*)?(?:bed(?:s|room?s)?)\b", re.I)
+_BATH_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:\+\s*)?(?:bath(?:s|room?s)?)\b", re.I)
+_SQFT_RE = re.compile(r"(\d[\d,]*)\s*(?:sq\.?\s*ft\.?|sqft|sf)\b", re.I)
+_AMP_PAIR_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*&\s*(\d+(?:\.\d+)?)(?P<half>\s*(?:and\s*)?half)?",
+    re.I,
+)
+
+
+def extract_property_details(
+    value: Any,
+) -> tuple[Optional[float], Optional[float], Optional[float], list[str]]:
+    """Pull beds / baths / sqft out of one cell.
+
+    Handles the compound shapes real list files use: '4 & 2', '3 & 1 and half',
+    '3 beds 3 baths 2,007 sqft'. Ambiguous multi-unit strings ('first one 5 & 1
+    and half 2rd 4 & 1 and half') stay blank with a warning — never guessed.
+    """
+    text = clean_str(value)
+    if not text:
+        return None, None, None, []
+    beds = _BED_RE.search(text)
+    baths = _BATH_RE.search(text)
+    sqft = _SQFT_RE.search(text)
+    warnings: list[str] = []
+    bed_n = float(beds.group(1)) if beds else None
+    bath_n = float(baths.group(1)) if baths else None
+    sqft_n = float(sqft.group(1).replace(",", "")) if sqft else None
+    if bed_n is None and bath_n is None:
+        pairs = list(_AMP_PAIR_RE.finditer(text))
+        if len(pairs) == 1:
+            bed_n = float(pairs[0].group(1))
+            bath_n = float(pairs[0].group(2))
+            if pairs[0].group("half"):
+                bath_n += 0.5
+        elif len(pairs) > 1:
+            warnings.append(f"Multiple unit bed/bath values in '{text.strip()}' — left blank rather than guess")
+    return bed_n, bath_n, sqft_n, warnings
 
 
 _AMBIGUOUS = re.compile(r"^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$")

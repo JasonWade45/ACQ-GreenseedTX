@@ -215,8 +215,13 @@ export default function ImportPage() {
             {report.external.enabled && (
               <li>
                 REsimpli (CRM): {report.external.pushed} created via /lead/add
+                {report.external.skipped_no_phone > 0 && (
+                  <span className="text-ink-600">
+                    , {report.external.skipped_no_phone} kept local only (no phone — REsimpli requires one)
+                  </span>
+                )}
                 {report.external.failed > 0 && (
-                  <span className="text-amber-800">, {report.external.failed} not pushed (kept locally)</span>
+                  <span className="text-amber-800">, {report.external.failed} push failed (kept locally)</span>
                 )}
               </li>
             )}
