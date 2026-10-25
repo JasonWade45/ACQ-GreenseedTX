@@ -50,16 +50,17 @@ $helper = @'
 import base64, hashlib, io, json, os, sqlite3, sys, zipfile
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 repo, name, out, password = sys.argv[1:5]
+os.makedirs(out, exist_ok=True)
 meta = json.load(open(os.path.join(repo, "databases", name + ".json"), encoding="utf-8"))
 encrypted = os.path.join(repo, "databases", name + ".sqlite3.zip.enc")
 blob = open(encrypted, "rb").read()
 assert hashlib.sha256(blob).hexdigest() == meta["encrypted_archive_sha256"], "Encrypted archive hash mismatch"
 kdf = meta["kdf"]
-assert (kdf["name"], kdf["n"], kdf["r"], kdf["p"], kdf["key_bytes"]) == ("scrypt", 2**15, 8, 1, 32)
+assert (kdf["name"], kdf["n"], kdf["r"], kdf["p"], kdf["maxmem"], kdf["key_bytes"]) == ("scrypt", 2**15, 8, 1, 2**26, 32)
 salt = base64.b64decode(meta["salt_base64"])
 nonce = base64.b64decode(meta["nonce_base64"])
 tag = base64.b64decode(meta["tag_base64"])
-key = hashlib.scrypt(password.encode(), salt=salt, n=kdf["n"], r=kdf["r"], p=kdf["p"], dklen=kdf["key_bytes"])
+key = hashlib.scrypt(password.encode(), salt=salt, n=kdf["n"], r=kdf["r"], p=kdf["p"], dklen=kdf["key_bytes"], maxmem=kdf["maxmem"])
 raw = AESGCM(key).decrypt(nonce, blob + tag, meta["associated_data"].encode())
 with zipfile.ZipFile(io.BytesIO(raw)) as z:
     assert z.testzip() is None and z.namelist() == [meta["inner_member"]]
@@ -75,9 +76,25 @@ print("Verified restore: " + target)
 '@
 $helperPath = Join-Path $OutputFolder 'restore.py'
 [IO.File]::WriteAllText($helperPath, ($helper -replace "`r?`n", "`n"))
-$env:ACQ_RESTORE_PASSWORD = $password
+$entryScript = @'
+import os, runpy, sys
+password = os.environ.pop("ACQ_RESTORE_PASSWORD")
+sys.argv = [
+    sys.argv[0],
+    os.environ["ACQ_RESTORE_REPO"],
+    os.environ["ACQ_RESTORE_NAME"],
+    os.environ["ACQ_RESTORE_OUT"],
+    password,
+]
+runpy.run_path(os.environ["ACQ_RESTORE_HELPER"], run_name="__main__")
+'@
 $entry = Join-Path $OutputFolder 'restore-entry.py'
-[IO.File]::WriteAllText($entry, "import os,runpy,sys`npassword=os.environ.pop('ACQ_RESTORE_PASSWORD')`nsys.argv=[sys.argv[0],r'$repo',r'$Database',r'$restore',password]`nrunpy.run_path(r'$helperPath',run_name='__main__')`n")
+[IO.File]::WriteAllText($entry, ($entryScript -replace "`r?`n", "`n"))
+$env:ACQ_RESTORE_PASSWORD = $password
+$env:ACQ_RESTORE_REPO = $repo
+$env:ACQ_RESTORE_NAME = $Database
+$env:ACQ_RESTORE_OUT = $restore
+$env:ACQ_RESTORE_HELPER = $helperPath
 try {
     & $python $entry
     if ($LASTEXITCODE -ne 0) { throw 'Password/hash/integrity verification failed. No existing database was replaced.' }
@@ -85,6 +102,8 @@ try {
     Write-Host 'Do not copy it over a live application DB. Use the app import/merge review workflow.'
 }
 finally {
-    Remove-Item Env:\ACQ_RESTORE_PASSWORD -ErrorAction SilentlyContinue
+    foreach ($name in @('ACQ_RESTORE_PASSWORD', 'ACQ_RESTORE_REPO', 'ACQ_RESTORE_NAME', 'ACQ_RESTORE_OUT', 'ACQ_RESTORE_HELPER')) {
+        Remove-Item "Env:\$name" -ErrorAction SilentlyContinue
+    }
     $password = $null
 }

@@ -79,6 +79,8 @@ The current 1.2 maintenance smoke ran the actual CLI in a space-containing path:
 
 `scripts/test_release.py` verifies every manifest entry and archive exclusion, extracts into a **path containing spaces**, then runs the extracted app's actual lifespan/TestClient using this interpreter's installed dependencies. It checks a fresh zero-seller DB/head/tables/integrity/FKs, compiled SPA/assets and client-side routes, authenticated API, disabled/unconfigured providers, per-request consent and local Host/rebinding refusal. This is a real extracted Linux boot, **not native Windows helper execution or a clean offline Python dependency install**.
 
+The private database backup helpers were additionally exercised on **synthetic SQLite WAL databases** whose paths contained spaces, `#`, `?` and an apostrophe. The Python backup helper created consistent online backups, ran `PRAGMA integrity_check`, wrote table names/counts, ZIP + scrypt/AES-256-GCM encrypted both DBs, read each encrypted payload back, and checked both encrypted and restored SQLite SHA-256 hashes. A fresh restore helper recovered both DBs with integrity `ok`; a wrong password was rejected; ciphertext contained no plaintext marker; and a simulated Git staging step added only `*.sqlite3.zip.enc`, JSON metadata, `.gitignore` and `README.md`. This validates the embedded Python logic, **not PowerShell/native Windows execution or the real company DBs**.
+
 ## Rerun commands
 
 ```bash
@@ -104,5 +106,6 @@ Use `--replace` only to deliberately rebuild an existing release ZIP. Install Pl
 - No 50k-row/large migration certification, long scheduler soak, multi-worker/multi-user roles, disk encryption or full security/accessibility audit.
 - No invented names/dates/contact/overdue events; unknowns remain unknown. Historical unsupported data is preserved privately, not presented as newly verified current activity.
 - The unified code was subsequently published to GitHub `main` and independently checked by remote Git and the GitHub API: first code commit `c111403b9e21510ec8df2750565e2501fb001668`. See `github-publication.json`. No history rewrite or force-push was used. Old 1.1 publication artifacts must not be force-pushed.
+- `UPLOAD-DATABASES.ps1`, `RESTORE-DATABASES.ps1` and their `.cmd` wrappers have not been executed on native Windows. The private repository exists and is confirmed private, but no company database upload has occurred from this workspace. The user must run the upload helper on the Windows PC that holds both DBs.
 
 **No real seller was contacted, and no real provider key/account/company database was used by these checks.**

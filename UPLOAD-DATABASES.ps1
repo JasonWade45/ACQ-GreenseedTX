@@ -1,14 +1,14 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-Prepares encrypted, integrity-checked backups of BOTH real company SQLite databases for upload to a PRIVATE GitHub repository.
+Prepares encrypted, integrity-checked backups of BOTH real company SQLite databases and pushes them to a PRIVATE GitHub repository.
 
 IMPORTANT
-- Run this file in PowerShell; do not paste its contents into a Command Prompt.
+- Run this file in PowerShell (or double-click the matching .cmd); do not paste its contents into a Command Prompt.
 - Create an empty PRIVATE GitHub repository first. Never use the public ACQ-GreenseedTX repository.
-- The encryption password is supplied once to this script and is never committed, printed, or uploaded.
+- The encryption password is prompted locally and is never committed, printed, or uploaded.
 - Keep the password in your password manager. Without it, nobody can restore the backups.
-- The two selected roots must be different, and both source DBs are left untouched.
+- The two selected source DBs must be different, and both are left untouched.
 #>
 [CmdletBinding()]
 param(
@@ -22,7 +22,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $DeliveredRoot,
 
-    [Parameter(Mandatory = $true)]
+    [string] $LegacyDb,
+
+    [string] $DeliveredDb,
+
     [string] $Branch = 'main',
 
     [string] $PythonExe = 'python',
@@ -54,45 +57,44 @@ function Get-PythonCommand([string] $Candidate) {
     return $command.Source
 }
 
-# Ask for the password as a local secret. It never enters a command-line argument or a file.
+# Ask for the password as a local secret. It never enters an OS command-line argument or a file.
 $securePassword = Read-Host 'Create/enter a strong database backup password (not shown)' -AsSecureString
 $plainPassword = [Net.NetworkCredential]::new('', $securePassword).Password
 if ($plainPassword.Length -lt 16) {
     throw 'Use a backup password of at least 16 characters. Store it in your password manager.'
 }
 
-if ($PrivateRepoUrl -notmatch '/[A-Za-z0-9_.-]+/?$') {
-    throw 'Invalid private repository URL.'
-}
 $repoName = ($PrivateRepoUrl.TrimEnd('/') -split '/')[-1]
-if ($repoName -ieq 'ACQ-GreenseedTX') {
-    throw 'Refusing to upload company databases to the PUBLIC ACQ-GreenseedTX repository. Create a separate PRIVATE repository.'
-}
-if ($repoName -match '(?i)acq-greenseed') {
-    throw 'Choose a separate PRIVATE backup repository whose name is not similar to the public code repository.'
+if ($repoName -ieq 'ACQ-GreenseedTX' -or $repoName -match '(?i)acq-greenseed') {
+    throw 'Refusing to upload company databases to the PUBLIC ACQ-GreenseedTX repository (or a similarly named repo). Create a separate PRIVATE backup repository.'
 }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     throw 'Git is not installed or is not on PATH.'
 }
-$publicRepo = 'https://github.com/JasonWade45/ACQ-GreenseedTX'
 $gh = Get-Command gh -ErrorAction SilentlyContinue
 if ($gh) {
-    $visibility = & $gh.Source api "repos/$(($PrivateRepoUrl -replace '^https://github\.com/','') -replace '/$','')" --jq '.private' 2>$null
+    $repoPath = ($PrivateRepoUrl -replace '^https://github\.com/', '') -replace '/$', ''
+    $visibility = & $gh.Source api "repos/$repoPath" --jq '.private' 2>$null
     if ($LASTEXITCODE -eq 0 -and $visibility -ne 'true') {
         throw 'GitHub reports that the destination repository is NOT private. Stopping.'
     }
 }
 else {
-    Write-Warning 'GitHub CLI was not found: confirm in your browser that this repository is PRIVATE before pushing.'
+    Write-Warning 'GitHub CLI was not found: confirm in your browser that the destination repository is PRIVATE before pushing.'
 }
 
 $python = Get-PythonCommand $PythonExe
 $legacyRootPath = (Resolve-Path -LiteralPath $LegacyRoot).ProviderPath
 $deliveredRootPath = (Resolve-Path -LiteralPath $DeliveredRoot).ProviderPath
-$legacyDb = Get-ExistingFile (Join-Path $legacyRootPath 'backend\acquisitions.db')
-$deliveredDb = Get-ExistingFile (Join-Path $deliveredRootPath 'data\acquisitions.db')
+if (-not $LegacyDb) { $LegacyDb = Join-Path $legacyRootPath 'backend\acquisitions.db' }
+if (-not $DeliveredDb) { $DeliveredDb = Join-Path $deliveredRootPath 'data\acquisitions.db' }
+$legacyDb = Get-ExistingFile $LegacyDb
+$deliveredDb = Get-ExistingFile $DeliveredDb
 if ($legacyDb -eq $deliveredDb) {
     throw 'Both paths point to the same database. Select the two distinct original project roots.'
+}
+if ((Get-FileHash -LiteralPath $legacyDb -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $deliveredDb -Algorithm SHA256).Hash) {
+    throw 'The two DBs have identical hashes; verify you selected both real databases.'
 }
 
 $stamp = [datetime]::UtcNow.ToString('yyyyMMdd-HHmmss')
@@ -116,8 +118,8 @@ try {
     $helper = @'
 import base64, hashlib, io, json, os, secrets, sqlite3, sys, zipfile
 from datetime import datetime, timezone
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-py = sys.executable
 work, password = sys.argv[1], sys.argv[2]
 sources = {
     "legacy-github": sys.argv[3],
@@ -132,16 +134,16 @@ record = {
     "password_or_key_uploaded": False,
     "databases": {},
 }
-try:
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-except ImportError:
-    sys.stderr.write("Install once in your Python environment: python -m pip install cryptography\n")
-    raise SystemExit(2)
+KDF_N, KDF_R, KDF_P, KDF_MAXMEM = 2**15, 8, 1, 2**26
+AAD = b"acq-database-backup-v1"
+
+def derive(password, salt):
+    return hashlib.scrypt(password.encode(), salt=salt, n=KDF_N, r=KDF_R, p=KDF_P, dklen=32, maxmem=KDF_MAXMEM)
 
 def read_back(path, password, salt, nonce, tag, expected):
-    blob = open(path, "rb").read()
-    key = hashlib.scrypt(password.encode(), salt=salt, n=2**15, r=8, p=1, dklen=32)
-    raw = AESGCM(key).decrypt(nonce, blob[:-16] + tag, b"acq-database-backup-v1")
+    ciphertext = open(path, "rb").read()
+    key = derive(password, salt)
+    raw = AESGCM(key).decrypt(nonce, ciphertext + tag, AAD)
     with zipfile.ZipFile(io.BytesIO(raw)) as z:
         assert z.testzip() is None and z.namelist() == ["database.sqlite3"]
         assert hashlib.sha256(z.read("database.sqlite3")).hexdigest() == expected
@@ -170,26 +172,26 @@ for name, source in sources.items():
     with zipfile.ZipFile(zip_bytes, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         z.writestr("database.sqlite3", raw)
     salt, nonce = secrets.token_bytes(16), secrets.token_bytes(12)
-    key = hashlib.scrypt(password.encode(), salt=salt, n=2**15, r=8, p=1, dklen=32)
-    sealed = AESGCM(key).encrypt(nonce, zip_bytes.getvalue(), b"acq-database-backup-v1")
+    key = derive(password, salt)
+    sealed = AESGCM(key).encrypt(nonce, zip_bytes.getvalue(), AAD)
     ciphertext, tag = sealed[:-16], sealed[-16:]
     encrypted = os.path.join(out, name + ".sqlite3.zip.enc")
     with open(encrypted, "wb") as f:
         f.write(ciphertext)
     meta = {
-        "source_project_root": os.path.dirname(os.path.dirname(source)),
-        "source_relative_path": os.path.relpath(source, os.path.dirname(os.path.dirname(source))),
+        "source_kind": name,
+        "source_file_name": os.path.basename(source),
         "sqlite_backup_sha256": sha,
         "encrypted_archive_sha256": hashlib.sha256(ciphertext).hexdigest(),
         "integrity_check": integrity,
         "tables": tables,
         "row_counts": counts,
-        "kdf": {"name": "scrypt", "n": 2**15, "r": 8, "p": 1, "key_bytes": 32},
+        "kdf": {"name": "scrypt", "n": KDF_N, "r": KDF_R, "p": KDF_P, "maxmem": KDF_MAXMEM, "key_bytes": 32},
         "salt_base64": base64.b64encode(salt).decode(),
         "nonce_base64": base64.b64encode(nonce).decode(),
         "tag_base64": base64.b64encode(tag).decode(),
         "aead": "AES-256-GCM",
-        "associated_data": "acq-database-backup-v1",
+        "associated_data": AAD.decode(),
         "inner_member": "database.sqlite3",
     }
     record["databases"][name] = meta
@@ -202,20 +204,33 @@ print("Encrypted, independently read back and verified: " + ", ".join(record["da
     $helperPath = Join-Path $work 'prepare.py'
     [IO.File]::WriteAllText($helperPath, ($helper -replace "`r?`n", "`n"))
 
-    # Pass the password only over a closed stdin stream, never as an argv argument.
-    $env:ACQ_BACKUP_PASSWORD = $plainPassword
-    $script = @"
-import os,runpy,sys
-password=os.environ.pop('ACQ_BACKUP_PASSWORD')
-sys.argv=[sys.argv[0],r'$work',password,r'$legacyDb',r'$deliveredDb',r'$publishRoot']
-runpy.run_path(r'$helperPath',run_name='__main__')
-"@
+    # Paths are passed through process environment variables, not interpolated into Python source.
+    $entryScript = @'
+import os, runpy, sys
+password = os.environ.pop("ACQ_BACKUP_PASSWORD")
+sys.argv = [
+    sys.argv[0],
+    os.environ["ACQ_WORK"],
+    password,
+    os.environ["ACQ_LEGACY_DB"],
+    os.environ["ACQ_DELIVERED_DB"],
+    os.environ["ACQ_PUBLISH_ROOT"],
+]
+runpy.run_path(os.environ["ACQ_HELPER"], run_name="__main__")
+'@
     $entry = Join-Path $work 'entry.py'
-    [IO.File]::WriteAllText($entry, ($script -replace "`r?`n", "`n"))
+    [IO.File]::WriteAllText($entry, ($entryScript -replace "`r?`n", "`n"))
+    $env:ACQ_BACKUP_PASSWORD = $plainPassword
+    $env:ACQ_WORK = $work
+    $env:ACQ_LEGACY_DB = $legacyDb
+    $env:ACQ_DELIVERED_DB = $deliveredDb
+    $env:ACQ_PUBLISH_ROOT = $publishRoot
+    $env:ACQ_HELPER = $helperPath
     & $python $entry
     $code = $LASTEXITCODE
-    Remove-Item Env:\ACQ_BACKUP_PASSWORD -ErrorAction SilentlyContinue
-    [void][Runtime.InteropServices.Marshal]::ZeroFreeCoTaskMemUnicode([Runtime.InteropServices.Marshal]::StringToCoTaskMemUnicode($plainPassword))
+    foreach ($name in @('ACQ_BACKUP_PASSWORD', 'ACQ_WORK', 'ACQ_LEGACY_DB', 'ACQ_DELIVERED_DB', 'ACQ_PUBLISH_ROOT', 'ACQ_HELPER')) {
+        Remove-Item "Env:\$name" -ErrorAction SilentlyContinue
+    }
     $plainPassword = $null
     if ($code -ne 0) {
         if ($code -eq 2) {
@@ -231,7 +246,6 @@ runpy.run_path(r'$helperPath',run_name='__main__')
 *.db-shm
 *.sqlite3
 *.zip
-!databases/*.enc
 *.env
 *password*
 '@ | Set-Content -LiteralPath (Join-Path $repo '.gitignore') -Encoding UTF8
@@ -262,6 +276,11 @@ This repository contains password-encrypted SQLite backups prepared on Windows. 
     Write-Host "Keep the password safe. It was not uploaded. Work folder: $work"
 }
 catch {
+    Get-ChildItem -LiteralPath $work -Filter '*.sqlite3' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    foreach ($name in @('ACQ_BACKUP_PASSWORD', 'ACQ_WORK', 'ACQ_LEGACY_DB', 'ACQ_DELIVERED_DB', 'ACQ_PUBLISH_ROOT', 'ACQ_HELPER')) {
+        Remove-Item "Env:\$name" -ErrorAction SilentlyContinue
+    }
+    $plainPassword = $null
     Write-Error $_
     Write-Warning "No company database was replaced. Private artifacts may remain in $work; keep it private or delete it after recovery."
     throw

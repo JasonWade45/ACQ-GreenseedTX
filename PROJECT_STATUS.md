@@ -53,6 +53,11 @@ Previously pasted vendor keys were not reused, reproduced, inserted into source/
 4. Legacy import/template/sync/audit history, unassigned events and unsupported source fields remain in private whole-source snapshots/table inventory rather than being fabricated into active unified ledgers. Historical AI/drafts/plans are readable as unverified per-lead source archives, not active recommendations.
 5. One workspace/password/worker, no per-user roles or individual actor identity; not a public multi-user security certification. One primary normalized phone/email, no geocoding/identity proof/revenue accounting, no .xls support. 2k-row regression coverage, not 50k-row or large migration/long scheduler/concurrency certification.
 6. **Published to `JasonWade45/ACQ-GreenseedTX` main**, first code commit `c111403b9e21510ec8df2750565e2501fb001668`, verified by both remote Git and the GitHub API. This is a normal descendant of `f96bc3d25b4aea4def3e1122a2004c7bf56c04ad`: history retained, no force-push, no databases/keys uploaded. Old 1.1 publication artifacts remain stale. See `docs/github-publication.json`.
+7. A separate **private** GitHub repository `JasonWade45/acq-company-database-backups` was created for encrypted backups of both real company databases. `UPLOAD-DATABASES.cmd` / `.ps1` and `RESTORE-DATABASES.cmd` / `.ps1` are published here and in that private repo. They use Python SQLite online backups, integrity checks and scrypt + AES-256-GCM before pushing only encrypted payloads and table/count metadata. The backup password is never uploaded. The helpers were tested on synthetic WAL databases, not on the real company DBs or native Windows. See `docs/PRIVATE_DATABASE_BACKUP.md`. **No company database was uploaded from this workspace.**
+
+## Private database backups
+
+Before changing either original, run **`UPLOAD-DATABASES.cmd`** from the updated project root on Windows. It asks for the two original project roots and a strong backup password, then pushes encrypted backups to the separate PRIVATE repository. Verify a restore with `RESTORE-DATABASES.cmd` for both `legacy-github` and `delivered-11`. Never attach either raw DB or the password to the public repository or a chat. Do not copy one DB over the other. See `docs/PRIVATE_DATABASE_BACKUP.md`.
 
 ## Exact next action for this user
 

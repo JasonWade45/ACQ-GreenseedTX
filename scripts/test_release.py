@@ -62,7 +62,7 @@ with sqlite3.connect(path.as_uri()+"?mode=ro",uri=True) as db:
     assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert not db.execute("PRAGMA foreign_key_check").fetchall()
 print(json.dumps({
-    "passed":True,"release":"1.2.0","fresh_database_leads":0,"revision":revision,
+    "passed":True,"release":"1.2.1","fresh_database_leads":0,"revision":revision,
     "application_tables":len(tables)-1,"index_http_status":200,"built_assets_served":len(assets),
     "authenticated_api_checked":True,"groq_disabled":True,"crm_disabled":True,
     "keys_not_configured":True,"consent_policy":"redacted_review_each_request",

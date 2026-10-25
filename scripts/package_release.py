@@ -21,6 +21,10 @@ ROOT_FILES = {
     "UPDATE-WINDOWS.ps1",
     "MERGE-WORKSPACES.cmd",
     "MERGE-WORKSPACES.ps1",
+    "UPLOAD-DATABASES.cmd",
+    "UPLOAD-DATABASES.ps1",
+    "RESTORE-DATABASES.cmd",
+    "RESTORE-DATABASES.ps1",
     "alembic.ini",
     "pyproject.toml",
 }

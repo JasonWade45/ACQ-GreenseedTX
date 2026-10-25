@@ -1,5 +1,5 @@
 {
-  "release": "1.2.0",
+  "release": "1.2.1",
   "release_date_local": "2026-10-25",
   "verified_at_utc": "2026-10-25T00:00:03.684672+00:00",
   "environment": {
@@ -104,5 +104,20 @@
     "force_push": false,
     "company_databases_uploaded": false,
     "vendor_keys_uploaded": false
+  },
+  "private_database_backup_helpers": {
+    "private_repository": "JasonWade45/acq-company-database-backups",
+    "private_repository_confirmed": true,
+    "company_databases_uploaded_from_workspace": false,
+    "synthetic_wal_round_trip_passed": true,
+    "integrity_checks": [
+      "ok",
+      "ok"
+    ],
+    "wrong_password_rejected": true,
+    "ciphertext_contains_plaintext_marker": false,
+    "simulated_git_staging": "Only encrypted payloads, JSON metadata, .gitignore and README.md",
+    "native_windows_powershell_executed": false,
+    "real_company_databases_processed": false
   }
 }
