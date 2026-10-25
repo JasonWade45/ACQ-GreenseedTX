@@ -1,0 +1,126 @@
+{
+  "audited_utc": "2026-10-25T19:03:45+00:00",
+  "purpose": "Verify that Google Drive folder ACQ contains every improvement in the current repo, and identify artifacts that are not part of the system.",
+  "drive": {
+    "root_folder_id": "1t1TRMUgkJdK2XOSegKq-ZQ6wdvck5Zsh",
+    "root_name": "ACQ",
+    "sharing": "anyone with the link (reader) for root folder",
+    "folders": {
+      "ACQ-GreenseedTX-unified-v1.2.1": {
+        "id": "1YF47fJ8qSe3yDywf-7LV9D-T0CLhGxo1",
+        "top_level_entries": 24,
+        "note": "24 top-level entries == repository root plus RELEASE_FILES.sha256; all 145 manifest hashes matched."
+      },
+      "acquisitions-assistant-v1.2": {
+        "id": "1zXC854aoimZXcLjl1YFHQtmMTZqV7Rv_",
+        "inner_folder": "acquisitions-assistant",
+        "inner_entries": 20,
+        "note": "Docs are byte-identical (MD5) to 1.2.1; no code file is missing from 1.2.1."
+      },
+      "acquisitions-assistant-source": {
+        "id": "1qibpwOQrqu3WhaSm7r4qV-l3G2b_zKwn",
+        "inner_folder": "acquisitions-assistant",
+        "inner_entries": 15,
+        "note": "Adds only .venv/, data/acquisitions.db (17 tables, 0 leads) and npm-audit-initial.json."
+      },
+      "ACQ-GreenseedTX-publish-kit": {
+        "id": "1f8wgjMPgFsDvxNtRyB1YZAzEuDfvgj98",
+        "top_level_entries": 4,
+        "note": "Stale 1.1 bundle (SHA f6928935...) and push scripts hard-coded to commit c7869d86; superseded."
+      }
+    }
+  },
+  "repo": {
+    "head": "734bfea41a2957bc6d2d8708cc1d13c1e30d525a",
+    "tracked_files": 145
+  },
+  "manifest_check": {
+    "manifest_entries": 145,
+    "verified_local_files": 145,
+    "missing_locally": [],
+    "hash_mismatches": [],
+    "result": "all 145 manifest entries match the repo byte-for-byte"
+  },
+  "docs_md5_vs_drive_v1_2": {
+    "all_match": true,
+    "per_file": {
+      "GITHUB_UNIFICATION.md": true,
+      "PRIVATE_DATABASE_BACKUP.md": true,
+      "RELEASE_1_2.md": true,
+      "RELEASE_1_2_1.md": true,
+      "STARTUP_LOGGING_FIX.md": true,
+      "THIRD_PARTY_LICENSES.txt": true,
+      "UNIFIED_MERGE.md": true,
+      "VERIFICATION.md": true,
+      "backend-test-results.xml": true,
+      "browser-test-results.xml": true,
+      "frontend-test-results.xml": true,
+      "github-publication.json": true,
+      "maintenance-smoke-results.json": true,
+      "npm-audit-results.json": true,
+      "qa-summary.json": true,
+      "release-smoke-results.json": true,
+      "resimpli-catalog.json": true,
+      "unified-upgrade-check.json": true,
+      "unified-visual-check.json": true,
+      "upgrade-check.json": true
+    }
+  },
+  "unique_artifacts_in_older_folders": [
+    {
+      "path": "acquisitions-assistant-source/.venv/",
+      "kind": "build artifact (virtualenv)",
+      "action": "trashed from shared folder"
+    },
+    {
+      "path": "acquisitions-assistant-source/data/acquisitions.db",
+      "kind": "stale empty DB (17 tables, 0 leads)",
+      "action": "trashed from shared folder"
+    },
+    {
+      "path": "acquisitions-assistant-source/npm-audit-initial.json",
+      "kind": "historical audit output",
+      "action": "kept in archive"
+    },
+    {
+      "path": "ACQ-GreenseedTX-publish-kit/ACQ-GreenseedTX-v1.1.bundle",
+      "kind": "stale 1.1 git bundle",
+      "action": "kept in archive; 1.2.1 kit produced"
+    }
+  ],
+  "company_databases_present": false,
+  "company_data_note": "Neither the GitHub UUID backend/acquisitions.db nor the delivered 1.1 data/acquisitions.db exists anywhere in the shared folder; no real company data was merged or fabricated.",
+  "conclusion": "Unified 1.2.1 is the complete union of all delivered improvements. No source file from 1.2 or the 21 October source snapshot is missing; older folders add only build artifacts.",
+  "organization_applied": {
+    "performed_utc": "2026-10-25T19:06:26+00:00",
+    "structure": [
+      "00-READ-ME-FIRST",
+      "01-CURRENT-SYSTEM-v1.2.1",
+      "99-ARCHIVE"
+    ],
+    "moved_to_archive": [
+      "acquisitions-assistant-v1.2",
+      "acquisitions-assistant-source",
+      "ACQ-GreenseedTX-publish-kit (renamed -v1.1-STALE)"
+    ],
+    "renamed": [
+      {
+        "from": "ACQ-GreenseedTX-unified-v1.2.1",
+        "to": "01-CURRENT-SYSTEM-v1.2.1"
+      }
+    ],
+    "trashed_recoverable": [
+      "acquisitions-assistant-source/acquisitions-assistant/.venv",
+      "acquisitions-assistant-source/acquisitions-assistant/data/acquisitions.db"
+    ],
+    "added_to_00_READ_ME_FIRST": [
+      "README-AR.md",
+      "ACQ-GreenseedTX-v1.2.1.zip",
+      "ACQ-GreenseedTX-v1.2.1.zip.sha256",
+      "release-smoke-1.2.1.json"
+    ],
+    "nothing_permanently_deleted": true,
+    "release_zip_files": 148,
+    "release_zip": "ACQ-GreenseedTX-v1.2.1.zip (148 files); SHA-256 is published next to the archive, never inside it."
+  }
+}

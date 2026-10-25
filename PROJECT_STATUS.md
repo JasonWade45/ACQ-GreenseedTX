@@ -1,6 +1,6 @@
 # Project status — Acquisitions Assistant AI 1.2
 
-**Updated 2026-10-25.** Unified local-first working seller-acquisitions application. Source comparison: GitHub `JasonWade45/ACQ-GreenseedTX` main **`f96bc3d25b4aea4def3e1122a2004c7bf56c04ad`** plus delivered 1.1. Both user workspaces contain important data; neither database is treated as expendable or interchangeable.
+**Updated 2026-10-25.** Unified local-first working seller-acquisitions application. **Consolidated 1.2.1 build re-verified on 2026-10-25 (Python 3.11.2 / Node 22): 167 backend passes + 1 intentional skip, 20 frontend passes, production build, fresh 20-table database at head `0a6d91cf17b2`, live authenticated boot and a real 8-row CSV import; the assembled release ZIP passed the extracted-archive smoke test. See `docs/READY_SYSTEM_AR.md` (Arabic handover) and `docs/drive-audit-2026-10-25.json` (Drive folder ↔ repository audit: 145/145 hashes matched, no improvements missing).** Source comparison: GitHub `JasonWade45/ACQ-GreenseedTX` main **`f96bc3d25b4aea4def3e1122a2004c7bf56c04ad`** plus delivered 1.1. Both user workspaces contain important data; neither database is treated as expendable or interchangeable.
 
 ## Implemented
 
