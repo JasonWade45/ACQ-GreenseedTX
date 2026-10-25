@@ -1,259 +1,194 @@
-# نشر النظام على سيرفر حقيقي (أونلاين)
+# نشر النظام على سيرفر Linux (أونلاين)
 
-**آخر تحديث: 25 أكتوبر 2026.** هذا الدليل ينشر Acquisitions Assistant AI 1.2.x على سيرفر
-تملكه أنت (VPS أو سيرفر Windows) مع HTTPS تلقائي، وحفظ دائم لقاعدة البيانات.
+**آخر تحديث: 25 أكتوبر 2026 — الإصدار 1.2.4.** يغطي هذا الدليل ثلاث طرق للنشر على Linux،
+مرتّبة من الأسهل إلى الأكثر تحكّمًا. لا يوجد أي اعتماد على Windows.
 
----
-
-## ملاحظة صريحة أولًا
-
-بيئة العمل الآلية التي أُعدّ فيها المشروع **لا تستطيع** النشر على منصات استضافة خارجية:
-الوصول الشبكي مقيّد بـ GitHub وPyPI وnpm فقط، وجميع مزوّدي الاستضافة (Render, Railway,
-Fly, Vercel) محجوبون، ولا يوجد Docker هناك للبناء. لذلك:
-
-- ما تم إعداده هنا هو **كل ملفات النشر الجاهزة** + خطوات دقيقة.
-- التنفيذ النهائي (بناء الصورة، شراء/تجهيز السيرفر) يحدث من جهازك أو سيرفرك.
-- المعاينة الحية داخل المتصفح تعمل الآن، لكنها مرتبطة بجلسة العمل وليست استضافة دائمة.
-
-> **تنبيه أمني مهم:** هذا النظام يحتوي بيانات عملاء الشركة. نشره على الإنترنت يعني نقل
-> بيانات حقيقية إلى مزوّد خارجي. المشروع يفترض افتراضيًا التشغيل المحلي (loopback). لا تنشر
-> بيانات شركة حقيقية على استضافة عامة إلا بعد موافقة صاحب البيانات وبعد تفعيل HTTPS وكلمة
-> مرور قوية ونسخة احتياطية مشفّرة.
+> **قبل أي شيء — تحذير أمني:** النظام يحمل بيانات عملاء الشركة. النشر على الإنترنت يعني
+> نقل بيانات حقيقية إلى مزوّد خارجي. لا تنشر بيانات حقيقية إلا بعد: موافقة صاحب البيانات،
+> HTTPS فعّال، كلمة مرور 20+ حرفًا، ونسخة احتياطية مشفّرة (`UPLOAD-DATABASES`).
+> للاستخدام المحلي فقط شغّل `scripts/run.py` على الجهاز نفسه ولا تنشر.
 
 ---
 
-## المتطلبات
+## اختر مسارك
 
-1. سيرفر Linux (Ubuntu 22.04/24.04 أو Debian 12) بـ **2 GB RAM** ومساحة 10 GB.
-2. **Docker + Docker Compose v2** مثبّتان.
-3. **اسم نطاق** يشير إلى عنوان السيرفر (سجل `A` للـ IPv4 و`AAAA` للـ IPv6).
-4. المنافذ **80** و**443** مفتوحة في الجدار الناري.
+| المسار | الأفضل لمن | الوقت | HTTPS | قاعدة بيانات دائمة |
+|---|---|---|---|---|
+| **أ) Render Blueprint** | لا يريد إدارة سيرفر | ~5 دقائق | ✅ تلقائي | يحتاج خطة مدفوعة |
+| **ب) VPS بأمر واحد** | يريد التحكم والبيانات على سيرفره | ~5 دقائق | ✅ تلقائي (Caddy) | ✅ نعم |
+| **ج) Linux بدون Docker** | سيرفر قديم / سياسة تمنع Docker | ~15 دقيقة | يدوي (Caddy) | ✅ نعم |
 
-تثبيت Docker على Ubuntu (أمر رسمي واحد):
+---
 
+# المسار أ — Render بضغطة واحدة
+
+1. ادخل [dashboard.render.com](https://dashboard.render.com) → **New** → **Blueprint**.
+2. اختر مستودع `JasonWade45/ACQ-GreenseedTX`. سيقرأ `render.yaml` الموجود في الجذر.
+3. عند الطلب، أدخل **`APP_ACCESS_PASSWORD`** (12 حرفًا على الأقل، والأفضل 30).
+   `SESSION_SECRET` يُولَّد تلقائيًا.
+4. اضغط **Apply** وانتظر انتهاء البناء.
+
+**مهم جدًا:** قاعدة SQLite تحتاج قرصًا دائمًا. Render يوفّر الأقراص على الخطط المدفوعة فقط.
+على الخطة المجانية يُمحى نظام الملفات مع كل نشر أو إعادة تشغيل — أي **تضيع البيانات**.
+إن أردت الحفظ الدائم فاستخدم `plan: starter` (المضبوط في `render.yaml`) أو المسار ب.
+
+التحقق:
 ```bash
-curl -fsSL https://get.docker.com | sh
+curl -s https://<اسم-الخدمة>.onrender.com/api/health
 ```
 
 ---
 
-## خطوات النشر (خمس دقائق)
+# المسار ب — VPS بأمر واحد (موصى به)
 
-### 1) انسخ المشروع إلى السيرفر
-
-```bash
-git clone https://github.com/JasonWade45/ACQ-GreenseedTX.git
-cd ACQ-GreenseedTX
-```
-
-للحصول على إصدار محدد بدل أحدث `main`:
+سيرفر Ubuntu 22.04/24.04 أو Debian 12، ذاكرة 2 GB، ونطاق يشير إليه (سجل `A`).
 
 ```bash
-git clone --branch v1.2.2 --depth 1 https://github.com/JasonWade45/ACQ-GreenseedTX.git acq
-cd acq
+curl -fsSL https://raw.githubusercontent.com/JasonWade45/ACQ-GreenseedTX/main/deploy/install.sh \
+  | sudo bash -s -- --domain acq.example.com
 ```
 
-### 2) جهّز ملف الإعدادات السرّي
+ماذا يفعل السكربت:
+1. يثبّت Docker من المصدر الرسمي إن لم يكن موجودًا.
+2. يستنسخ المستودع في `/opt/acq` (أو يحدّثه إن كان موجودًا).
+3. يولّد كلمة مرور عشوائية + `SESSION_SECRET` ويكتب `deploy/.env` بأذون **600**.
+4. يطبع كلمة المرور **مرة واحدة** — احفظها فورًا.
+5. يفتح 80/443 في `ufw` إن كان مفعّلًا.
+6. يبني ويشغّل الحاويتين (التطبيق + Caddy) وينتظر `/api/health`.
+
+خيارات:
 
 ```bash
-cp deploy/compose.env.example deploy/.env
-python3 -c "import secrets; print(secrets.token_hex(32))"   # انسخ الناتج في SESSION_SECRET
-nano deploy/.env
+sudo ./deploy/install.sh --help
+sudo ./deploy/install.sh --domain acq.example.com --dry-run    # معاينة بلا أي تغيير
+sudo ./deploy/install.sh --domain acq.example.com --timezone Africa/Cairo --force
 ```
 
-املأ:
-- `SITE_ADDRESS` → نطاقك، مثل `acq.company.com`
-- `APP_ACCESS_PASSWORD` → كلمة مرور طويلة (12 حرفًا على الأقل، والأفضل 20+)
-- `SESSION_SECRET` → الناتج العشوائي أعلاه
-- `APP_TIMEZONE` → `Africa/Cairo` أو توقيت العمل الفعلي
+- إعادة التشغيل آمنة: `.env` الموجود بكلمة مرور صالحة **لا يُستبدل**، و`--force` وحده يدوّرها.
+- `--dry-run` يعرض كل خطوة دون تنفيذ — مُختبَر ويعمل.
 
-> `deploy/.env` مستبعَد من Git. **لا** ترفعه إلى GitHub أو Drive ولا ترسله في محادثة.
-
-### 3) ابنِ وشغّل
-
+التحقق:
 ```bash
-cd deploy
-docker compose up -d --build
+curl -s https://acq.example.com/api/health
 ```
-
-أول بناء يستغرق دقيقتين تقريبًا. Caddy يحصل على شهادة TLS تلقائيًا خلال نصف دقيقة.
-تحقق من الحالة:
-
-```bash
-docker compose ps
-docker compose logs -f caddy
-```
-
-### 4) تحقق من العمل
-
-```bash
-curl -s https://$SITE_ADDRESS/api/health
-# {"status":"ok","application":"Acquisitions Assistant AI"}
-```
-
-افتح `https://<SITE_ADDRESS>` في المتصفح، سجّل الدخول بكلمة المرور، وستجد قاعدة بيانات
-نظيفة (20 جدولًا، رأس `0a6d91cf17b2`) أُنشئت تلقائيًا.
 
 ---
 
-## النشر على Windows في دقيقتين (الطريقة الموصى بها)
+# المسار ج — Linux بدون Docker (systemd)
 
-هذه هي الطريقة الأسرع والأكثر أمانًا، وقد تم التحقق من سلوكها فعليًا (انظر الجدول أسفل).
+```bash
+# 1) مستخدم ومسارات
+sudo useradd --system --home /opt/acq --shell /usr/sbin/nologin acq
+sudo git clone --depth 1 https://github.com/JasonWade45/ACQ-GreenseedTX.git /opt/acq
+cd /opt/acq
+sudo mkdir -p /var/lib/acq /etc/acq
+sudo chown -R acq:acq /opt/acq /var/lib/acq
 
-### 1) جهّز التطبيق
+# 2) بيئة Python
+sudo python3 -m venv /opt/acq/.venv
+sudo /opt/acq/.venv/bin/pip install -r /opt/acq/backend/requirements-lock.txt
 
-1. ثبّت Python 3.11+ من python.org مع تفعيل **Add python.exe to PATH**.
-2. فك ضغط الحزمة في `C:\ACQ` (الواجهة مبنية — لا تحتاج Node ولا WSL).
-3. انقر مزدوجًا على **`START-ONLINE-WINDOWS.cmd`**.
+# 3) الإعدادات
+sudo cp deploy/acq.env.example /etc/acq/acq.env
+python3 -c "import secrets; print(secrets.token_hex(32))"   # ضع الناتج في SESSION_SECRET
+sudo nano /etc/acq/acq.env                                   # كلمة مرور 12+ حرفًا
+sudo chown root:acq /etc/acq/acq.env && sudo chmod 640 /etc/acq/acq.env
 
-ماذا يفعل السكربت تلقائيًا:
-- يولّد كلمة مرور عشوائية قوية + `SESSION_SECRET` ويكتبهما في `.env` (مرة واحدة فقط).
-- يطبع كلمة المرور مرة واحدة — **احفظها في مدير كلمات مرور فورًا**.
-- يتحقق أن طولها ≥ 12 حرفًا (شرط النظام لأي وصول غير محلي).
-- ينشئ `.venv` ويثبّت الاعتماديات المقفلة عند أول تشغيل.
-- يربط الخادم على `127.0.0.1:8010` فقط، ويطبع أوامر النفق الجاهزة.
-
-> **لا يستبدل `.env` الموجود** إذا كانت كلمة المرور فيه صالحة. استخدم `-Force` للتغيير.
-
-### 2) افتحه على الإنترنت — اختر واحدًا
-
-**أ) نطاق دائم مجاني (موصى به):**
-
-```powershell
-winget install --id Cloudflare.cloudflared
-# أغلق PowerShell وافتحه من جديد
-SETUP-TUNNEL-WINDOWS.cmd acq.example.com
+# 4) الخدمة
+sudo cp deploy/acq.service /etc/systemd/system/acq.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now acq
+systemctl status acq --no-pager
 ```
 
-السكربت يتحقق من التثبيت والاتصال المحلي، يسجّل الدخول، ينشئ النفق، ينسخ أي
-`config.yml` موجود قبل الكتابة، يربط DNS، ويثبّت خدمة Windows تلقائية.
+الخدمة مقيّدة الأمان (`ProtectSystem=strict`، `NoNewPrivileges`، مستخدم غير جذري) وتكتب في
+`/var/lib/acq` فقط. القاعدة خارج مجلد الشيفرة، فـ`git pull` لا يمسّها أبدًا.
 
-**ب) رابط مؤقت للتجربة فورًا (بلا حساب):**
+**ثم ضع HTTPS في المقدمة:**
 
-```powershell
-cloudflared tunnel --url http://127.0.0.1:8010
+```bash
+sudo apt install -y caddy
+sudo tee /etc/caddy/Caddyfile >/dev/null <<'EOF'
+acq.example.com {
+    encode zstd gzip
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    reverse_proxy 127.0.0.1:8000 {
+        header_up Host {host}
+    }
+}
+EOF
+sudo systemctl reload caddy
 ```
 
-يعطيك رابطًا مثل `https://random-words.trycloudflare.com` صالحًا أثناء تشغيل النافذة.
-
-**ج) Tailscale:**
-
-```powershell
-tailscale funnel 8010
-```
-
-### 3) تحقّق
-
-```powershell
-curl.exe https://acq.example.com/api/health
-```
-
-يجب أن يعيد `{"status":"ok",...}`. ثم افتح الرابط وسجّل الدخول بكلمة المرور من `.env`.
+> `header_up Host {host}` ضروري: التطبيق يرفض طلبات الكتابة القادمة من أصل مختلف، فلو
+> أعاد الوكيل كتابة `Host` إلى `127.0.0.1` فستفشل العمليات بالرمز 403.
 
 ---
 
 ## ⚠️ الفخ الذي يوقع الجميع: صفحة تفتح وبيانات لا تعمل
 
-بلا `APP_ACCESS_PASSWORD` يعمل النظام في **وضع loopback**، فيرفض كل طلب `/api` يحمل Host
-غير محلي برمز **403**، بينما الصفحة نفسها تُخدم بنجاح. النتيجة: الواجهة تفتح ثم تفشل كل
-البيانات، ويبدو الأمر كعطل غامض.
+بلا `APP_ACCESS_PASSWORD` يعمل النظام في **وضع loopback**، فيرفض كل طلب `/api` يحمل `Host`
+غير محلي برمز **403**، بينما الصفحة تُخدم بنجاح.
 
-| الإعداد | الصفحة | `/api/leads` |
+| الإعداد | الصفحة `/` | `/api/leads` |
 |---|---|---|
 | بلا كلمة مرور + Host عام | 200 | **403** `Loopback mode rejects non-local Host headers` |
-| مع كلمة مرور + Host عام | 200 | **401** ثم يعمل بعد الدخول |
+| مع كلمة مرور + Host عام | 200 | 401 ثم يعمل بعد الدخول |
 
-لذلك: منذ 1.2.3 يطبع الخادم تحذيرًا واضحًا عند الإقلاع إذا كانت الكلمة فارغة،
-و`START-ONLINE-WINDOWS.cmd` يولّدها تلقائيًا. لا تشغّل أبدًا بلا كلمة مرور وتتوقع نفقًا يعمل.
+منذ 1.2.3 يطبع الخادم تحذيرًا واضحًا عند الإقلاع إذا كانت الكلمة فارغة، وحاوية Docker
+تفشل عند البدء برسالة `FATAL` بدل قبول الاتصالات ثم رفضها.
 
 ---
 
-## التشغيل التلقائي بعد إعادة تشغيل Windows
+## القاعدة والنسخ الاحتياطي
 
-| الطريقة | الأمر |
+| المسار | مكان قاعدة البيانات |
 |---|---|
-| Cloudflare Tunnel | `cloudflared service install` (يفعله `SETUP-TUNNEL-WINDOWS.cmd`) |
-| التطبيق نفسه | Task Scheduler → Create Task → At startup → `C:\ACQ\START-ONLINE-WINDOWS.cmd` |
-| بديل NSSM | `nssm install ACQ "C:\ACQ\.venv\Scripts\python.exe" "C:\ACQ\scripts\run.py"` ثم `nssm start ACQ` |
+| أ) Render | قرص دائم على `/app/data` (خطة مدفوعة) |
+| ب) VPS/Docker | حجم Docker باسم `acq-assistant_app-data` |
+| ج) systemd | `/var/lib/acq/acquisitions.db` |
 
-> Task Scheduler يعمل حتى قبل تسجيل الدخول إن اخترت «Run whether user is logged on or not».
-
----
-
-## الوصول من شبكة المكتب فقط (بلا إنترنت)
-
-```powershell
-.venv\Scripts\python.exe scripts\run.py --host 0.0.0.0 --port 8010
-New-NetFirewallRule -DisplayName "ACQ 8010" -Direction Inbound -LocalPort 8010 -Protocol TCP -Action Allow
-```
-
-ثم `http://<IP-السيرفر>:8010` من أي جهاز في الشبكة. **HTTP بلا تشفير** — لا تستخدمه عبر الإنترنت.
-
----
-
-## النسخ الاحتياطي على السيرفر
-
-قاعدة البيانات داخل مجلد Docker باسم `app-data`. خُذ نسخة متسقة بأمر واحد:
+نسخة متسّقة بأمر واحد (Docker):
 
 ```bash
-docker compose exec app python - <<'PY'
-import sqlite3, datetime, pathlib
+cd /opt/acq/deploy
+docker compose exec -T app python -c "
+import sqlite3
 src = sqlite3.connect('/app/data/acquisitions.db')
-dst = pathlib.Path('/app/data/backup-%s.db' % datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
-src.backup(sqlite3.connect(dst))
-print('backup:', dst, dst.stat().st_size, 'bytes')
-PY
-
-docker compose cp app:/app/data ./backups/
-```
-
-ثم شفّر النسخة قبل رفعها إلى أي مكان:
-
-```bash
-gpg -c --cipher-algo AES256 backups/backup-*.db
+src.backup(sqlite3.connect('/app/data/backup.db'))
+print('backup written')"
+docker compose cp app:/app/data/backup.db ./backup-$(date +%F).db
+gpg -c --cipher-algo AES256 ./backup-$(date +%F).db     # شفّرها قبل نقلها
 ```
 
 **لا** ترفع قاعدة بيانات خامًا إلى GitHub أو Drive أو محادثة.
 
----
-
-## التحديث إلى إصدار جديد
+## التحديث
 
 ```bash
-cd ACQ-GreenseedTX
-git fetch --tags && git checkout v1.2.2   # أو الوسم الأحدث
-cd deploy && docker compose up -d --build
+# Docker / VPS
+cd /opt/acq && sudo git pull && cd deploy && sudo docker compose up -d --build
+
+# systemd
+cd /opt/acq && sudo git pull && sudo /opt/acq/.venv/bin/pip install -r backend/requirements-lock.txt
+sudo systemctl restart acq
 ```
 
-الترحيلات (Alembic) تُطبَّق تلقائيًا عند بدء التشغيل، مع نسخة استرداد خاصة قبل أي ترقية.
-حجم البيانات محفوظ في `app-data` ولا يُمسّ بإعادة البناء.
+الترحيلات (Alembic) تُطبَّق تلقائيًا عند الإقلاع، مع نسخة استرداد خاصة قبل أي ترقية.
 
 ---
 
 ## استكشاف الأخطاء
 
-| العَرَض | السبب المرجَّح | الحل |
+| العَرَض | السبب | الحل |
 |---|---|---|
-| الحاوية تخرج فورًا | `APP_ACCESS_PASSWORD` أقل من 12 حرفًا | اكتب كلمة مرور أطول في `deploy/.env` |
-| Caddy لا يحصل على شهادة | النطاق لا يشير للسيرفر، أو المنفذ 80/443 مغلق | تحقق من DNS ومن الجدار الناري |
-| `502 Bad Gateway` | التطبيق لم يجهز بعد | `docker compose logs app` ثم انتظر انتهاء الترحيل |
-| `403 Loopback mode…` | لا توجد كلمة مرور مع ربط خارجي | عيّن `APP_ACCESS_PASSWORD` |
-| `403 Cross-origin mutations…` | وكيل يعيد كتابة ترويسة `Host` | تأكد من `header_up Host {host}` في Caddyfile |
-| فشل رفع ملف كبير | الحد 25 م.ب افتراضيًا | غيّر `MAX_UPLOAD_MB` في بيئة الحاوية |
-
----
-
-## ما لا يفعله هذا الدليل
-
-- لا يفعّل REsimpli أو Groq أو Ollama — كلها معطّلة افتراضيًا وتُفعّل بوعي وبمفاتيحك.
-- لا ينشئ مستخدمين متعددين: النظام مصمّم لمساحة عمل واحدة بكلمة مرور واحدة.
-- لا يوفّر نسخًا احتياطيًا تلقائيًا إلى السحابة: نفّذ `UPLOAD-DATABASES` على جهازك، أو
-  استخدم الأوامر أعلاه مع مفتاح تشفير.
-- لا يضمن توافق `0.0.0.0` مع كل وكيل عكسي؛ تم اختبار التصميم منطقيًا هنا وليس على سيرفر
-  حقيقي، فراجع السجل عند أول تشغيل.
-
-انظر أيضًا: `READY_SYSTEM_AR.md` (التشغيل المحلي ودمج القاعدتين)، `PRIVATE_DATABASE_BACKUP.md`
-(النسخ المشفّر)، و`VERIFICATION.md` (ما تم التحقق منه فعليًا وما لم يُتحقق).
+| الحاوية تخرج فورًا برسالة `FATAL` | `APP_ACCESS_PASSWORD` فارغة أو أقصر من 12 | اضبطها في اللوحة أو `.env` |
+| Caddy لا يحصل على شهادة | DNS لا يشير للسيرفر أو 80/443 مغلق | تحقّق من `dig` والجدار الناري |
+| `502 Bad Gateway` | التطبيق لم يجهز بعد | `docker compose logs -f app` |
+| `403 Loopback mode…` | لا توجد كلمة مرور مع ربط خارجي | اضبط كلمة المرور وأعد التشغيل |
+| `403 Cross-origin mutations…` | الوكيل يعيد كتابة `Host` | أضف `header_up Host {host}` |
+| البيانات تختفي بعد النشر | لا يوجد قرص دائم (Render مجاني) | استخدم خطة مدفوعة أو VPS |
+| فشل رفع ملف كبير | الحد 25 م.ب | غيّر `MAX_UPLOAD_MB` |
 
 ---
 
@@ -261,15 +196,24 @@ cd deploy && docker compose up -d --build
 
 | البند | النتيجة |
 |---|---|
-| `docker-compose.yml` | YAML صالح: خدمتان (`app`, `caddy`)، ثلاثة أحجام، بيئة كاملة |
-| `Dockerfile` | يتحقق من `frontend/dist/index.html`، مستخدم غير جذري uid 10001، فحص صحة `/api/health` |
-| حارس كلمة المرور | مؤكَّد: `0.0.0.0` بكلمة < 12 حرفًا يُرفض، و12+ يبدأ |
-| تحذير الإقلاع الجديد | مؤكَّد باختبارين آليين: تحذير عند غياب الكلمة، وصمت عند وجودها |
-| `.env` بنهايات أسطر Windows (CRLF) | **مؤكَّد**: قرأ كلمة المرور بشكل صحيح، صفحة 200، دخول 200 مع توكن، API 200 عبر Host عام |
-| تسريب الأسرار | مؤكَّد: `deploy/.env` و`.env` لا يدخلان الحزمة |
-| **تنفيذ سكربتات PowerShell** | **لم يُنفَّذ**: لا PowerShell في بيئة الإعداد؛ تم فحص التوازن النحوي والمنطق فقط |
-| **بناء صورة Docker** | **لم يُنفَّذ**: لا Docker متاح |
-| **تشغيل على سيرفر/نطاق حقيقي** | **لم يُنفَّذ**: يلزم نطاق وسيرفر يملكه المشغّل |
+| `deploy/install.sh` | `bash -n` نظيف؛ `--dry-run` يعمل ويطبع كل خطوة؛ منطق `.env` مُختبَر: توليد، حفظ كلمة المرور عند إعادة التشغيل، تدويرها مع `--force`، إبقاء مفاتيح مخصصة، أذون 600 |
+| `deploy/docker-entrypoint.sh` | `sh -n` نظيف؛ **شُغّل فعليًا**: احترم `$PORT=8100` وخدم على 8100 لا 8000، أنشأ القاعدة في `DATA_DIR` (20 جدولًا، رأس `0a6d91cf17b2`، `integrity ok`)، ورفض كلمة مرور فارغة/قصيرة بـ`FATAL` وخروج 1 |
+| `render.yaml` | YAML صالح: خدمة `web`، `runtime: docker`، `healthCheckPath: /api/health`، قرص على `/app/data`، `APP_ACCESS_PASSWORD` معلَّم `sync: false`، `SESSION_SECRET` بـ`generateValue`، ولا أسرار حرفية فيه |
+| `deploy/acq.service` | وحدة systemd مع تقييد صلاحيات؛ **لم تُشغَّل** (لا systemd في بيئة الإعداد) |
+| `Dockerfile` | يبني واجهة مسبقة داخل الصورة؛ **بناء الصورة لم يُنفَّذ** (لا Docker هنا) |
+| تشغيل على نطاق/سيرفر حقيقي | **لم يُنفَّذ**: يلزم نطاق وسيرفر يملكه المشغّل |
+| REsimpli / Groq الحيّان وقاعدتا الشركة | **لم يُتحقق منها** كما في كل إصدار |
 
-عند أول تشغيل حقيقي: راقب نافذة `START-ONLINE-WINDOWS.cmd` بحثًا عن سطر
-`Application startup complete`، وتأكد من عدم وجود سطر `WARNING: APP_ACCESS_PASSWORD is empty`.
+عند أول تشغيل حقيقي راقب السجلات بحثًا عن `Application startup complete` و`Uvicorn running`
+وغياب `WARNING: APP_ACCESS_PASSWORD is empty`.
+
+---
+
+## ملحق: Windows (اختياري، غير موصى به)
+
+النشر على Windows مدعوم عبر `START-ONLINE-WINDOWS.cmd` و`SETUP-TUNNEL-WINDOWS.cmd`
+(Cloudflare Tunnel)، لكنه ليس المسار الموصى به لبيانات الإنتاج: لا يوجد عزل حاويات،
+والنسخ الاحتياطي والتحديث يدويان. استخدمه فقط إن لم يتوفر سيرفر Linux.
+
+انظر أيضًا: `READY_SYSTEM_AR.md` (التشغيل المحلي ودمج القاعدتين)،
+`PRIVATE_DATABASE_BACKUP.md` (النسخ المشفّر)، و`VERIFICATION.md`.
