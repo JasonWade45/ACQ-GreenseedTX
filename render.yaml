@@ -1,0 +1,48 @@
+# Render blueprint — one-click deploy from GitHub, no server to manage.
+#
+#   1. push this repository to GitHub (it already is)
+#   2. Render dashboard -> New -> Blueprint -> pick this repository
+#   3. set APP_ACCESS_PASSWORD when prompted (12+ characters), then Apply
+#
+# IMPORTANT: the SQLite database needs a persistent disk. Render offers disks on paid
+# instance types only. On the free tier the filesystem is wiped on every deploy and on
+# restarts, so the database would be lost — use a paid instance or the VPS path in
+# docs/DEPLOY_SERVER_AR.md if you need durability.
+#
+# The image honours $PORT, which Render injects, so no port configuration is needed here.
+
+services:
+  - type: web
+    name: acq-assistant
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    region: frankfurt
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: acq-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      # Prompted in the dashboard; never stored in the repository.
+      - key: APP_ACCESS_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: APP_TIMEZONE
+        value: Africa/Cairo
+      - key: DATABASE_URL
+        value: sqlite:////app/data/acquisitions.db
+      # Guarded features stay off until you enable and configure them deliberately.
+      - key: RESIMPLI_MODE
+        value: disabled
+      - key: SYNC_ENABLED
+        value: "false"
+      - key: GROQ_ENABLED
+        value: "false"
+      - key: OLLAMA_ENABLED
+        value: "false"
+      - key: PYTHONUNBUFFERED
+        value: "1"

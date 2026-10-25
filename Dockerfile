@@ -24,14 +24,16 @@ RUN test -f frontend/dist/index.html \
  && groupadd --system --gid 10001 appuser \
  && useradd --system --uid 10001 --gid appuser --no-create-home appuser \
  && mkdir -p /app/data \
+ && chmod +x /app/deploy/docker-entrypoint.sh \
  && chown -R appuser:appuser /app/data /app/backend /app/frontend/dist /app/scripts /app/deploy
 
 USER appuser
 
 EXPOSE 8000
 
+# Honour $PORT so the same image works on Render/Railway/Fly/Cloud Run and locally.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
+    CMD python -c "import os,urllib.request,sys; p=os.environ.get('PORT','8000'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/api/health', timeout=4).status == 200 else 1)"
 
 # scripts/run.py refuses a non-loopback bind without APP_ACCESS_PASSWORD >= 12 characters.
-CMD ["python", "scripts/run.py", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/deploy/docker-entrypoint.sh"]

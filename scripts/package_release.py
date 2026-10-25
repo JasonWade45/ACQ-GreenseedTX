@@ -14,6 +14,7 @@ ROOT_FILES = {
     ".env.example",
     ".gitignore",
     "Dockerfile",
+    "render.yaml",
     "LICENSE",
     "README.md",
     "PROJECT_STATUS.md",

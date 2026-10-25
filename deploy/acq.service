@@ -1,0 +1,53 @@
+# systemd unit for a bare-metal Linux install (no Docker).
+#
+#   sudo useradd --system --home /opt/acq --shell /usr/sbin/nologin acq
+#   sudo mkdir -p /var/lib/acq /etc/acq
+#   sudo chown -R acq:acq /var/lib/acq
+#   sudo install -m 640 -o root -g acq deploy/acq.env.example /etc/acq/acq.env
+#   sudo nano /etc/acq/acq.env            # set a 12+ character password
+#   sudo cp deploy/acq.service /etc/systemd/system/acq.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now acq
+#   systemctl status acq
+#
+# Then put Caddy or nginx in front for HTTPS; see docs/DEPLOY_SERVER_AR.md.
+
+[Unit]
+Description=Acquisitions Assistant AI
+Documentation=https://github.com/JasonWade45/ACQ-GreenseedTX
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=acq
+Group=acq
+WorkingDirectory=/opt/acq
+EnvironmentFile=/etc/acq/acq.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# The app refuses to bind beyond loopback without APP_ACCESS_PASSWORD >= 12 characters,
+# so a misconfigured unit fails fast instead of accepting unauthenticated traffic.
+ExecStart=/opt/acq/.venv/bin/python /opt/acq/scripts/run.py --host 0.0.0.0 --port 8000
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+
+# Hardening: the service only writes its own data directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/acq
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target
