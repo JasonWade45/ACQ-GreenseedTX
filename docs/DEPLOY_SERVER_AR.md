@@ -96,23 +96,98 @@ curl -s https://$SITE_ADDRESS/api/health
 
 ---
 
-## تشغيله على سيرفر Windows (بدون Docker)
+## النشر على Windows في دقيقتين (الطريقة الموصى بها)
 
-1. ثبّت Python 3.11+ وأضفه إلى `PATH`.
-2. فك ضغط الحزمة `ACQ-GreenseedTX-v1.2.2.zip`.
-3. أنشئ `.env` بجانب المشروع بالمحتوى التالي:
+هذه هي الطريقة الأسرع والأكثر أمانًا، وقد تم التحقق من سلوكها فعليًا (انظر الجدول أسفل).
 
-```ini
-APP_HOST=127.0.0.1
-APP_PORT=8000
-APP_ACCESS_PASSWORD=كلمة-مرور-طويلة
-SESSION_SECRET=سلسلة-عشوائية-64-حرفًا
-APP_TIMEZONE=Africa/Cairo
+### 1) جهّز التطبيق
+
+1. ثبّت Python 3.11+ من python.org مع تفعيل **Add python.exe to PATH**.
+2. فك ضغط الحزمة في `C:\ACQ` (الواجهة مبنية — لا تحتاج Node ولا WSL).
+3. انقر مزدوجًا على **`START-ONLINE-WINDOWS.cmd`**.
+
+ماذا يفعل السكربت تلقائيًا:
+- يولّد كلمة مرور عشوائية قوية + `SESSION_SECRET` ويكتبهما في `.env` (مرة واحدة فقط).
+- يطبع كلمة المرور مرة واحدة — **احفظها في مدير كلمات مرور فورًا**.
+- يتحقق أن طولها ≥ 12 حرفًا (شرط النظام لأي وصول غير محلي).
+- ينشئ `.venv` ويثبّت الاعتماديات المقفلة عند أول تشغيل.
+- يربط الخادم على `127.0.0.1:8010` فقط، ويطبع أوامر النفق الجاهزة.
+
+> **لا يستبدل `.env` الموجود** إذا كانت كلمة المرور فيه صالحة. استخدم `-Force` للتغيير.
+
+### 2) افتحه على الإنترنت — اختر واحدًا
+
+**أ) نطاق دائم مجاني (موصى به):**
+
+```powershell
+winget install --id Cloudflare.cloudflared
+# أغلق PowerShell وافتحه من جديد
+SETUP-TUNNEL-WINDOWS.cmd acq.example.com
 ```
 
-4. شغّل `START-WINDOWS.cmd` — يعمل على `127.0.0.1` فقط (غير مكشوف للإنترنت).
-5. للنشر الخارجي استخدم **نفقًا موثوقًا** (Cloudflare Tunnel أو Tailscale Funnel) بدل فتح
-   المنفذ مباشرة. هذا هو الخيار الذي يوصي به المشروع: TLS + مصادقة بدون كشف IP السيرفر.
+السكربت يتحقق من التثبيت والاتصال المحلي، يسجّل الدخول، ينشئ النفق، ينسخ أي
+`config.yml` موجود قبل الكتابة، يربط DNS، ويثبّت خدمة Windows تلقائية.
+
+**ب) رابط مؤقت للتجربة فورًا (بلا حساب):**
+
+```powershell
+cloudflared tunnel --url http://127.0.0.1:8010
+```
+
+يعطيك رابطًا مثل `https://random-words.trycloudflare.com` صالحًا أثناء تشغيل النافذة.
+
+**ج) Tailscale:**
+
+```powershell
+tailscale funnel 8010
+```
+
+### 3) تحقّق
+
+```powershell
+curl.exe https://acq.example.com/api/health
+```
+
+يجب أن يعيد `{"status":"ok",...}`. ثم افتح الرابط وسجّل الدخول بكلمة المرور من `.env`.
+
+---
+
+## ⚠️ الفخ الذي يوقع الجميع: صفحة تفتح وبيانات لا تعمل
+
+بلا `APP_ACCESS_PASSWORD` يعمل النظام في **وضع loopback**، فيرفض كل طلب `/api` يحمل Host
+غير محلي برمز **403**، بينما الصفحة نفسها تُخدم بنجاح. النتيجة: الواجهة تفتح ثم تفشل كل
+البيانات، ويبدو الأمر كعطل غامض.
+
+| الإعداد | الصفحة | `/api/leads` |
+|---|---|---|
+| بلا كلمة مرور + Host عام | 200 | **403** `Loopback mode rejects non-local Host headers` |
+| مع كلمة مرور + Host عام | 200 | **401** ثم يعمل بعد الدخول |
+
+لذلك: منذ 1.2.3 يطبع الخادم تحذيرًا واضحًا عند الإقلاع إذا كانت الكلمة فارغة،
+و`START-ONLINE-WINDOWS.cmd` يولّدها تلقائيًا. لا تشغّل أبدًا بلا كلمة مرور وتتوقع نفقًا يعمل.
+
+---
+
+## التشغيل التلقائي بعد إعادة تشغيل Windows
+
+| الطريقة | الأمر |
+|---|---|
+| Cloudflare Tunnel | `cloudflared service install` (يفعله `SETUP-TUNNEL-WINDOWS.cmd`) |
+| التطبيق نفسه | Task Scheduler → Create Task → At startup → `C:\ACQ\START-ONLINE-WINDOWS.cmd` |
+| بديل NSSM | `nssm install ACQ "C:\ACQ\.venv\Scripts\python.exe" "C:\ACQ\scripts\run.py"` ثم `nssm start ACQ` |
+
+> Task Scheduler يعمل حتى قبل تسجيل الدخول إن اخترت «Run whether user is logged on or not».
+
+---
+
+## الوصول من شبكة المكتب فقط (بلا إنترنت)
+
+```powershell
+.venv\Scripts\python.exe scripts\run.py --host 0.0.0.0 --port 8010
+New-NetFirewallRule -DisplayName "ACQ 8010" -Direction Inbound -LocalPort 8010 -Protocol TCP -Action Allow
+```
+
+ثم `http://<IP-السيرفر>:8010` من أي جهاز في الشبكة. **HTTP بلا تشفير** — لا تستخدمه عبر الإنترنت.
 
 ---
 
@@ -186,13 +261,15 @@ cd deploy && docker compose up -d --build
 
 | البند | النتيجة |
 |---|---|
-| `deploy/docker-compose.yml` | YAML صالح: خدمتان (`app`, `caddy`)، ثلاثة أحجام، بيئة التطبيق كاملة |
-| `Dockerfile` | يتحقق من وجود `frontend/dist/index.html`، يعمل بمستخدم غير جذري (uid 10001)، فحص صحة على `/api/health` |
-| حارس كلمة المرور | مؤكَّد: `0.0.0.0` بكلمة أقل من 12 حرفًا يُرفض، و12+ حرفًا يبدأ بنجاح |
-| تسريب الأسرار | مؤكَّد: `deploy/.env` لا يدخل حزمة الإصدار، و`compose.env.example` يدخل |
-| `deploy/Caddyfile` | HTTPS تلقائي، يمرّر `Host` الأصلي ليبقى فحص الكتابة عبر الأصل فعّالًا |
-| **بناء الصورة نفسها** | **لم يُنفَّذ**: لا يوجد Docker في بيئة الإعداد ولا وصول لمزوّدي الاستضافة |
-| التشغيل على سيرفر حقيقي | **لم يُنفَّذ**: يلزم نطاق وسيرفر تملكه |
+| `docker-compose.yml` | YAML صالح: خدمتان (`app`, `caddy`)، ثلاثة أحجام، بيئة كاملة |
+| `Dockerfile` | يتحقق من `frontend/dist/index.html`، مستخدم غير جذري uid 10001، فحص صحة `/api/health` |
+| حارس كلمة المرور | مؤكَّد: `0.0.0.0` بكلمة < 12 حرفًا يُرفض، و12+ يبدأ |
+| تحذير الإقلاع الجديد | مؤكَّد باختبارين آليين: تحذير عند غياب الكلمة، وصمت عند وجودها |
+| `.env` بنهايات أسطر Windows (CRLF) | **مؤكَّد**: قرأ كلمة المرور بشكل صحيح، صفحة 200، دخول 200 مع توكن، API 200 عبر Host عام |
+| تسريب الأسرار | مؤكَّد: `deploy/.env` و`.env` لا يدخلان الحزمة |
+| **تنفيذ سكربتات PowerShell** | **لم يُنفَّذ**: لا PowerShell في بيئة الإعداد؛ تم فحص التوازن النحوي والمنطق فقط |
+| **بناء صورة Docker** | **لم يُنفَّذ**: لا Docker متاح |
+| **تشغيل على سيرفر/نطاق حقيقي** | **لم يُنفَّذ**: يلزم نطاق وسيرفر يملكه المشغّل |
 
-أول من يشغّل هذا على سيرفره: راقب `docker compose logs -f app` أثناء أول إقلاع للتأكد من
-اكتمال الترحيلات، ثم `docker compose logs caddy` للتأكد من إصدار الشهادة.
+عند أول تشغيل حقيقي: راقب نافذة `START-ONLINE-WINDOWS.cmd` بحثًا عن سطر
+`Application startup complete`، وتأكد من عدم وجود سطر `WARNING: APP_ACCESS_PASSWORD is empty`.

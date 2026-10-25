@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from typing import Annotated
 from alembic import command
@@ -71,6 +72,27 @@ from .routes_unified import router as unified_router
 from .services.cloud_ai import cloud_status
 from .services.ai import analyze_lead, insight_dict, generate_draft, ollama_status, context_hash, context_for
 
+logger = logging.getLogger("acquisitions.startup")
+
+# Binding outside loopback, or reaching the app through a tunnel/proxy/LAN address, sends a
+# non-loopback Host header. In loopback mode every /api call then fails with 403 while the
+# static interface still loads, which looks like a broken app instead of a missing password.
+REMOTE_ACCESS_HINT = (
+    "APP_ACCESS_PASSWORD is empty, so the app runs in loopback mode. In this mode every /api "
+    "request whose Host header is not 127.0.0.1, localhost or ::1 is refused with 403. Opening "
+    "the interface through a tunnel, reverse proxy or LAN address therefore shows the page but "
+    "fails all data calls. Set APP_ACCESS_PASSWORD to at least 12 characters before exposing it "
+    "anywhere beyond this computer, then restart. See docs/DEPLOY_SERVER_AR.md."
+)
+
+
+def warn_if_unreachable(settings):
+    """Surface the loopback/tunnel mismatch at startup instead of only in a 403 body."""
+    if settings.app_access_password:
+        return
+    logger.warning(REMOTE_ACCESS_HINT)
+    print(f"WARNING: {REMOTE_ACCESS_HINT}", flush=True)
+
 
 def migrate():
     from .services.database_safety import protect_before_upgrade
@@ -87,6 +109,7 @@ async def lifespan(app):
     settings = get_settings()
     if settings.app_host not in {"127.0.0.1", "localhost", "::1"} and len(settings.app_access_password) < 12:
         raise RuntimeError("Remote binding requires APP_ACCESS_PASSWORD of at least 12 characters")
+    warn_if_unreachable(settings)
     migrate()
     with SessionLocal() as db:
         initialize_defaults(db)

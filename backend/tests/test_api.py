@@ -208,3 +208,25 @@ def test_test_transport_exception_cannot_be_spoofed_for_real_host_scope(monkeypa
     c = TestClient(app, base_url="http://127.0.0.1:8010", client=("testclient", 50400))
     assert c.get("/api/health").status_code == 403
     c.close()
+
+
+def test_startup_warns_when_password_missing_so_tunnels_are_not_silent(monkeypatch, capsys):
+    """Loopback mode refuses non-local Host headers; a tunnel then loads the page but fails data."""
+    from app.config import Settings
+    from app.main import REMOTE_ACCESS_HINT, warn_if_unreachable
+
+    monkeypatch.setattr("logging.Logger.warning", lambda *a, **k: None)
+    warn_if_unreachable(Settings(_env_file=None, app_access_password=""))
+    captured = capsys.readouterr().out
+    assert "APP_ACCESS_PASSWORD is empty" in captured
+    assert "403" in captured and "tunnel" in captured
+    assert captured.strip() == f"WARNING: {REMOTE_ACCESS_HINT}"
+
+
+def test_startup_is_quiet_when_password_is_configured(monkeypatch, capsys):
+    from app.config import Settings
+    from app.main import warn_if_unreachable
+
+    monkeypatch.setattr("logging.Logger.warning", lambda *a, **k: None)
+    warn_if_unreachable(Settings(_env_file=None, app_access_password="a-long-enough-password"))
+    assert capsys.readouterr().out == ""
