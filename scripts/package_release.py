@@ -10,8 +10,10 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = {
     ".gitattributes",
+    ".dockerignore",
     ".env.example",
     ".gitignore",
+    "Dockerfile",
     "LICENSE",
     "README.md",
     "PROJECT_STATUS.md",
@@ -28,7 +30,7 @@ ROOT_FILES = {
     "alembic.ini",
     "pyproject.toml",
 }
-PUBLIC_FOLDERS = {"backend", "frontend", "scripts", "docs", "examples"}
+PUBLIC_FOLDERS = {"backend", "frontend", "scripts", "docs", "examples", "deploy"}
 EXCLUDED_FOLDERS = {
     ".git",
     ".venv",

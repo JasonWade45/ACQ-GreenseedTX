@@ -1,0 +1,31 @@
+# Reverse proxy with automatic HTTPS (Let's Encrypt) for Acquisitions Assistant AI.
+# SITE_ADDRESS must be a real domain pointing at this server, e.g. acq.example.com
+# Use "localhost" only for local TLS testing.
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# The app already sets CSP, no-sniff and referrer policy on its own responses.
+	# Only transport-level hardening is added here.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# Long uploads (CSV/XLSX) and the JSON API both go to the same origin.
+	request_body {
+		max_size 30MB
+	}
+
+	reverse_proxy app:8000 {
+		# Preserve the original Host so the app's cross-origin write check still applies.
+		header_up Host {host}
+		health_uri /api/health
+		health_interval 30s
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
