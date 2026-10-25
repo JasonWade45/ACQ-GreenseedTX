@@ -1,6 +1,6 @@
 {
   "passed": true,
-  "release": "1.2.0",
+  "release": "1.2.1",
   "fresh_database_leads": 0,
   "revision": "0a6d91cf17b2",
   "application_tables": 19,
@@ -17,7 +17,7 @@
   "path_contains_spaces": true,
   "actual_company_database_used": false,
   "native_windows_helper_executed": false,
-  "archive_files": 140,
+  "archive_files": 146,
   "all_included_file_hashes_verified": true,
   "private_runtime_files_excluded": true
 }
