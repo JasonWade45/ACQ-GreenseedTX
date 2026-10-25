@@ -1,0 +1,22 @@
+# Build context exclusions. Keep the prebuilt UI (frontend/dist) — the image needs it.
+.git
+.gitignore
+.venv
+**/__pycache__
+**/*.pyc
+frontend/node_modules
+frontend/e2e
+frontend/playwright-report
+frontend/test-results
+data
+release
+backups
+docs/screenshots
+.env
+.env.*
+!.env.example
+.preview-*
+*.db
+*.db-wal
+*.db-shm
+*.log

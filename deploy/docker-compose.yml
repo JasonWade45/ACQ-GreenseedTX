@@ -1,0 +1,56 @@
+# Acquisitions Assistant AI — production compose file (app + HTTPS reverse proxy).
+#
+#   1. cp deploy/compose.env.example deploy/.env   and fill it in
+#   2. cd deploy && docker compose up -d --build
+#   3. open https://<SITE_ADDRESS>
+#
+# The SQLite database lives in the named volume "app-data" and survives rebuilds.
+# Never delete that volume unless you have a verified backup (UPLOAD-DATABASES).
+
+name: acq-assistant
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ACCESS_PASSWORD: ${APP_ACCESS_PASSWORD:?Set APP_ACCESS_PASSWORD in deploy/.env (12+ characters)}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in deploy/.env}
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/New_York}
+      DATABASE_URL: sqlite:////app/data/acquisitions.db
+      # Guards default to disabled; enable them deliberately, per feature.
+      RESIMPLI_MODE: ${RESIMPLI_MODE:-disabled}
+      SYNC_ENABLED: ${SYNC_ENABLED:-false}
+      GROQ_ENABLED: ${GROQ_ENABLED:-false}
+      OLLAMA_ENABLED: ${OLLAMA_ENABLED:-false}
+    volumes:
+      - app-data:/app/data
+    expose:
+      - "8000"
+    security_opt:
+      - no-new-privileges:true
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?Set SITE_ADDRESS in deploy/.env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  app-data: {}
+  caddy-data: {}
+  caddy-config: {}
