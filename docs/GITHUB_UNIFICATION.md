@@ -25,3 +25,7 @@ The imported release was actually tested: 167 backend passes + one intentional l
 Rechecking this publication tree is separate from claiming real-account/native-Windows/company-data validation. Those remain unverified. A local commit or authentication attempt is not proof of a remote upload; only the remote branch after a successful push establishes publication.
 
 Publication-tree recheck: **167 backend passed + 1 live skip; 20 UI unit passed; Ruff/ESLint/TypeScript/Vite passed; npm audit reported 0 vulnerabilities**. The rebuilt JS/CSS asset names match the tested release. The existing 17-case browser evidence is retained as its original run, not relabelled as new.
+
+## Verified publication
+
+The first unified code commit **`c111403b9e21510ec8df2750565e2501fb001668`** was successfully pushed to **`main`** at 2026-10-25T11:44:42.158899+00:00. Remote Git and the GitHub API both returned that exact hash. This was a normal fast-forward from the original pinned GitHub history, not a force-push. Subsequent documentation commits do not change that first-code proof. See `github-publication.json`.

@@ -1,0 +1,14 @@
+{
+  "repository": "JasonWade45/ACQ-GreenseedTX",
+  "branch": "main",
+  "first_code_publication_commit": "c111403b9e21510ec8df2750565e2501fb001668",
+  "base_commit": "f96bc3d25b4aea4def3e1122a2004c7bf56c04ad",
+  "verified_at_utc": "2026-10-25T11:44:42.158899+00:00",
+  "verified_by": [
+    "git ls-remote",
+    "GitHub commits/main API"
+  ],
+  "force_push": false,
+  "company_databases_uploaded": false,
+  "vendor_keys_uploaded": false
+}

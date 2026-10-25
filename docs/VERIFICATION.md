@@ -103,6 +103,6 @@ Use `--replace` only to deliberately rebuild an existing release ZIP. Install Pl
 - No MLS/comps feed, scraping, appraisal, automatic cloud batch, required paid provider or automatic model download.
 - No 50k-row/large migration certification, long scheduler soak, multi-worker/multi-user roles, disk encryption or full security/accessibility audit.
 - No invented names/dates/contact/overdue events; unknowns remain unknown. Historical unsupported data is preserved privately, not presented as newly verified current activity.
-- No GitHub push occurred. Old 1.1 publication artifacts must not be force-pushed over the newer repository.
+- The unified code was subsequently published to GitHub `main` and independently checked by remote Git and the GitHub API: first code commit `c111403b9e21510ec8df2750565e2501fb001668`. See `github-publication.json`. No history rewrite or force-push was used. Old 1.1 publication artifacts must not be force-pushed.
 
 **No real seller was contacted, and no real provider key/account/company database was used by these checks.**

@@ -52,7 +52,7 @@ Previously pasted vendor keys were not reused, reproduced, inserted into source/
 3. Research supplies criteria, not sold comparables/appraisal. Quote matches/redaction do not guarantee semantic accuracy or complete privacy. Human review/company authorization remain mandatory.
 4. Legacy import/template/sync/audit history, unassigned events and unsupported source fields remain in private whole-source snapshots/table inventory rather than being fabricated into active unified ledgers. Historical AI/drafts/plans are readable as unverified per-lead source archives, not active recommendations.
 5. One workspace/password/worker, no per-user roles or individual actor identity; not a public multi-user security certification. One primary normalized phone/email, no geocoding/identity proof/revenue accounting, no .xls support. 2k-row regression coverage, not 50k-row or large migration/long scheduler/concurrency certification.
-6. This unified tree is based directly on GitHub `f96bc3d25b4aea4def3e1122a2004c7bf56c04ad`; the complete original history remains intact. The old 1.1 bundle/publish kit is stale and must not be force-pushed. A local commit alone is not publication proof: verify the remote branch before reporting an upload. See `docs/GITHUB_UNIFICATION.md`.
+6. **Published to `JasonWade45/ACQ-GreenseedTX` main**, first code commit `c111403b9e21510ec8df2750565e2501fb001668`, verified by both remote Git and the GitHub API. This is a normal descendant of `f96bc3d25b4aea4def3e1122a2004c7bf56c04ad`: history retained, no force-push, no databases/keys uploaded. Old 1.1 publication artifacts remain stale. See `docs/github-publication.json`.
 
 ## Exact next action for this user
 
