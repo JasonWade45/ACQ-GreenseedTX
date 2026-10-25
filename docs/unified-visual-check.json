@@ -1,0 +1,38 @@
+{
+  "release": "1.2.0",
+  "mode": "Fictional preview, Groq disabled; no actual company source/key used",
+  "screenshots": [
+    "dashboard-desktop.png",
+    "leads-desktop.png",
+    "seller-profile-desktop.png",
+    "unified-preparation-desktop.png",
+    "unified-research-desktop.png",
+    "lead-intelligence-desktop.png",
+    "unified-migration-desktop.png",
+    "connections-desktop.png",
+    "settings-rules-desktop.png",
+    "command-search-desktop.png",
+    "dashboard-mobile.png",
+    "connections-mobile.png",
+    "unified-preparation-mobile.png",
+    "unified-research-mobile.png",
+    "unified-migration-mobile.png",
+    "groq-review-synthetic.png"
+  ],
+  "pageExceptions": [],
+  "mobilePrep": {
+    "documentWidth": 390,
+    "viewport": 390,
+    "sidebarX": -260
+  },
+  "mobileResearch": {
+    "documentWidth": 390,
+    "viewport": 390
+  },
+  "mobileMigration": {
+    "documentWidth": 390,
+    "viewport": 390
+  },
+  "subjectStreetVerified": true,
+  "note": "Fifteen running-app captures with motion reduced for stable screenshots; cloud-review image is from the explicit synthetic no-network browser suite."
+}

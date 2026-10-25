@@ -1,441 +1,363 @@
-"""Field normalization helpers.
-
-Every normalizer returns the normalized value plus any warnings. Original
-source values are preserved by callers (import records keep the raw row), so
-normalization never silently destroys source data.
-"""
-from __future__ import annotations
-
+import csv
+import io
 import re
-import unicodedata
-from datetime import date, datetime, timedelta, timezone
-from typing import Any, Optional
-
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
+from .property_facts import compound_dimensions, labelled_amount, split_full_address
 import phonenumbers
-from dateutil import parser as date_parser
+from dateutil import parser, tz
 
-US_STATES = {
-    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
-    "colorado": "CO", "connecticut": "CT", "delaware": "DE", "district of columbia": "DC",
-    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID", "illinois": "IL",
-    "indiana": "IN", "iowa": "IA", "kansas": "KS", "kentucky": "KY", "louisiana": "LA",
-    "maine": "ME", "maryland": "MD", "massachusetts": "MA", "michigan": "MI",
-    "minnesota": "MN", "mississippi": "MS", "missouri": "MO", "montana": "MT",
-    "nebraska": "NE", "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ",
-    "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND",
-    "ohio": "OH", "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA",
-    "rhode island": "RI", "south carolina": "SC", "south dakota": "SD", "tennessee": "TN",
-    "texas": "TX", "utah": "UT", "vermont": "VT", "virginia": "VA", "washington": "WA",
-    "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
+FIELDS = {
+    "external_property_id": "External property ID",
+    "first_name": "First name",
+    "last_name": "Last name",
+    "full_name": "Full name",
+    "primary_phone": "Phone number",
+    "email": "Email address",
+    "street_address": "Property street address",
+    "city": "City",
+    "state": "State",
+    "zip_code": "ZIP code",
+    "property_type": "Property type",
+    "lead_source": "Lead source",
+    "original_created_at": "Original lead creation date",
+    "last_contact_at": "Last contact date",
+    "contact_outcome": "Last contact outcome",
+    "source_status": "Lead status",
+    "assigned_manager": "Assigned acquisitions manager",
+    "seller_motivation": "Seller motivation",
+    "asking_price": "Asking price",
+    "estimated_value": "Estimated value",
+    "repair_estimate": "Repair estimate",
+    "appointment_at": "Appointment date",
+    "next_followup_at": "Follow-up date",
+    "notes": "Notes",
+    "external_id": "Existing REsimpli lead ID",
+    "source_do_not_contact": "Do Not Contact status",
+    "bedrooms": "Bedrooms",
+    "bathrooms": "Bathrooms",
+    "square_feet": "Square feet",
+    "year_built": "Year built",
+    "bed_bath_sqft": "Combined beds / baths / square feet",
+    "county": "County",
+    "lot_acres": "Lot acres",
+    "tax_market_value": "Recorded county market value",
+    "tax_assessed_value": "Recorded county assessed value",
+    "tax_year": "Recorded tax year",
+    "estimated_equity": "Recorded estimated equity",
+    "mortgage_balance": "Recorded mortgage balance",
+    "occupancy_status": "Recorded occupancy status",
+    "property_condition": "Recorded property condition",
 }
-VALID_STATE_ABBREVS = set(US_STATES.values()) | {"PR", "VI", "GU", "AS", "MP", "AA", "AE", "AP"}
-
-STREET_SUFFIXES = {
-    "st": "street", "str": "street", "street": "street",
-    "ave": "avenue", "av": "avenue", "avenue": "avenue",
-    "rd": "road", "road": "road",
-    "blvd": "boulevard", "boulevard": "boulevard",
-    "dr": "drive", "drive": "drive",
-    "ln": "lane", "lane": "lane",
-    "ct": "court", "court": "court",
-    "pl": "place", "place": "place",
-    "cir": "circle", "circle": "circle",
-    "pkwy": "parkway", "parkway": "parkway",
-    "hwy": "highway", "highway": "highway",
-    "ter": "terrace", "terrace": "terrace",
-    "way": "way", "trl": "trail", "trail": "trail",
-}
-
-_DIRECTIONALS = {"n": "north", "s": "south", "e": "east", "w": "west",
-                 "ne": "northeast", "nw": "northwest", "se": "southeast", "sw": "southwest"}
-
-
-def is_empty(value: Any) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, str) and value.strip() in {"", "nan", "NaN", "None", "null", "-", "--", "n/a", "N/A", "#N/A"}:
-        return True
-    try:  # pandas / openpyxl NaN
-        import math
-
-        if isinstance(value, float) and math.isnan(value):
-            return True
-    except Exception:  # pragma: no cover
-        pass
-    return False
-
-
-def clean_str(value: Any) -> Optional[str]:
-    if is_empty(value):
-        return None
-    text = str(value).strip()
-    text = unicodedata.normalize("NFKC", text)
-    text = re.sub(r"\s+", " ", text)
-    return text or None
-
-
-def normalize_phone(value: Any, region: str = "US") -> tuple[Optional[str], Optional[str], list[str]]:
-    """Return (e164_digits, display, warnings). Digits only, 10-digit US form."""
-    raw = clean_str(value)
-    if not raw:
-        return None, None, []
-    warnings: list[str] = []
-    try:
-        parsed = phonenumbers.parse(raw, region)
-        if phonenumbers.is_valid_number(parsed):
-            e164 = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
-            national = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.NATIONAL)
-            return e164.lstrip("+"), national, warnings
-        warnings.append(f"Unparseable phone value '{raw}' kept as-is")
-        digits = re.sub(r"\D", "", raw)
-        return (digits or None), raw, warnings
-    except phonenumbers.NumberParseException:
-        digits = re.sub(r"\D", "", raw)
-        if len(digits) == 11 and digits.startswith("1"):
-            digits = digits[1:]
-        if len(digits) == 10:
-            return digits, f"({digits[0:3]}) {digits[3:6]}-{digits[6:]}", ["Formatted from digits only"]
-        if digits:
-            warnings.append(f"Phone '{raw}' is not a 10-digit US number")
-            return digits, raw, warnings
-        return None, None, warnings
-
-
-def normalize_email(value: Any) -> Optional[str]:
-    raw = clean_str(value)
-    if not raw:
-        return None
-    raw = raw.strip().strip(",").strip(";").lower()
-    if "@" not in raw or raw.startswith("@") or raw.endswith("@"):
-        return None if "@" not in raw else raw
-    return raw
-
-
-def normalize_state(value: Any) -> tuple[Optional[str], list[str]]:
-    raw = clean_str(value)
-    if not raw:
-        return None, []
-    upper = raw.upper()
-    if upper in VALID_STATE_ABBREVS:
-        return upper, []
-    lower = raw.lower()
-    if lower in US_STATES:
-        return US_STATES[lower], [f"State '{raw}' abbreviated to {US_STATES[lower]}"]
-    if len(upper) <= 3 and upper.isalpha():
-        return upper, [f"State value '{raw}' used as-is (not a recognised US state)"]
-    return None, [f"Could not interpret state value '{raw}'"]
-
-
-def normalize_name(value: Any) -> Optional[str]:
-    raw = clean_str(value)
-    if not raw:
-        return None
-    return raw.title() if raw.isupper() or raw.islower() else raw
-
-
-def split_full_name(full: Any, first: Any = None, last: Any = None) -> tuple[Optional[str], Optional[str]]:
-    f = normalize_name(first)
-    last_name = normalize_name(last)
-    if f or last_name:
-        return f, last_name
-    raw = clean_str(full)
-    if not raw:
-        return None, None
-    # drop common suffixes
-    raw = re.sub(r"\b(jr|sr|ii|iii|iv|md|phd)\.?\b", "", raw, flags=re.I).strip(" ,")
-    parts = raw.split(" ")
-    if len(parts) == 1:
-        return parts[0], None
-    return parts[0], " ".join(parts[1:])
-
-
-_NUMBER_TOKEN = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
-
-
-def normalize_money(value: Any) -> tuple[Optional[float], list[str]]:
-    """Parse a number, tolerating labels ('2,007 sqft', '$133,916 Redfin', '500k approx').
-
-    Strings holding more than one number (ranges like '200k to 250k' or multi-unit
-    prices) return None — a single invented figure would be worse than no figure.
-    """
-    raw = value
-    if is_empty(raw):
-        return None, []
-    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
-        return float(raw), []
-    text = str(raw).strip()
-    warnings: list[str] = []
-    negative = text.startswith("(") and text.endswith(")")
-    text = text.strip("()").replace("$", "").replace(",", "").strip()
-    try:
-        return (-1 if negative else 1) * float(text), warnings
-    except ValueError:
-        pass
-    scale = 1000.0 if re.search(r"\d\s*[kK]\b", text) else 1.0
-    tokens = _NUMBER_TOKEN.findall(text)
-    if len(tokens) == 1:
-        try:
-            number = float(tokens[0].replace(",", ""))
-        except ValueError:
-            number = None
-        if number is not None:
-            return (-number if negative else number) * scale, warnings
-    if len(tokens) > 1:
-        shown = ", ".join(t.strip() for t in tokens[:3])
-        return None, [f"'{str(raw).strip()}' holds multiple values ({shown}) — left blank rather than guess"]
-    return None, [f"Could not parse numeric value '{raw}'"]
-
-
-_BED_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:\+\s*)?(?:bed(?:s|room?s)?)\b", re.I)
-_BATH_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:\+\s*)?(?:bath(?:s|room?s)?)\b", re.I)
-_SQFT_RE = re.compile(r"(\d[\d,]*)\s*(?:sq\.?\s*ft\.?|sqft|sf)\b", re.I)
-_AMP_PAIR_RE = re.compile(
-    r"(\d+(?:\.\d+)?)\s*&\s*(\d+(?:\.\d+)?)(?P<half>\s*(?:and\s*)?half)?",
-    re.I,
+STATES = dict(
+    zip(
+        [
+            "alabama",
+            "alaska",
+            "arizona",
+            "arkansas",
+            "california",
+            "colorado",
+            "connecticut",
+            "delaware",
+            "district of columbia",
+            "florida",
+            "georgia",
+            "hawaii",
+            "idaho",
+            "illinois",
+            "indiana",
+            "iowa",
+            "kansas",
+            "kentucky",
+            "louisiana",
+            "maine",
+            "maryland",
+            "massachusetts",
+            "michigan",
+            "minnesota",
+            "mississippi",
+            "missouri",
+            "montana",
+            "nebraska",
+            "nevada",
+            "new hampshire",
+            "new jersey",
+            "new mexico",
+            "new york",
+            "north carolina",
+            "north dakota",
+            "ohio",
+            "oklahoma",
+            "oregon",
+            "pennsylvania",
+            "rhode island",
+            "south carolina",
+            "south dakota",
+            "tennessee",
+            "texas",
+            "utah",
+            "vermont",
+            "virginia",
+            "washington",
+            "west virginia",
+            "wisconsin",
+            "wyoming",
+            "puerto rico",
+        ],
+        "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY PR".split(),
+    )
 )
+STATES.update({"guam": "GU", "virgin islands": "VI", "american samoa": "AS", "northern mariana islands": "MP"})
+DATE_FIELDS = {"original_created_at", "last_contact_at", "appointment_at", "next_followup_at"}
+PRICE_FIELDS = {"asking_price", "estimated_value", "repair_estimate", "bathrooms"}
+INT_FIELDS = {"bedrooms", "square_feet", "year_built", "tax_year"}
+EXTRA_NUMERIC = {"lot_acres", "tax_market_value", "tax_assessed_value", "estimated_equity", "mortgage_balance"}
+EMPTY = {"", "null", "none", "n/a", "na", "nan", "-"}
+ALIASES = {
+    "phone": "primary_phone",
+    "phonenumber": "primary_phone",
+    "mobile": "primary_phone",
+    "sellername": "full_name",
+    "name": "full_name",
+    "propertyaddress": "street_address",
+    "address": "street_address",
+    "propertystreet": "street_address",
+    "zip": "zip_code",
+    "zipcode": "zip_code",
+    "status": "source_status",
+    "leadstatus": "source_status",
+    "source": "lead_source",
+    "manager": "assigned_manager",
+    "assignedto": "assigned_manager",
+    "createddate": "original_created_at",
+    "datecreated": "original_created_at",
+    "lastcontact": "last_contact_at",
+    "followupdate": "next_followup_at",
+    "dnc": "source_do_not_contact",
+    "resimpliid": "external_id",
+    "leadid": "external_id",
+    "emailaddress": "email",
+    "bedsbathandsqft": "bed_bath_sqft",
+    "bedsbathssqft": "bed_bath_sqft",
+    "bedsbathsandsqft": "bed_bath_sqft",
+    "beds": "bedrooms",
+    "baths": "bathrooms",
+    "sqft": "square_feet",
+    "squarefootage": "square_feet",
+    "mv": "estimated_value",
+    "marketvalue": "estimated_value",
+    "arv": "estimated_value",
+    "sellerfullname": "full_name",
+    "ownername": "full_name",
+    "sellerphone": "primary_phone",
+    "subjectproperty": "street_address",
+    "addressline1": "street_address",
+    "propertycity": "city",
+    "propertystate": "state",
+}
 
 
-def extract_property_details(
-    value: Any,
-) -> tuple[Optional[float], Optional[float], Optional[float], list[str]]:
-    """Pull beds / baths / sqft out of one cell.
-
-    Handles the compound shapes real list files use: '4 & 2', '3 & 1 and half',
-    '3 beds 3 baths 2,007 sqft'. Ambiguous multi-unit strings ('first one 5 & 1
-    and half 2rd 4 & 1 and half') stay blank with a warning — never guessed.
-    """
-    text = clean_str(value)
-    if not text:
-        return None, None, None, []
-    beds = _BED_RE.search(text)
-    baths = _BATH_RE.search(text)
-    sqft = _SQFT_RE.search(text)
-    warnings: list[str] = []
-    bed_n = float(beds.group(1)) if beds else None
-    bath_n = float(baths.group(1)) if baths else None
-    sqft_n = float(sqft.group(1).replace(",", "")) if sqft else None
-    if bed_n is None and bath_n is None:
-        pairs = list(_AMP_PAIR_RE.finditer(text))
-        if len(pairs) == 1:
-            bed_n = float(pairs[0].group(1))
-            bath_n = float(pairs[0].group(2))
-            if pairs[0].group("half"):
-                bath_n += 0.5
-        elif len(pairs) > 1:
-            warnings.append(f"Multiple unit bed/bath values in '{text.strip()}' — left blank rather than guess")
-    return bed_n, bath_n, sqft_n, warnings
-
-
-_AMBIGUOUS = re.compile(r"^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$")
-_ISOISH = re.compile(r"^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})")
-
-
-def _epoch_to_datetime(value: Any) -> Optional[datetime]:
-    """REsimpli sends epoch timestamps (usually milliseconds).
-
-    Returns a naive UTC datetime, or None when the value is not an epoch
-    inside 2001-09-09 .. 2096-10-02 (so out-of-range numbers are never
-    silently converted into nonsense dates).
-    """
-    num: Optional[float] = None
-    if isinstance(value, bool):
+def clean(value):
+    if value is None:
         return None
-    if isinstance(value, (int, float)):
-        num = float(value)
-    elif isinstance(value, str):
-        text = value.strip()
-        # >= 11 digits: epoch strings in practice are 13-digit milliseconds.
-        # 10-digit strings are too easily a phone number to guess.
-        if text.isdigit() and len(text) >= 11:
-            num = float(text)
-    if num is None:
-        return None
-    if abs(num) >= 1e14:  # microseconds
-        num /= 1_000_000
-    elif abs(num) >= 1e11:  # milliseconds
-        num /= 1000
-    if not (1e9 <= num <= 4e9):  # seconds: 2001-09-09 .. 2096-10-02
+    if isinstance(value, datetime):
+        return value.isoformat()
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(value)).strip()
+    if len(text) > 20000:
+        raise ValueError("Value exceeds 20,000 characters")
+    return None if text.lower() in EMPTY else text
+
+
+def normalize_phone(value):
+    if not value:
         return None
     try:
-        return datetime.fromtimestamp(num, tz=timezone.utc).replace(tzinfo=None)
-    except (OverflowError, OSError, ValueError):
+        p = phonenumbers.parse(str(value), "US")
+        if not phonenumbers.is_valid_number(p):
+            raise ValueError("Invalid phone number")
+        return phonenumbers.format_number(p, phonenumbers.PhoneNumberFormat.E164)
+    except phonenumbers.NumberParseException as exc:
+        raise ValueError("Invalid phone number") from exc
+
+
+def parse_datetime(value, zone="America/New_York", date_order="reject"):
+    if not value:
         return None
-
-
-def parse_date_flexible(value: Any, field_name: str = "date") -> tuple[Optional[date], list[str], bool]:
-    """Parse a date, flagging ambiguous DD/MM vs MM/DD forms.
-
-    Returns (date, warnings, was_ambiguous). Ambiguous values default to the
-    US convention MM/DD/YYYY and keep a warning so the UI can surface them.
-    """
-    if is_empty(value):
-        return None, [], False
     if isinstance(value, datetime):
-        return value.date(), [], False
-    if isinstance(value, date):
-        return value, [], False
-    epoch = _epoch_to_datetime(value)
-    if epoch is not None:
-        return epoch.date(), [], False
-    text = str(value).strip()
-    warnings: list[str] = []
-    ambiguous = False
-
-    m = _ISOISH.match(text)
-    if m:
+        dt = value
+    else:
+        s = str(value).strip()
+        match = re.match(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:\D|$)", s)
+        if match and date_order == "reject" and int(match[1]) <= 12 and int(match[2]) <= 12 and match[1] != match[2]:
+            raise ValueError("Ambiguous date: select MDY or DMY explicitly")
+        # Require a year. Never fill an unknown year with the current date.
+        if not re.search(r"\b\d{4}\b", s):
+            raise ValueError("Date must include a four-digit year")
         try:
-            return date(int(m.group(1)), int(m.group(2)), int(m.group(3))), warnings, False
-        except ValueError:
-            warnings.append(f"{field_name}: value '{text}' is not a valid date")
-            return None, warnings, False
+            dt = parser.parse(s, dayfirst=date_order == "DMY", fuzzy=False, default=datetime(2000, 1, 1))
+            alternate = parser.parse(s, dayfirst=date_order == "DMY", fuzzy=False, default=datetime(2000, 12, 28))
+            if dt.date() != alternate.date():
+                raise ValueError("A complete year, month and day are required; partial dates are not invented")
+        except (ValueError, OverflowError) as exc:
+            raise ValueError("Invalid date") from exc
+    if dt.tzinfo is None:
+        zoneinfo = tz.gettz(zone)
+        if not tz.datetime_exists(dt, zoneinfo) or tz.datetime_ambiguous(dt, zoneinfo):
+            raise ValueError("Ambiguous/nonexistent daylight-saving time: include a UTC offset")
+        dt = dt.replace(tzinfo=ZoneInfo(zone))
+    return dt.astimezone(timezone.utc)
 
-    m = _AMBIGUOUS.match(text)
-    if m:
-        a, b = int(m.group(1)), int(m.group(2))
-        if a > 12 and b <= 12:
-            day, month = a, b  # clearly DD/MM
-            ambiguous = True
-            warnings.append(f"{field_name}: '{text}' looks like DD/MM/YYYY; interpreted as day-first")
-        elif b > 12 and a <= 12:
-            month, day = a, b  # clearly MM/DD
-        elif a <= 12 and b <= 12:
-            month, day = a, b  # ambiguous -> US default
-            ambiguous = True
-            warnings.append(
-                f"{field_name}: '{text}' is ambiguous (MM/DD vs DD/MM); assumed MM/DD/YYYY (US)"
-            )
+
+def money(value):
+    if value is None:
+        return None
+    s = re.sub(r"[$,\s]", "", str(value))
+    try:
+        d = Decimal(s)
+        if not d.is_finite() or d < 0 or d > Decimal("100000000000"):
+            raise ValueError("Invalid non-negative numeric amount")
+        return float(d)
+    except InvalidOperation as exc:
+        raise ValueError("Invalid numeric amount") from exc
+
+
+def normalize_address(data):
+    # Conservative local comparison, not USPS validation/geocoding. Unit numbers are preserved.
+    street = data.get("street_address")
+    if not street:
+        return None
+    parts = [street, data.get("city"), data.get("state"), data.get("zip_code")]
+    return "|".join(re.sub(r"[^a-z0-9#]", "", str(x).lower()) for x in parts if x)
+
+
+def guess_mapping(headers):
+    aliases = {re.sub("[^a-z0-9]", "", k.lower()): k for k in FIELDS}
+    aliases.update({re.sub("[^a-z0-9]", "", label.lower()): k for k, label in FIELDS.items()})
+    aliases.update(ALIASES)
+    return {
+        h: aliases[re.sub("[^a-z0-9]", "", h.lower())] for h in headers if re.sub("[^a-z0-9]", "", h.lower()) in aliases
+    }
+
+
+def normalize_record(original, mapping, zone, date_order):
+    data, errors, warnings = {}, [], []
+    derived = {}
+    for source, target in mapping.items():
+        if target not in FIELDS:
+            errors.append(f"Unknown target field: {target}")
+            continue
+        try:
+            value = clean(original.get(source))
+            if value is None:
+                data[target] = None
+            elif target == "bed_bath_sqft" or (
+                target == "bedrooms" and ("&" in value or re.search(r"[A-Za-z]", value))
+            ):
+                expanded = compound_dimensions(value)
+                if not expanded:
+                    raise ValueError("Compound property value needs labelled beds/baths/sqft")
+                derived.update(expanded)
+                warnings.append("Compound property cell expanded; original preserved")
+            elif target == "primary_phone":
+                data[target] = normalize_phone(value)
+            elif target == "email":
+                value = value.lower()
+                if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
+                    raise ValueError("Invalid email")
+                data[target] = value
+            elif target == "state":
+                state = STATES.get(value.lower(), value.upper())
+                if state not in STATES.values():
+                    raise ValueError("Unknown US state or territory")
+                data[target] = state
+            elif target == "zip_code":
+                if not re.fullmatch(r"\d{1,5}(-\d{4})?", value):
+                    raise ValueError("Invalid ZIP code")
+                data[target] = value.zfill(5) if "-" not in value else value
+            elif target in DATE_FIELDS:
+                data[target] = parse_datetime(value, zone, date_order).isoformat()
+            elif target in PRICE_FIELDS | INT_FIELDS | EXTRA_NUMERIC:
+                number, warning, label = labelled_amount(value)
+                if warning:
+                    warnings.append(FIELDS[target] + ": " + warning)
+                if label:
+                    data.setdefault("_value_sources", {})[target] = (
+                        label + " labelled source cell; unverified reference"
+                    )
+                    if target == "asking_price":
+                        warnings.append("A vendor-labelled value is not a verified seller asking price")
+                        number = None
+                if number is not None and target in INT_FIELDS and not number.is_integer():
+                    raise ValueError("An integer is required")
+                if (
+                    number is not None
+                    and target in {"year_built", "tax_year"}
+                    and not 1600 <= number <= datetime.now().year + 1
+                ):
+                    raise ValueError("Year is outside the supported explicit range")
+                data[target] = (int(number) if target in INT_FIELDS else number) if number is not None else None
+            elif target == "source_do_not_contact":
+                if value.lower() in {"true", "yes", "y", "1", "dnc", "do not contact"}:
+                    data[target] = True
+                elif value.lower() in {"false", "no", "n", "0", "clear"}:
+                    data[target] = False
+                elif value.lower() == "unknown":
+                    data[target] = None
+                else:
+                    raise ValueError("Use yes/no, true/false or unknown for DNC")
+            else:
+                data[target] = value
+        except (ValueError, TypeError) as exc:
+            errors.append(f"{FIELDS.get(target, target)}: {exc}")
+    for field, value in derived.items():
+        if data.get(field) is not None and data[field] != value:
+            errors.append("Conflicting compound/separate " + FIELDS[field])
         else:
-            warnings.append(f"{field_name}: '{text}' is not a valid date")
-            return None, warnings, False
-        year = int(m.group(3))
-        if year < 100:
-            year += 2000 if year < 70 else 1900
-        try:
-            return date(year, month, day), warnings, ambiguous
-        except ValueError:
-            warnings.append(f"{field_name}: '{text}' is not a valid calendar date")
-            return None, warnings, False
-
-    try:
-        parsed = date_parser.parse(text, fuzzy=False)
-        return parsed.date(), warnings, False
-    except (ValueError, OverflowError):
-        pass
-    try:
-        parsed = date_parser.parse(text, fuzzy=True)
-        warnings.append(f"{field_name}: '{text}' was interpreted loosely as {parsed.date().isoformat()}")
-        return parsed.date(), warnings, True
-    except (ValueError, OverflowError):
-        warnings.append(f"{field_name}: could not parse date '{text}'")
-        return None, warnings, False
-
-
-def parse_datetime_flexible(
-    value: Any, field_name: str = "datetime"
-) -> tuple[Optional[datetime], list[str], bool]:
-    if is_empty(value):
-        return None, [], False
-    if isinstance(value, datetime):
-        return value.replace(tzinfo=None), [], False
-    if isinstance(value, date):
-        return datetime(value.year, value.month, value.day), [], False
-    epoch = _epoch_to_datetime(value)
-    if epoch is not None:
-        return epoch, [], False
-    text = str(value).strip()
-    d, warnings, ambiguous = parse_date_flexible(text, field_name)
-    if d and not re.search(r"\d:\d", text):
-        return datetime(d.year, d.month, d.day), warnings, ambiguous
-    if d is None:
-        return None, warnings, ambiguous
-    try:
-        parsed = date_parser.parse(text)
-        return parsed.replace(tzinfo=None), warnings, ambiguous
-    except (ValueError, OverflowError):
-        warnings.append(f"{field_name}: could not parse time from '{text}'")
-        return datetime(d.year, d.month, d.day), warnings, ambiguous
+            data[field] = value
+    if data.get("street_address"):
+        split = split_full_address(data["street_address"])
+        if split:
+            for field, value in split.items():
+                if field != "street_address" and data.get(field) and str(data[field]).lower() != value.lower():
+                    errors.append("Full address conflicts with " + FIELDS[field])
+                elif not data.get(field) or field == "street_address":
+                    data[field] = value
+            warnings.append("Full property address split using explicit city/state/ZIP separators")
+    if not data.get("full_name"):
+        data["full_name"] = " ".join(x for x in [data.get("first_name"), data.get("last_name")] if x)
+    if not data.get("full_name"):
+        if data.get("street_address"):
+            data["record_kind"] = "property_only"
+            warnings.append("Owner identity unknown: property-only prospect, not cleared for drafting")
+        else:
+            errors.append("A seller name or property address is required")
+    if not any(data.get(k) for k in ["primary_phone", "email", "street_address", "external_id"]):
+        errors.append("At least a phone, email, property address or external ID is required")
+    for field in ["primary_phone", "street_address", "original_created_at"]:
+        if not data.get(field):
+            warnings.append(f"Missing {FIELDS[field].lower()}")
+    if data.get("source_do_not_contact") is None:
+        warnings.append("Contact restriction unknown; not cleared for outreach")
+    data["normalized_address"] = normalize_address(data)
+    return data, errors, warnings
 
 
-def normalize_address_line(value: Any) -> Optional[str]:
-    raw = clean_str(value)
-    if not raw:
-        return None
-    return raw
-
-
-def address_key(address_line1: Any, city: Any = None, state: Any = None, zip_code: Any = None) -> Optional[str]:
-    """Stable key used for duplicate detection."""
-    line = clean_str(address_line1)
-    if not line:
-        return None
-    line = line.lower().rstrip(".")
-    line = re.sub(r"[.,]", " ", line)
-    words = line.split()
-    out = []
-    for word in words:
-        out.append(STREET_SUFFIXES.get(word, _DIRECTIONALS.get(word, word)))
-    line = " ".join(out)
-    line = re.sub(r"\s+", " ", line).strip()
-    city_s = (clean_str(city) or "").lower()
-    state_s = (clean_str(state) or "").lower()
-    zip_s = re.sub(r"\D", "", clean_str(zip_code) or "")
-    if not city_s and not state_s and not zip_s:
-        return line or None
-    return f"{line}|{city_s}|{state_s}|{zip_s}"
-
-
-_CSV_FORMULA = re.compile(r"^[\t\r\n=+\-@]")
-
-
-def csv_safe(value: Any) -> Any:
-    """Neutralise spreadsheet formula injection in CSV exports."""
+def safe_csv_value(value):
     if value is None:
         return ""
-    if isinstance(value, (int, float, bool)):
-        return value
-    text = str(value)
-    if _CSV_FORMULA.match(text):
-        return "'" + text
-    return text
+    s = str(value)
+    # Formula detection must ignore leading spaces/control characters as spreadsheet software may do.
+    if s.lstrip(" \t\r\n").startswith(("=", "+", "-", "@")) or s.startswith(("\t", "\r", "\n")):
+        return "'" + s
+    return s
 
 
-def to_utc_naive(dt: Optional[datetime]) -> Optional[datetime]:
-    if dt is None:
-        return None
-    if dt.tzinfo is not None:
-        return dt.astimezone(tz=None).replace(tzinfo=None) if False else dt.replace(tzinfo=None)
-    return dt
-
-
-def days_between(a: datetime, b: datetime) -> int:
-    return abs((b.date() - a.date()).days)
-
-
-def clamp_age_days(dt: Optional[datetime], now: datetime) -> Optional[int]:
-    if dt is None:
-        return None
-    return max(0, (now.date() - dt.date()).days)
-
-
-def relative_time_words(dt: Optional[datetime], now: Optional[datetime] = None) -> Optional[str]:
-    if dt is None:
-        return None
-    now = now or datetime.utcnow()
-    delta = now - dt
-    seconds = delta.total_seconds()
-    if seconds < 0:
-        ahead = -seconds
-        if ahead < 3600:
-            return f"in {int(ahead // 60)}m"
-        if ahead < 86400:
-            return f"in {int(ahead // 3600)}h"
-        return f"in {int(ahead // 86400)}d"
-    if seconds < 3600:
-        return f"{int(seconds // 60)}m ago"
-    if seconds < 86400:
-        return f"{int(seconds // 3600)}h ago"
-    return f"{int(seconds // 86400)}d ago"
-
-
-def add_days(dt: datetime, days: float) -> datetime:
-    return dt + timedelta(days=days)
+def csv_bytes(rows, headers):
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow([safe_csv_value(x) for x in headers])
+    for row in rows:
+        writer.writerow([safe_csv_value(row.get(k)) for k in headers])
+    return ("\ufeff" + output.getvalue()).encode("utf-8")

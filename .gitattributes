@@ -1,0 +1,7 @@
+# Keep Windows launchers and Excel sample line endings byte-for-byte.
+* text=auto eol=lf
+*.cmd -text
+*.csv -text
+*.png binary
+*.xlsx binary
+*.sh text eol=lf

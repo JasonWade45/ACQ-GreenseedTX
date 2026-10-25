@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="20" failures="0" errors="0" time="2.933095268">
+    <testsuite name="src/intelligence.test.tsx" timestamp="2026-10-25T11:28:14.829Z" hostname="e2b.local" tests="4" failures="0" errors="0" skipped="0" time="0.876256566">
+        <testcase classname="src/intelligence.test.tsx" name="requires approval before any cloud execution request" time="0.350690379">
+        </testcase>
+        <testcase classname="src/intelligence.test.tsx" name="does not allow an approved but empty evidence selection" time="0.163142048">
+        </testcase>
+        <testcase classname="src/intelligence.test.tsx" name="keeps cloud draft preparation disabled for DNC profiles" time="0.026006067">
+        </testcase>
+        <testcase classname="src/intelligence.test.tsx" name="clears replacement credentials after private backend save" time="0.334485722">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/unified.test.tsx" timestamp="2026-10-25T11:28:14.831Z" hostname="e2b.local" tests="4" failures="0" errors="0" skipped="0" time="0.507279265">
+        <testcase classname="src/unified.test.tsx" name="withholds restricted openers and persists reviewed preparation, never a contact event" time="0.325287314">
+        </testcase>
+        <testcase classname="src/unified.test.tsx" name="requires an explicit creation click and an explicit stale-plan regeneration" time="0.062960779">
+        </testcase>
+        <testcase classname="src/unified.test.tsx" name="research opens no external portal automatically and fabricates no sold comps" time="0.029806708">
+        </testcase>
+        <testcase classname="src/unified.test.tsx" name="migration decisions are blank by default and source DB upload is never offered" time="0.08792161">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/workspace.test.tsx" timestamp="2026-10-25T11:28:14.832Z" hostname="e2b.local" tests="12" failures="0" errors="0" skipped="0" time="1.549559437">
+        <testcase classname="src/workspace.test.tsx" name="database-backed dashboard &gt; shows a loading state before data arrives" time="0.086954282">
+        </testcase>
+        <testcase classname="src/workspace.test.tsx" name="database-backed dashboard &gt; loads real metric responses and links to filtered lead lists" time="0.198676253">
+        </testcase>
+        <testcase classname="src/workspace.test.tsx" name="database-backed dashboard &gt; displays network failure rather than fake numbers" time="0.021387182">
+        </testcase>
+        <testcase classname="src/workspace.test.tsx" name="searches and filters the seller table" time="0.530320872">
+        </testcase>
+        <testcase classname="src/workspace.test.tsx" name="opens a lead profile without inventing contact history" time="0.051153392">
+        </testcase>
+        <testcase classname="src/workspace.test.tsx" name="blocks draft preparation for unknown contact restrictions" time="0.147426442">
+        </testcase>
+        <testcase classname="src/workspace.test.tsx" name="renders the normalized import preview and requires explicit approval" time="0.204085018">
+        </testcase>
+        <testcase classname="src/workspace.test.tsx" name="distinguishes a sync that has never run from a successful one" time="0.036815805">
+        </testcase>
+        <testcase classname="src/workspace.test.tsx" name="follow-up completion requires and sends only the recorded local outcome" time="0.073685335">
+        </testcase>
+        <testcase classname="src/workspace.test.tsx" name="reports an unavailable percentage instead of dividing by zero" time="0.039852091">
+        </testcase>
+        <testcase classname="src/workspace.test.tsx" name="requires a workspace password when remote access authentication is enabled" time="0.018689803">
+        </testcase>
+        <testcase classname="src/workspace.test.tsx" name="requires regeneration before copying a stale source-context draft" time="0.138159777">
+        </testcase>
+    </testsuite>
+</testsuites>

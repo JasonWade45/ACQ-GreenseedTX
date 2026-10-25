@@ -1,418 +1,322 @@
-"""Database schema.
-
-Normalized seller-lead model for the acquisitions assistant. REsimpli remains
-the external source of truth; this database is a local read-model plus local
-work-queue / AI layer. `external_id` values preserve REsimpli ObjectIds.
-"""
-from __future__ import annotations
-
-import uuid
-from datetime import date, datetime
-from typing import Any, Optional
-
-from sqlalchemy import (
-    Boolean,
-    Date,
-    DateTime,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
+from typing import Optional
+from datetime import datetime
+from sqlalchemy import String, Text, Integer, Float, Boolean, ForeignKey, JSON, UniqueConstraint, CheckConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.types import JSON
-
-from app.db import Base
+from .db import Base, UTCDateTime, utcnow
 
 
-def _uuid() -> str:
-    return uuid.uuid4().hex
-
-
-class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
-
-
-# --------------------------------------------------------------------------- #
-# Core CRM records
-# --------------------------------------------------------------------------- #
-class Lead(Base, TimestampMixin):
-    __tablename__ = "leads"
-    __table_args__ = (
-        Index("ix_leads_stage", "pipeline_stage"),
-        Index("ix_leads_contact_status", "contact_status"),
-        Index("ix_leads_source", "lead_source"),
-        Index("ix_leads_manager", "assigned_manager"),
-        Index("ix_leads_next_followup", "next_followup_at"),
-        Index("ix_leads_phone_norm", "phone_normalized"),
-        Index("ix_leads_email_norm", "email_normalized"),
-        Index("ix_leads_origin", "origin"),
-    )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    external_id: Mapped[Optional[str]] = mapped_column(String(64), unique=True, nullable=True)
-    first_name: Mapped[Optional[str]] = mapped_column(String(120))
-    last_name: Mapped[Optional[str]] = mapped_column(String(120))
-    full_name: Mapped[Optional[str]] = mapped_column(String(255), index=True)
-    primary_phone: Mapped[Optional[str]] = mapped_column(String(40))
-    phone_normalized: Mapped[Optional[str]] = mapped_column(String(20))
-    email: Mapped[Optional[str]] = mapped_column(String(255))
-    email_normalized: Mapped[Optional[str]] = mapped_column(String(255))
-    lead_source: Mapped[Optional[str]] = mapped_column(String(120))
-    original_creation_date: Mapped[Optional[date]] = mapped_column(Date)
-    pipeline_stage: Mapped[str] = mapped_column(String(40), default="new", nullable=False)
-    source_status: Mapped[Optional[str]] = mapped_column(String(120))
-    contact_status: Mapped[str] = mapped_column(String(40), default="never_contacted", nullable=False)
-    assigned_manager: Mapped[Optional[str]] = mapped_column(String(160))
-    last_contact_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    next_followup_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    do_not_contact: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    is_hot_lead: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    tags: Mapped[Optional[list]] = mapped_column(JSON, default=list)
-    notes: Mapped[Optional[str]] = mapped_column(Text)
-    # provenance
-    origin: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)  # resimpli|import|manual|seed
-    import_batch_id: Mapped[Optional[str]] = mapped_column(String(32), ForeignKey("import_batches.id"), nullable=True)
-    raw_payload: Mapped[Optional[dict]] = mapped_column(JSON)
-    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    analysis_input_hash: Mapped[Optional[str]] = mapped_column(String(64))
-
-    properties: Mapped[list["LeadProperty"]] = relationship(
-        back_populates="lead", cascade="all, delete-orphan", lazy="selectin"
-    )
-    activities: Mapped[list["Activity"]] = relationship(
-        back_populates="lead", cascade="all, delete-orphan", order_by="Activity.occurred_at.desc()"
-    )
-    appointments: Mapped[list["Appointment"]] = relationship(
-        back_populates="lead", cascade="all, delete-orphan", order_by="Appointment.scheduled_at.desc()"
-    )
-    followups: Mapped[list["Followup"]] = relationship(
-        back_populates="lead", cascade="all, delete-orphan", order_by="Followup.due_at.asc()"
-    )
-    insights: Mapped[list["AiInsight"]] = relationship(
-        back_populates="lead", cascade="all, delete-orphan", order_by="AiInsight.created_at.desc()"
-    )
-    drafts: Mapped[list["MessageDraft"]] = relationship(
-        back_populates="lead", cascade="all, delete-orphan", order_by="MessageDraft.created_at.desc()"
-    )
-    call_plans: Mapped[list["CallPlan"]] = relationship(
-        back_populates="lead", cascade="all, delete-orphan", order_by="CallPlan.created_at.desc()"
-    )
-
-    @property
-    def display_name(self) -> str:
-        if self.full_name:
-            return self.full_name
-        return " ".join(p for p in (self.first_name, self.last_name) if p) or "(no name)"
-
-
-class Property(Base, TimestampMixin):
-    __tablename__ = "properties"
-    __table_args__ = (Index("ix_properties_address_norm", "address_normalized"),)
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    external_id: Mapped[Optional[str]] = mapped_column(String(64), unique=True, nullable=True)
-    address_line1: Mapped[Optional[str]] = mapped_column(String(255))
-    address_line2: Mapped[Optional[str]] = mapped_column(String(255))
-    city: Mapped[Optional[str]] = mapped_column(String(120))
-    state: Mapped[Optional[str]] = mapped_column(String(40))
-    zip_code: Mapped[Optional[str]] = mapped_column(String(20))
-    address_normalized: Mapped[Optional[str]] = mapped_column(String(400))
-    property_type: Mapped[Optional[str]] = mapped_column(String(60))
-    bedrooms: Mapped[Optional[float]] = mapped_column(Float)
-    bathrooms: Mapped[Optional[float]] = mapped_column(Float)
-    square_footage: Mapped[Optional[float]] = mapped_column(Float)
-    year_built: Mapped[Optional[int]] = mapped_column(Integer)
-    county: Mapped[Optional[str]] = mapped_column(String(120))
-    latitude: Mapped[Optional[float]] = mapped_column(Float)
-    longitude: Mapped[Optional[float]] = mapped_column(Float)
-    lot_acres: Mapped[Optional[float]] = mapped_column(Float)
-    asking_price: Mapped[Optional[float]] = mapped_column(Float)
-    estimated_value: Mapped[Optional[float]] = mapped_column(Float)
-    repair_estimate: Mapped[Optional[float]] = mapped_column(Float)
-    extra: Mapped[Optional[dict]] = mapped_column(JSON)
-
-    leads: Mapped[list["LeadProperty"]] = relationship(
-        back_populates="property", cascade="all, delete-orphan", lazy="selectin"
-    )
-
-    @property
-    def formatted_address(self) -> str:
-        parts = [self.address_line1, self.address_line2]
-        city_state = ", ".join(p for p in (self.city, self.state) if p)
-        if city_state:
-            parts.append(city_state)
-        if self.zip_code:
-            parts.append(self.zip_code)
-        return ", ".join(p.strip() for p in parts if p and p.strip())
+class PipelineStage(Base):
+    __tablename__ = "pipeline_stages"
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    label: Mapped[str] = mapped_column(String(100), unique=True)
+    position: Mapped[int] = mapped_column(Integer)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class LeadProperty(Base):
     __tablename__ = "lead_properties"
-    __table_args__ = (UniqueConstraint("lead_id", "property_id", name="uq_lead_property"),)
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    lead_id: Mapped[str] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), nullable=False)
-    property_id: Mapped[str] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"), nullable=False)
-    role: Mapped[Optional[str]] = mapped_column(String(40))  # owner | seller | co_seller
-    is_primary: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    lead: Mapped["Lead"] = relationship(back_populates="properties")
-    property: Mapped["Property"] = relationship(back_populates="leads")
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"), primary_key=True)
+    relationship_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
-# --------------------------------------------------------------------------- #
-# Activities / appointments / follow-ups
-# --------------------------------------------------------------------------- #
+class Lead(Base):
+    __tablename__ = "leads"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    external_id: Mapped[Optional[str]] = mapped_column(String(200), unique=True, index=True)
+    first_name: Mapped[Optional[str]] = mapped_column(String(150))
+    last_name: Mapped[Optional[str]] = mapped_column(String(150))
+    full_name: Mapped[str] = mapped_column(String(300), index=True)
+    primary_phone: Mapped[Optional[str]] = mapped_column(String(40), index=True)
+    email: Mapped[Optional[str]] = mapped_column(String(320), index=True)
+    lead_source: Mapped[Optional[str]] = mapped_column(String(200), index=True)
+    original_created_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime(), index=True)
+    stage_code: Mapped[str] = mapped_column(ForeignKey("pipeline_stages.code"), default="new", index=True)
+    local_stage_override: Mapped[bool] = mapped_column(Boolean, default=False)
+    source_status: Mapped[Optional[str]] = mapped_column(String(200))
+    contact_status: Mapped[str] = mapped_column(String(40), default="unknown", index=True)
+    contact_outcome: Mapped[Optional[str]] = mapped_column(String(80))
+    assigned_manager: Mapped[Optional[str]] = mapped_column(String(200), index=True)
+    last_contact_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    next_followup_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime(), index=True)
+    source_do_not_contact: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    local_do_not_contact: Mapped[bool] = mapped_column(Boolean, default=False)
+    restriction_reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
+    restriction_evidence: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+    synced_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    detail_synced_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    source_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    source_kind: Mapped[str] = mapped_column(String(40), default="local")
+    source_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    properties: Mapped[list["Property"]] = relationship(secondary="lead_properties", lazy="selectin")
+    activities: Mapped[list["Activity"]] = relationship(back_populates="lead", cascade="all, delete-orphan")
+    followups: Mapped[list["Followup"]] = relationship(back_populates="lead", cascade="all, delete-orphan")
+    __table_args__ = (CheckConstraint("contact_status IN ('unknown','not_contacted','attempted','contacted')"),)
+
+    @property
+    def do_not_contact(self):
+        return self.source_do_not_contact is True or self.local_do_not_contact
+
+    @property
+    def restriction_status(self):
+        if self.do_not_contact:
+            return "do_not_contact"
+        if self.source_do_not_contact is False or self.restriction_reviewed:
+            return "reviewed_clear"
+        return "unknown"
+
+
+class Property(Base):
+    __tablename__ = "properties"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    external_id: Mapped[Optional[str]] = mapped_column(String(200), unique=True)
+    street_address: Mapped[Optional[str]] = mapped_column(String(400), index=True)
+    city: Mapped[Optional[str]] = mapped_column(String(150))
+    state: Mapped[Optional[str]] = mapped_column(String(2), index=True)
+    zip_code: Mapped[Optional[str]] = mapped_column(String(12))
+    normalized_address: Mapped[Optional[str]] = mapped_column(String(650), index=True)
+    property_type: Mapped[Optional[str]] = mapped_column(String(100))
+    bedrooms: Mapped[Optional[int]] = mapped_column(Integer)
+    bathrooms: Mapped[Optional[float]] = mapped_column(Float)
+    square_feet: Mapped[Optional[int]] = mapped_column(Integer)
+    year_built: Mapped[Optional[int]] = mapped_column(Integer)
+    asking_price: Mapped[Optional[float]] = mapped_column(Float)
+    estimated_value: Mapped[Optional[float]] = mapped_column(Float)
+    repair_estimate: Mapped[Optional[float]] = mapped_column(Float)
+    property_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
 class Activity(Base):
     __tablename__ = "activities"
-    __table_args__ = (
-        Index("ix_activities_lead", "lead_id"),
-        Index("ix_activities_occurred", "occurred_at"),
-        Index("ix_activities_outcome", "outcome"),
-    )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    external_id: Mapped[Optional[str]] = mapped_column(String(64), unique=True, nullable=True)
-    lead_id: Mapped[Optional[str]] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
-    property_id: Mapped[Optional[str]] = mapped_column(ForeignKey("properties.id", ondelete="SET NULL"))
-    activity_type: Mapped[Optional[str]] = mapped_column(String(60))  # call|text|email|note|task|status_change|other
-    direction: Mapped[Optional[str]] = mapped_column(String(20))  # inbound|outbound|internal
-    outcome: Mapped[Optional[str]] = mapped_column(String(60))
-    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    recorded_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    source: Mapped[str] = mapped_column(String(20), default="local", nullable=False)  # resimpli|local|import
-    summary: Mapped[Optional[str]] = mapped_column(Text)
-    detail: Mapped[Optional[str]] = mapped_column(Text)
-    raw_payload: Mapped[Optional[dict]] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-
-    lead: Mapped[Optional["Lead"]] = relationship(back_populates="activities")
+    id: Mapped[int] = mapped_column(primary_key=True)
+    external_id: Mapped[Optional[str]] = mapped_column(String(200))
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    property_id: Mapped[Optional[int]] = mapped_column(ForeignKey("properties.id"))
+    activity_type: Mapped[str] = mapped_column(String(60))
+    direction: Mapped[Optional[str]] = mapped_column(String(30))
+    outcome: Mapped[Optional[str]] = mapped_column(String(80))
+    occurred_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime(), index=True)
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    source: Mapped[str] = mapped_column(String(40), default="local")
+    summary: Mapped[str] = mapped_column(Text)
+    source_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    lead: Mapped[Lead] = relationship(back_populates="activities")
+    __table_args__ = (UniqueConstraint("source", "external_id", name="uq_activity_source_id"),)
 
 
 class Appointment(Base):
     __tablename__ = "appointments"
-    __table_args__ = (
-        Index("ix_appointments_lead", "lead_id"),
-        Index("ix_appointments_scheduled", "scheduled_at"),
-    )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    external_id: Mapped[Optional[str]] = mapped_column(String(64), unique=True, nullable=True)
-    lead_id: Mapped[Optional[str]] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
-    property_id: Mapped[Optional[str]] = mapped_column(ForeignKey("properties.id", ondelete="SET NULL"))
-    scheduled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    end_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    status: Mapped[str] = mapped_column(String(40), default="scheduled", nullable=False)
-    appointment_type: Mapped[Optional[str]] = mapped_column(String(60))
-    appointment_subtype: Mapped[Optional[str]] = mapped_column(String(60))
+    id: Mapped[int] = mapped_column(primary_key=True)
+    external_id: Mapped[Optional[str]] = mapped_column(String(200), unique=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    starts_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+    status: Mapped[str] = mapped_column(String(40), default="scheduled")
+    source_status: Mapped[Optional[str]] = mapped_column(String(80))
+    local_result: Mapped[Optional[str]] = mapped_column(String(80))
     notes: Mapped[Optional[str]] = mapped_column(Text)
-    source: Mapped[str] = mapped_column(String(20), default="local", nullable=False)
-    raw_payload: Mapped[Optional[dict]] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
-
-    lead: Mapped[Optional["Lead"]] = relationship(back_populates="appointments")
+    source: Mapped[str] = mapped_column(String(40), default="local")
+    source_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class Followup(Base):
     __tablename__ = "followups"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    property_id: Mapped[Optional[int]] = mapped_column(ForeignKey("properties.id"))
+    due_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime(), index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=50)
+    reason: Mapped[str] = mapped_column(Text)
+    suggested_action: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    completion_outcome: Mapped[Optional[str]] = mapped_column(String(80))
+    creation_source: Mapped[str] = mapped_column(String(40), default="manual")
+    ai_suggested: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    lead: Mapped[Lead] = relationship(back_populates="followups")
     __table_args__ = (
-        Index("ix_followups_status_due", "status", "due_at"),
-        Index("ix_followups_lead", "lead_id"),
+        CheckConstraint("status IN ('pending','completed','cancelled')"),
+        CheckConstraint("priority >= 0 AND priority <= 100"),
     )
 
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    lead_id: Mapped[str] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), nullable=False)
-    property_id: Mapped[Optional[str]] = mapped_column(ForeignKey("properties.id", ondelete="SET NULL"))
-    due_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    priority: Mapped[int] = mapped_column(Integer, default=3, nullable=False)  # 1 low .. 5 urgent
-    reason: Mapped[Optional[str]] = mapped_column(String(255))
-    suggested_next_action: Mapped[Optional[str]] = mapped_column(String(255))
-    status: Mapped[str] = mapped_column(String(20), default="open", nullable=False)  # open|completed|cancelled
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    completion_outcome: Mapped[Optional[str]] = mapped_column(String(60))
-    completion_notes: Mapped[Optional[str]] = mapped_column(Text)
-    creation_source: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)  # manual|ai|rule|import|sync
-    ai_suggested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
 
-    lead: Mapped["Lead"] = relationship(back_populates="followups")
-
-
-# --------------------------------------------------------------------------- #
-# AI layer
-# --------------------------------------------------------------------------- #
-class AiInsight(Base):
+class AIInsight(Base):
     __tablename__ = "ai_insights"
-    __table_args__ = (Index("ix_ai_insights_lead", "lead_id"),)
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    lead_id: Mapped[str] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), nullable=False)
-    summary: Mapped[Optional[str]] = mapped_column(Text)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    summary: Mapped[str] = mapped_column(Text)
     seller_motivation: Mapped[Optional[str]] = mapped_column(Text)
-    urgency_indicators: Mapped[Optional[list]] = mapped_column(JSON)
-    price_information: Mapped[Optional[dict]] = mapped_column(JSON)
-    objections: Mapped[Optional[list]] = mapped_column(JSON)
-    missing_information: Mapped[Optional[list]] = mapped_column(JSON)
-    recommended_next_action: Mapped[Optional[str]] = mapped_column(Text)
-    suggested_followup_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    evidence: Mapped[Optional[list]] = mapped_column(JSON)
-    confidence: Mapped[Optional[str]] = mapped_column(String(20))  # low|medium|high
-    engine: Mapped[str] = mapped_column(String(20), default="rules", nullable=False)  # rules|ollama
-    model: Mapped[Optional[str]] = mapped_column(String(120))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-
-    lead: Mapped["Lead"] = relationship(back_populates="insights")
-
-
-class MessageDraft(Base):
-    __tablename__ = "message_drafts"
-    __table_args__ = (Index("ix_message_drafts_lead", "lead_id"),)
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    lead_id: Mapped[str] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), nullable=False)
-    channel_hint: Mapped[str] = mapped_column(String(20), default="text", nullable=False)
-    body: Mapped[str] = mapped_column(Text, nullable=False)
-    context_used: Mapped[Optional[list]] = mapped_column(JSON)
-    refusal_reason: Mapped[Optional[str]] = mapped_column(Text)
-    engine: Mapped[str] = mapped_column(String(20), default="rules", nullable=False)
-    model: Mapped[Optional[str]] = mapped_column(String(120))
-    edited_body: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-
-    lead: Mapped["Lead"] = relationship(back_populates="drafts")
+    urgency_indicators: Mapped[list] = mapped_column(JSON, default=list)
+    price_information: Mapped[dict] = mapped_column(JSON, default=dict)
+    objections: Mapped[list] = mapped_column(JSON, default=list)
+    missing_information: Mapped[list] = mapped_column(JSON, default=list)
+    recommended_action: Mapped[str] = mapped_column(Text)
+    suggested_timing: Mapped[Optional[str]] = mapped_column(String(200))
+    evidence: Mapped[list] = mapped_column(JSON, default=list)
+    facts: Mapped[dict] = mapped_column(JSON, default=dict)
+    conflicts: Mapped[list] = mapped_column(JSON, default=list)
+    analysis_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    model_id: Mapped[str] = mapped_column(String(200))
+    context_hash: Mapped[str] = mapped_column(String(64), index=True)
+    confidence: Mapped[str] = mapped_column(String(40), default="limited")
 
 
-class CallPlan(Base):
-    """Pre-call script + question checklist for a lead. Advisory only; never sent."""
-
-    __tablename__ = "call_plans"
-    __table_args__ = (Index("ix_call_plans_lead", "lead_id"),)
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    lead_id: Mapped[str] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), nullable=False)
-    opener: Mapped[Optional[str]] = mapped_column(Text)
-    talking_points: Mapped[Optional[list]] = mapped_column(JSON)  # [{"text": str, "used": bool}]
-    questions: Mapped[Optional[list]] = mapped_column(JSON)  # [{"text": str, "asked": bool, "required": bool}]
-    do_not_say: Mapped[Optional[list]] = mapped_column(JSON)  # [str]
-    context_used: Mapped[Optional[list]] = mapped_column(JSON)
-    refusal_reason: Mapped[Optional[str]] = mapped_column(Text)
-    engine: Mapped[str] = mapped_column(String(20), default="rules", nullable=False)  # rules|ollama|groq
-    model: Mapped[Optional[str]] = mapped_column(String(120))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-
-    lead: Mapped["Lead"] = relationship(back_populates="call_plans")
+class Draft(Base):
+    __tablename__ = "drafts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    body: Mapped[str] = mapped_column(Text)
+    context: Mapped[list] = mapped_column(JSON, default=list)
+    model_id: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
 
 
-# --------------------------------------------------------------------------- #
-# Import / sync / audit / settings
-# --------------------------------------------------------------------------- #
 class ImportBatch(Base):
     __tablename__ = "import_batches"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    filename: Mapped[str] = mapped_column(String(300))
+    checksum: Mapped[str] = mapped_column(String(64), unique=True)
+    sheets: Mapped[dict] = mapped_column(JSON, default=dict)
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    state: Mapped[str] = mapped_column(String(40), default="uploaded")
+    counts: Mapped[dict] = mapped_column(JSON, default=dict)
+    errors: Mapped[list] = mapped_column(JSON, default=list)
+    mapping_config: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    checksum: Mapped[Optional[str]] = mapped_column(String(64), index=True)
-    sheet_name: Mapped[Optional[str]] = mapped_column(String(255))
-    status: Mapped[str] = mapped_column(String(30), default="preview", nullable=False)
-    # preview | committed | failed | skipped_duplicate_file | partially_committed
-    total_rows: Mapped[int] = mapped_column(Integer, default=0)
-    new_count: Mapped[int] = mapped_column(Integer, default=0)
-    duplicate_count: Mapped[int] = mapped_column(Integer, default=0)
-    warning_count: Mapped[int] = mapped_column(Integer, default=0)
-    rejected_count: Mapped[int] = mapped_column(Integer, default=0)
-    imported_count: Mapped[int] = mapped_column(Integer, default=0)
-    updated_count: Mapped[int] = mapped_column(Integer, default=0)
-    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+
+class ImportRow(Base):
+    __tablename__ = "import_rows"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id", ondelete="CASCADE"), index=True)
+    sheet: Mapped[str] = mapped_column(String(200))
+    row_number: Mapped[int] = mapped_column(Integer)
+    original: Mapped[dict] = mapped_column(JSON)
+    normalized: Mapped[dict] = mapped_column(JSON, default=dict)
+    errors: Mapped[list] = mapped_column(JSON, default=list)
+    warnings: Mapped[list] = mapped_column(JSON, default=list)
+    duplicate_kind: Mapped[str] = mapped_column(String(80), default="unreviewed")
+    candidates: Mapped[list] = mapped_column(JSON, default=list)
+    resolution: Mapped[Optional[str]] = mapped_column(String(40))
+    state: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    lead_id: Mapped[Optional[int]] = mapped_column(ForeignKey("leads.id"))
+    external_id: Mapped[Optional[str]] = mapped_column(String(200))
     error: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-
-    records: Mapped[list["ImportRecord"]] = relationship(
-        back_populates="batch", cascade="all, delete-orphan", order_by="ImportRecord.row_number"
-    )
-
-
-class ImportRecord(Base):
-    __tablename__ = "import_records"
-    __table_args__ = (
-        Index("ix_import_records_batch_status", "batch_id", "status"),
-        UniqueConstraint("batch_id", "row_number", name="uq_batch_row"),
-    )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    batch_id: Mapped[str] = mapped_column(ForeignKey("import_batches.id", ondelete="CASCADE"), nullable=False)
-    row_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[str] = mapped_column(String(30), nullable=False)
-    # new|likely_duplicate|exact_duplicate|same_seller_diff_property|
-    # same_property_diff_seller|existing_resimpli|rejected|imported|failed|skipped
-    reason: Mapped[Optional[str]] = mapped_column(String(400))
-    payload: Mapped[Optional[dict]] = mapped_column(JSON)
-    warnings: Mapped[Optional[list]] = mapped_column(JSON)
-    lead_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    external_ref: Mapped[Optional[str]] = mapped_column(String(120))
-    error: Mapped[Optional[str]] = mapped_column(Text)
-
-    batch: Mapped["ImportBatch"] = relationship(back_populates="records")
+    __table_args__ = (UniqueConstraint("batch_id", "sheet", "row_number", name="uq_import_row"),)
 
 
 class MappingTemplate(Base):
     __tablename__ = "mapping_templates"
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
-    columns: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(150), unique=True)
+    mapping: Mapped[dict] = mapped_column(JSON)
+    date_order: Mapped[str] = mapped_column(String(10), default="reject")
 
 
 class SyncRun(Base):
     __tablename__ = "sync_runs"
-    __table_args__ = (Index("ix_sync_runs_started", "started_at"),)
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    result: Mapped[str] = mapped_column(String(20), default="running", nullable=False)
-    # running|success|partial|failed
-    trigger: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
-    records_fetched: Mapped[int] = mapped_column(Integer, default=0)
-    created_count: Mapped[int] = mapped_column(Integer, default=0)
-    updated_count: Mapped[int] = mapped_column(Integer, default=0)
-    skipped_count: Mapped[int] = mapped_column(Integer, default=0)
-    failed_count: Mapped[int] = mapped_column(Integer, default=0)
-    error: Mapped[Optional[str]] = mapped_column(Text)
-    detail: Mapped[Optional[dict]] = mapped_column(JSON)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    result: Mapped[str] = mapped_column(String(30), default="running", index=True)
+    mode: Mapped[str] = mapped_column(String(30))
+    fetched: Mapped[int] = mapped_column(Integer, default=0)
+    created: Mapped[int] = mapped_column(Integer, default=0)
+    updated: Mapped[int] = mapped_column(Integer, default=0)
+    skipped: Mapped[int] = mapped_column(Integer, default=0)
+    failed: Mapped[int] = mapped_column(Integer, default=0)
+    errors: Mapped[list] = mapped_column(JSON, default=list)
+    resources: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class AuditLog(Base):
     __tablename__ = "audit_log"
-    __table_args__ = (Index("ix_audit_created", "created_at"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[Optional[int]] = mapped_column(ForeignKey("leads.id"), index=True)
+    action: Mapped[str] = mapped_column(String(100))
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    actor: Mapped[str] = mapped_column(String(80), default="local_user")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
 
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    action: Mapped[str] = mapped_column(String(80), nullable=False)
-    entity_type: Mapped[Optional[str]] = mapped_column(String(40))
-    entity_id: Mapped[Optional[str]] = mapped_column(String(64))
-    detail: Mapped[Optional[dict]] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+class StageHistory(Base):
+    __tablename__ = "stage_history"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    from_stage: Mapped[Optional[str]] = mapped_column(String(64))
+    to_stage: Mapped[str] = mapped_column(String(64))
+    changed_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    source: Mapped[str] = mapped_column(String(40))
 
 
 class AppSetting(Base):
     __tablename__ = "app_settings"
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON)
 
-    key: Mapped[str] = mapped_column(String(80), primary_key=True)
-    value: Mapped[Any] = mapped_column(JSON, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+
+Index("ix_followup_state_due", Followup.status, Followup.due_at)
+Index("ix_activity_lead_time", Activity.lead_id, Activity.occurred_at)
+
+
+class CloudRequest(Base):
+    """One explicitly reviewed cloud request; never a communication/outreach job."""
+
+    __tablename__ = "cloud_requests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    provider: Mapped[str] = mapped_column(String(30), default="groq")
+    purpose: Mapped[str] = mapped_column(String(20))
+    model_id: Mapped[str] = mapped_column(String(100))
+    state: Mapped[str] = mapped_column(String(30), default="pending_review", index=True)
+    context_hash: Mapped[str] = mapped_column(String(64))
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    records: Mapped[list] = mapped_column(JSON, default=list)
+    source_map: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    usage: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    started_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    __table_args__ = (
+        CheckConstraint("purpose IN ('analyze','notes','draft')"),
+        CheckConstraint(
+            "state IN ('pending_review','running','completed','completed_stale','failed','outcome_unknown','expired')"
+        ),
     )
+
+
+class CallPlan(Base):
+    __tablename__ = "call_plans"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    context_hash: Mapped[str] = mapped_column(String(64))
+    opener: Mapped[Optional[str]] = mapped_column(Text)
+    talking_points: Mapped[list] = mapped_column(JSON, default=list)
+    questions: Mapped[list] = mapped_column(JSON, default=list)
+    guardrails: Mapped[list] = mapped_column(JSON, default=list)
+    internal_only: Mapped[bool] = mapped_column(Boolean, default=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(100), default="grounded-local-prep-v1")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class WorkspaceMerge(Base):
+    __tablename__ = "workspace_merges"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), index=True)
+    source_name: Mapped[str] = mapped_column(String(300))
+    snapshot_path: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(40), default="prepared")
+    plan: Mapped[list] = mapped_column(JSON, default=list)
+    mapping: Mapped[dict] = mapped_column(JSON, default=dict)
+    counts: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())

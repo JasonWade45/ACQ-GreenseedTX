@@ -1,0 +1,20 @@
+{
+  "release": "1.2.0",
+  "verified_at_utc": "2026-10-24T23:56:58.933201+00:00",
+  "passed": true,
+  "schema_revision": "0a6d91cf17b2",
+  "application_tables": 19,
+  "synthetic_sellers": 6,
+  "all_source_table_values_restored_exactly": true,
+  "source_unchanged": true,
+  "backup_unchanged": true,
+  "backup_overwrite_refused": true,
+  "wrong_confirmation_refused": true,
+  "incompatible_legacy_restore_refused": true,
+  "pre_restore_recovery_backup_retains_previous_target": true,
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "path_contains_spaces": true,
+  "actual_company_database_used": false,
+  "native_windows_executed": false
+}

@@ -1,0 +1,38 @@
+<testsuites id="" name="" tests="17" failures="0" skipped="0" errors="0" time="71.979349">
+<testsuite name="workspace.spec.ts" timestamp="2026-10-24T23:53:26.127Z" hostname="" tests="17" failures="0" skipped="0" time="69.997" errors="0">
+<testcase name="auth, fixture sync, database metrics and filtered navigation" classname="workspace.spec.ts" time="5.157">
+</testcase>
+<testcase name="lead profile, grounded analysis, editable copy-only draft and DNC blocking" classname="workspace.spec.ts" time="4.351">
+</testcase>
+<testcase name="CSV import preview, rejection report, approval and repeat-file idempotency" classname="workspace.spec.ts" time="3.002">
+</testcase>
+<testcase name="Excel workbook inspects multiple sheets and requires duplicate resolution" classname="workspace.spec.ts" time="1.724">
+</testcase>
+<testcase name="daily follow-up create, reschedule, completion and cancellation persist locally" classname="workspace.spec.ts" time="6.486">
+</testcase>
+<testcase name="appointments, reports and sync health are reachable with actual data" classname="workspace.spec.ts" time="1.481">
+</testcase>
+<testcase name="all application routes render without browser exceptions and mobile has no page overflow" classname="workspace.spec.ts" time="5.449">
+</testcase>
+<testcase name="dashboard accessibility: named controls and no critical/serious WCAG violations" classname="workspace.spec.ts" time="2.121">
+</testcase>
+<testcase name="keyboard command palette searches real seller records" classname="workspace.spec.ts" time="1.731">
+</testcase>
+<testcase name="reduced-motion preference disables route and card animations" classname="workspace.spec.ts" time="1.079">
+</testcase>
+<testcase name="Groq redacted analysis requires individual approval before processing" classname="workspace.spec.ts" time="4.209">
+</testcase>
+<testcase name="Groq organized notes stay proposals until separately reviewed and saved" classname="workspace.spec.ts" time="10.563">
+</testcase>
+<testcase name="Groq draft fills personal placeholders locally and remains edit-copy only" classname="workspace.spec.ts" time="5.266">
+</testcase>
+<testcase name="unified preparation persists review items without changing contact evidence" classname="workspace.spec.ts" time="5.74">
+</testcase>
+<testcase name="unified property research has known references, no fabricated sales and mobile containment" classname="workspace.spec.ts" time="2.702">
+</testcase>
+<testcase name="unified address-only compound CSV stores no invented owner and blocks drafts" classname="workspace.spec.ts" time="4.213">
+</testcase>
+<testcase name="unified local database migration requires decisions and preserves historical artifacts" classname="workspace.spec.ts" time="4.723">
+</testcase>
+</testsuite>
+</testsuites>

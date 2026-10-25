@@ -1,0 +1,245 @@
+from datetime import timedelta
+from zoneinfo import ZoneInfo
+from sqlalchemy import select, func
+from ..models import Lead, Activity, Followup, Appointment, AppSetting, AuditLog
+from ..db import utcnow
+from .leads import (
+    lead_dict,
+    activity_dict,
+    followup_dict,
+    day_bounds,
+    outreach_allowed_clause,
+    update_next_followup,
+    apply_contact_outcome,
+)
+
+SECTIONS = [
+    "overdue",
+    "today",
+    "new",
+    "callbacks",
+    "appointments",
+    "offers",
+    "negotiations",
+    "upcoming",
+    "unscheduled",
+    "missing",
+]
+SECTION_LABELS = {
+    "overdue": "Overdue",
+    "today": "Due Today",
+    "new": "New Leads Not Contacted",
+    "callbacks": "Callbacks Requested",
+    "appointments": "Appointments Today",
+    "offers": "Offers Awaiting Response",
+    "negotiations": "Negotiations Requiring Attention",
+    "upcoming": "Upcoming",
+    "unscheduled": "Unscheduled Follow-ups",
+    "missing": "Missing Critical Information",
+}
+
+
+def priority_for(lead, followup, rules, start, zone="America/New_York"):
+    score = followup.priority if followup else rules["new_lead_priority"]
+    reasons = []
+    if followup and followup.due_at and followup.due_at < start:
+        days = max(
+            1, (start.astimezone(ZoneInfo(zone)).date() - followup.due_at.astimezone(ZoneInfo(zone)).date()).days
+        )
+        bonus = min(40, days * rules["overdue_per_day"])
+        score += bonus
+        reasons.append(f"{days} calendar day(s) overdue (+{bonus})")
+    if lead.contact_outcome == "Callback Requested":
+        score += rules["callback_bonus"]
+        reasons.append(f"Explicit callback requested (+{rules['callback_bonus']})")
+    if lead.stage_code == "negotiation":
+        score += rules["negotiation_bonus"]
+        reasons.append(f"Active negotiation (+{rules['negotiation_bonus']})")
+    if lead.stage_code == "appointment_set":
+        score += rules["appointment_bonus"]
+        reasons.append(f"Appointment-stage priority (+{rules['appointment_bonus']})")
+    return min(100, score), reasons
+
+
+def daily_queue(db, zone, section=None, page=1, page_size=30):
+    start, end = day_bounds(zone)
+    rules = db.get(AppSetting, "priority_rules").value
+    leads = db.scalars(select(Lead).where(outreach_allowed_clause())).all()
+    activities = db.scalars(
+        select(Activity).order_by(Activity.occurred_at.desc().nullslast(), Activity.id.desc())
+    ).all()
+    latest, latest_offer = {}, {}
+    for a in activities:
+        latest.setdefault(a.lead_id, a)
+        if a.activity_type == "offer":
+            latest_offer.setdefault(a.lead_id, a.outcome)
+    follows = db.scalars(select(Followup).where(Followup.status == "pending")).all()
+    by_lead = {}
+    for f in follows:
+        by_lead.setdefault(f.lead_id, []).append(f)
+    appts = set(
+        db.scalars(
+            select(Appointment.lead_id).where(
+                Appointment.starts_at >= start,
+                Appointment.starts_at < end,
+                Appointment.status == "scheduled",
+                Appointment.local_result.is_(None),
+            )
+        )
+    )
+    result = {key: [] for key in SECTIONS}
+    for lead in leads:
+        payload = lead_dict(lead)
+        last = latest.get(lead.id)
+        fs = by_lead.get(lead.id, [])
+
+        def item(f=None, reason="", action="Review the lead and confirm the appropriate next step."):
+            score, factors = priority_for(lead, f, rules, start, zone)
+            if lead.restriction_status == "unknown":
+                action = "Review contact permissions before any outreach. " + action
+            return {
+                "lead": payload,
+                "followup": followup_dict(f) if f else None,
+                "last_activity": activity_dict(last) if last else None,
+                "reason": reason,
+                "suggested_action": (f.suggested_action if f and f.suggested_action else action),
+                "priority": score,
+                "priority_factors": factors,
+                "evidence_quality": "Source/user data; deterministic rule",
+                "draft_available": lead.restriction_status == "reviewed_clear"
+                and bool(last or lead.source_data.get("normalized", {}).get("seller_motivation")),
+            }
+
+        for f in fs:
+            if not f.due_at:
+                group = "unscheduled"
+            elif f.due_at < start:
+                group = "overdue"
+            elif f.due_at < end:
+                group = "today"
+            else:
+                group = "upcoming"
+            result[group].append(item(f, f.reason))
+        if lead.contact_status in {"unknown", "not_contacted"} and lead.stage_code in {
+            "new",
+            "not_contacted",
+            "unmapped",
+        }:
+            result["new"].append(
+                item(
+                    reason="No verified contact or contact attempt is recorded.",
+                    action="Review the source lead and verify contact eligibility.",
+                )
+            )
+        if lead.contact_outcome == "Callback Requested":
+            result["callbacks"].append(
+                item(
+                    fs[0] if fs else None,
+                    "An explicit callback outcome is recorded. No date is inferred if one is missing.",
+                    "Review the callback request and confirm a date.",
+                )
+            )
+        if lead.id in appts:
+            result["appointments"].append(
+                item(
+                    reason="A scheduled appointment falls on today’s business calendar.",
+                    action="Review the appointment details and preparation notes.",
+                )
+            )
+        if lead.stage_code == "offer_made" and latest_offer.get(lead.id) not in {"Offer Accepted", "Offer Rejected"}:
+            result["offers"].append(
+                item(
+                    reason="Lead is in Offer Made. Awaiting-response inference needs human review.",
+                    action="Review the actual offer and response history; confirm whether a response is outstanding.",
+                )
+            )
+        if lead.stage_code == "negotiation":
+            result["negotiations"].append(
+                item(
+                    reason="Lead is in Negotiation; no overdue date is inferred.",
+                    action="Review recorded terms and determine the next negotiation step.",
+                )
+            )
+        critical = [
+            x
+            for x in payload["missing_information"]
+            if x not in {"Email address (optional)", "Verified contact history"}
+        ]
+        if critical:
+            result["missing"].append(
+                item(
+                    reason="Missing: " + ", ".join(critical),
+                    action="Verify missing fields against source records; do not invent values.",
+                )
+            )
+    for key, items in result.items():
+        items.sort(
+            key=lambda x: (
+                -(x["priority"]),
+                (x["followup"] or {}).get("due_at") or end + timedelta(days=36500),
+                x["lead"]["id"],
+            )
+        )
+    counts = {key: len(items) for key, items in result.items()}
+    if section:
+        if section not in result:
+            raise ValueError("Unknown queue section")
+        result = {section: result[section][(page - 1) * page_size : page * page_size]}
+    else:
+        result = {key: items[:page_size] for key, items in result.items()}
+    return {
+        "sections": result,
+        "counts": counts,
+        "labels": SECTION_LABELS,
+        "rules": rules,
+        "timezone": zone,
+        "excluded_dnc": db.scalar(select(func.count()).select_from(Lead).where(~outreach_allowed_clause())),
+        "definition": "Overdue means a pending explicit due date before today’s local midnight. Today includes the entire local day. Unscheduled is never overdue.",
+    }
+
+
+def complete_followup(db, f, request):
+    if not request.confirm:
+        raise ValueError("Explicit confirmation is required")
+    if f.status != "pending":
+        raise ValueError("This follow-up is no longer pending")
+    lead = db.get(Lead, f.lead_id)
+    if request.action == "complete":
+        if not request.outcome:
+            raise ValueError("Choose the actual outcome; completion alone never implies contact")
+        if request.outcome == "Other" and not request.note.strip():
+            raise ValueError("Describe the actual outcome when choosing Other")
+        f.status, f.completion_outcome, f.completed_at = "completed", request.outcome, utcnow()
+        db.add(
+            Activity(
+                lead_id=lead.id,
+                activity_type="followup_completion",
+                outcome=request.outcome,
+                occurred_at=utcnow(),
+                summary=request.note or f"Follow-up completed: {request.outcome}.",
+                source="local",
+                source_metadata={"followup_id": f.id, "communication_automated": False},
+            )
+        )
+        apply_contact_outcome(lead, request.outcome, f.completed_at)
+    elif request.action == "reschedule":
+        if not request.due_at or not request.due_at.tzinfo:
+            raise ValueError("A timezone-aware reschedule date is required")
+        f.due_at = request.due_at
+    else:
+        f.status = "cancelled"
+    db.add(
+        AuditLog(
+            lead_id=lead.id,
+            action="followup_" + request.action,
+            details={
+                "followup_id": f.id,
+                "outcome": request.outcome,
+                "note": request.note,
+                "due_at": request.due_at.isoformat() if request.due_at else None,
+            },
+        )
+    )
+    update_next_followup(db, lead)
+    db.commit()
+    return f

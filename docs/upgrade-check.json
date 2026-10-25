@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "from_revision": "daec27051e18",
+  "to_revision": "9e8b3c712f42",
+  "all_original_application_tables_unchanged": 16,
+  "original_leads": 6,
+  "upgraded_leads": 6,
+  "verified_dnc_preserved": 1,
+  "local_override_preserved": true,
+  "cloud_requests_initially_empty": true,
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "actual_windows_updater_executed": false
+}

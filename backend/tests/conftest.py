@@ -1,135 +1,71 @@
-"""Shared pytest fixtures.
-
-Environment is configured *before* any application import so every test runs
-against an isolated temporary database, the mock REsimpli client and a
-deliberately unreachable Ollama endpoint (deterministic rule-based AI).
-"""
-from __future__ import annotations
-
-import os
-import pathlib
-import tempfile
-
-_TMP = pathlib.Path(tempfile.mkdtemp(prefix="acquisitions_test_"))
-os.environ.update(
-    {
-        "DATABASE_URL": f"sqlite:///{_TMP / 'test.db'}",
-        "ENVIRONMENT": "test",
-        "RESIMPLI_API_KEY": "",
-        "RESIMPLI_MOCK": "true",
-        "AI_ENABLED": "true",
-        "OLLAMA_BASE_URL": "http://127.0.0.1:9",
-        "OLLAMA_TIMEOUT_SECONDS": "1",
-        "GROQ_API_KEY": "",
-        "SYNC_ENABLED": "false",
-        "SYNC_DETAIL_BUDGET": "5",
-        "UPLOAD_DIR": str(_TMP / "uploads"),
-        "LOG_LEVEL": "WARNING",
-    }
-)
-
 import pytest
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
-
-from app.db import Base, SessionLocal, init_db
+from app.config import Settings
+from app.db import Base, get_db
 from app.main import app
-from app.models import Lead, LeadProperty, Property
-from app.services.normalization import normalize_email, normalize_phone, split_full_name
-
-# The very first test file may take no fixtures at all, so the session-scoped
-# client (which normally runs migrations) has not started yet. Create the temp
-# schema up front — create_all is idempotent and matches current metadata.
-init_db()
-
-
-def _purge() -> None:
-    db = SessionLocal()
-    try:
-        for table in reversed(Base.metadata.sorted_tables):
-            db.execute(table.delete())
-        db.commit()
-    finally:
-        db.close()
-
-
-@pytest.fixture(scope="session")
-def client():
-    with TestClient(app) as test_client:
-        yield test_client
-
-
-@pytest.fixture(autouse=True)
-def clean_db():
-    _purge()
-    yield
-    _purge()
+from app.seed import initialize_defaults
+from app.services.imports import create_local_lead
 
 
 @pytest.fixture
-def db():
-    session = SessionLocal()
-    try:
+def factory():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+
+    @event.listens_for(engine, "connect")
+    def foreign_keys(conn, _):
+        conn.execute("PRAGMA foreign_keys=ON")
+
+    Base.metadata.create_all(engine)
+    maker = sessionmaker(bind=engine, expire_on_commit=False)
+    with maker() as db:
+        initialize_defaults(db)
+    yield maker
+    engine.dispose()
+
+
+@pytest.fixture
+def db(factory):
+    with factory() as session:
         yield session
-    finally:
-        session.close()
+
+
+@pytest.fixture
+def settings():
+    return Settings(_env_file=None, resimpli_mode="fixture")
+
+
+@pytest.fixture
+def client(db):
+    def override():
+        try:
+            yield db
+        except Exception:
+            db.rollback()
+            raise
+
+    app.dependency_overrides[get_db] = override
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
 def make_lead(db):
-    """Create and commit a seller lead (plus optional property)."""
-
-    def _make(
-        name: str = "Dana Seller",
-        phone: str | None = "6145550100",
-        email: str | None = None,
-        address: str | None = "412 Sycamore St",
-        city: str = "Columbus",
-        state: str = "OH",
-        zip_code: str = "43215",
-        stage: str = "new",
-        contact_status: str = "never_contacted",
-        source: str = "Facebook",
-        do_not_contact: bool = False,
-        notes: str | None = None,
-        origin: str = "manual",
-        external_id: str | None = None,
-        **extra,
-    ) -> Lead:
-        first, last = split_full_name(name)
-        phone_norm, _errors, _warnings = normalize_phone(phone) if phone else (None, [], [])
-        lead = Lead(
-            first_name=first,
-            last_name=last,
-            full_name=name,
-            primary_phone=phone,
-            phone_normalized=phone_norm,
-            email=email,
-            email_normalized=normalize_email(email) if email else None,
-            pipeline_stage=stage,
-            contact_status=contact_status,
-            lead_source=source,
-            do_not_contact=do_not_contact,
-            notes=notes,
-            origin=origin,
-            external_id=external_id,
-        )
-        for key, value in extra.items():
-            setattr(lead, key, value)
-        db.add(lead)
-        db.flush()
-        if address:
-            prop = Property(
-                address_line1=address,
-                city=city,
-                state=state,
-                zip_code=zip_code,
-                address_normalized=f"{address.lower()} {city.lower()} {state.lower()} {zip_code}",
-            )
-            db.add(prop)
-            db.flush()
-            db.add(LeadProperty(lead_id=lead.id, property_id=prop.id, is_primary=True))
+    def make(name="Test Seller", phone="+12025550199", address="12 Example St", state="TX", **extra):
+        data = {
+            "full_name": name,
+            "primary_phone": phone,
+            "street_address": address,
+            "city": "Austin",
+            "state": state,
+            "zip_code": "78701",
+            "normalized_address": (address + "austintx78701").lower() if address else None,
+            **extra,
+        }
+        lead = create_local_lead(db, data, data, source_kind="local")
         db.commit()
-        db.refresh(lead)
         return lead
 
-    return _make
+    return make

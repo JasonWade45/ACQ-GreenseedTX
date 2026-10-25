@@ -1,0 +1,14 @@
+{
+  "description": "SYNTHETIC FIXTURE CONTRACT ONLY. Not a claimed live REsimpli response schema. Copy, inspect real redacted responses and explicitly verify each mapping before live mode.",
+  "success_path": "ok", "success_value": true,
+  "leads": {
+    "list_path": "data.records", "detail_path": "data", "total_path": "data.total",
+    "fields": {"external_id":"id", "first_name":"first_name", "last_name":"last_name", "full_name":"name", "primary_phone":"phone", "email":"email", "street_address":"address", "city":"city", "state":"state", "zip_code":"zip", "source_status":"status", "lead_source":"source", "assigned_manager":"manager", "original_created_at":"created", "source_do_not_contact":"dnc", "notes":"notes", "asking_price":"asking_price", "seller_motivation":"motivation", "next_followup_at":"followup", "last_contact_at":"last_contact", "contact_outcome":"contact_outcome"}
+  },
+  "activities": {"list_path":"data.records", "total_path":"data.total", "fields":{"external_id":"id", "lead_external_id":"lead_id", "activity_type":"type", "summary":"summary", "outcome":"outcome", "occurred_at":"at", "direction":"direction"}},
+  "calls": {"list_path":"data.records", "total_path":"data.total", "fields":{"external_id":"id", "lead_external_id":"lead_id", "summary":"summary", "outcome":"outcome", "occurred_at":"at", "direction":"direction"}},
+  "appointments": {"list_path":"data.records", "total_path":"data.total", "fields":{"external_id":"id", "lead_external_id":"lead_id", "starts_at":"at", "status":"status", "notes":"notes"}},
+  "pipelines": {"list_path":"data.records", "total_path":"data.total", "fields":{"external_id":"id", "label":"label"}},
+  "contact_outcomes":{"connected":"Connected", "no_answer":"No Answer", "callback":"Callback Requested", "voicemail":"Left Voicemail", "dnc":"Do Not Contact"},
+  "appointment_statuses":{"scheduled":"scheduled", "kept":"kept", "cancelled":"cancelled"}
+}

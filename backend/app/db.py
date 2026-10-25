@@ -1,52 +1,59 @@
-"""SQLAlchemy engine / session factory."""
-from __future__ import annotations
+from datetime import datetime, timezone
+from pathlib import Path
+from sqlalchemy import create_engine, event, DateTime
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.types import TypeDecorator
+from .config import get_settings
 
-from collections.abc import Generator
 
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+def utcnow():
+    return datetime.now(timezone.utc)
 
-from app.config import settings
+
+class UTCDateTime(TypeDecorator):
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            raise ValueError("A timezone-aware timestamp is required")
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+    def process_result_value(self, value, dialect):
+        return value.replace(tzinfo=timezone.utc) if value else None
 
 
 class Base(DeclarativeBase):
     pass
 
 
-def _make_engine():
-    url = settings.database_url
-    kwargs: dict = {"future": True}
-    if url.startswith("sqlite"):
-        kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
-    engine = create_engine(url, **kwargs)
+def make_engine(url):
+    if url.startswith("sqlite:///") and ":memory:" not in url:
+        Path(url.replace("sqlite:///", "", 1)).resolve().parent.mkdir(parents=True, exist_ok=True)
+    engine = create_engine(
+        url, connect_args={"check_same_thread": False, "timeout": 30} if url.startswith("sqlite") else {}
+    )
     if url.startswith("sqlite"):
 
         @event.listens_for(engine, "connect")
-        def _set_sqlite_pragma(dbapi_connection, _):  # pragma: no cover
-            cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.execute("PRAGMA busy_timeout=30000")
-            cursor.close()
+        def pragmas(conn, _):
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")
 
     return engine
 
 
-engine = _make_engine()
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+engine = make_engine(get_settings().database_url)
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
-def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def init_db() -> None:
-    """Create all tables. Alembic is used for versioned migrations; this is the
-    bootstrap path used on first run / in tests."""
-    from app import models  # noqa: F401  (register mappings)
-
-    Base.metadata.create_all(bind=engine)
+def get_db():
+    with SessionLocal() as db:
+        try:
+            yield db
+        except Exception:
+            db.rollback()
+            raise

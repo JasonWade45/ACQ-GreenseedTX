@@ -1,0 +1,94 @@
+{
+  "release": "1.2.0",
+  "release_date_local": "2026-10-25",
+  "verified_at_utc": "2026-10-25T00:00:03.684672+00:00",
+  "environment": {
+    "os": "Linux-6.1.158+-x86_64-with-glibc2.41",
+    "python": "3.13.16",
+    "node": "20.20.2"
+  },
+  "results": {
+    "backend": {
+      "collected": 168,
+      "passed": 167,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 1,
+      "junit_file": "backend-test-results.xml"
+    },
+    "frontend": {
+      "collected": 20,
+      "passed": 20,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_file": "frontend-test-results.xml"
+    },
+    "browser": {
+      "collected": 17,
+      "passed": 17,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_file": "browser-test-results.xml"
+    }
+  },
+  "normal_database": {
+    "lead_count": 0,
+    "revision": "0a6d91cf17b2",
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "application_tables": 19
+  },
+  "normal_database_packaged": false,
+  "npm_audit": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "groq_actual_account_or_generation_tested": false,
+  "resimpli_actual_account_tested": false,
+  "posted_keys_used_or_packaged": false,
+  "cloud_consent": "redacted_review_each_request",
+  "cloud_provider_in_browser_tests": "explicit synthetic no-network harness",
+  "automatic_seller_communication": false,
+  "crm_writes_enabled": false,
+  "windows_native_runtime_or_update_helper_executed": false,
+  "linux_setup_executed": "Historical 1.1 full setup; final 1.2 type/build/migration/extracted boot checked separately",
+  "database_upgrade_preservation_passed": true,
+  "both_real_company_databases_accessed": false,
+  "maintenance_backup_restore_smoke_passed": true,
+  "release_archive_smoke": "passed",
+  "github_push_performed": false,
+  "release_archive_evidence": "release-smoke-results.json",
+  "screenshots": 16,
+  "publication_tree_recheck": {
+    "verified_at_utc": "2026-10-25T11:29:40.659193+00:00",
+    "base_github_commit": "f96bc3d25b4aea4def3e1122a2004c7bf56c04ad",
+    "results": {
+      "backend": {
+        "passed": 167,
+        "skipped": 1,
+        "failed": 0
+      },
+      "frontend": {
+        "passed": 20,
+        "skipped": 0,
+        "failed": 0
+      }
+    },
+    "ruff_eslint_typecheck_build": "passed",
+    "npm_audit": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "browser_suite": "Existing 17-pass release evidence; source and bundled asset hashes unchanged; not relabelled as a new browser run"
+  }
+}

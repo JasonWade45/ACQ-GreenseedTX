@@ -1,0 +1,23 @@
+{
+  "passed": true,
+  "release": "1.2.0",
+  "fresh_database_leads": 0,
+  "revision": "0a6d91cf17b2",
+  "application_tables": 19,
+  "index_http_status": 200,
+  "built_assets_served": 2,
+  "authenticated_api_checked": true,
+  "groq_disabled": true,
+  "crm_disabled": true,
+  "keys_not_configured": true,
+  "consent_policy": "redacted_review_each_request",
+  "loopback_host_rebinding_rejected": true,
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "path_contains_spaces": true,
+  "actual_company_database_used": false,
+  "native_windows_helper_executed": false,
+  "archive_files": 138,
+  "all_included_file_hashes_verified": true,
+  "private_runtime_files_excluded": true
+}
