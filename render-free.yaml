@@ -1,0 +1,51 @@
+# Render blueprint — 100% free tier. No credit card, no paid plan, no persistent disk.
+#
+#   1. Render dashboard -> New -> Blueprint -> pick JasonWade45/ACQ-GreenseedTX
+#   2. set "Blueprint file path" to:  render-free.yaml
+#   3. enter APP_ACCESS_PASSWORD when prompted (12+ characters), then Apply
+#
+# Read this before you use it:
+#   * There is NO persistent disk on the free plan, so the SQLite file is wiped by every
+#     deploy and every restart (including Render's periodic maintenance). Treat the data
+#     as temporary: export a CSV before you stop working, and re-import it afterwards.
+#   * The service sleeps after ~15 minutes idle. The first visit then takes 30-60 seconds
+#     to wake it. That is the free plan, not a fault.
+#   * autoDeploy is OFF on purpose: with it on, any push to the repository would silently
+#     replace the instance and erase the database.
+#
+# For data that survives, use render.yaml (starter plan + 1 GB disk) or the VPS path in
+# docs/DEPLOY_SERVER_AR.md. For a free-and-permanent server see docs/FREE_HOSTING_AR.md.
+
+services:
+  - type: web
+    name: acq-assistant
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: frankfurt
+    healthCheckPath: /api/health
+    autoDeploy: false
+    envVars:
+      # Prompted in the dashboard; never stored in the repository.
+      - key: APP_ACCESS_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: APP_TIMEZONE
+        value: Africa/Cairo
+      # Lives inside the container's writable layer: valid for the lifetime of the
+      # instance and lost when Render replaces it. This is expected on the free plan.
+      - key: DATABASE_URL
+        value: sqlite:////app/data/acquisitions.db
+      # Guarded features stay off until you enable and configure them deliberately.
+      - key: RESIMPLI_MODE
+        value: disabled
+      - key: SYNC_ENABLED
+        value: "false"
+      - key: GROQ_ENABLED
+        value: "false"
+      - key: OLLAMA_ENABLED
+        value: "false"
+      - key: PYTHONUNBUFFERED
+        value: "1"
