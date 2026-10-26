@@ -15,6 +15,7 @@ ROOT_FILES = {
     ".gitignore",
     "Dockerfile",
     "render.yaml",
+    "render-free.yaml",
     "LICENSE",
     "README.md",
     "PROJECT_STATUS.md",
