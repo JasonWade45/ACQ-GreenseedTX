@@ -1132,30 +1132,7 @@ function SettingsForm({ settings: s }: { settings: SettingsData }) {
               Review synchronization health <ArrowRight size={14} />
             </Link>
           </Panel>
-          <Panel
-            title="Backup & restore"
-            subtitle="Protect your local database and import history."
-          >
-            <div className="config-instructions">
-              <p>
-                From the project root, use the documented SQLite online-backup
-                command:
-              </p>
-              <pre>
-                python scripts/manage.py backup{`\n`} --output
-                backups/acquisitions.db
-              </pre>
-              <p>
-                Restore only while the application is stopped. Treat backups as
-                confidential: they contain seller information, source values,
-                drafts and audit history.
-              </p>
-              <p>
-                Environment secrets are not included in a database backup. Store{" "}
-                <code>.env</code> securely and separately.
-              </p>
-            </div>
-          </Panel>
+          <BackupsPanel />
           <Panel title="Optional local intelligence">
             <div className="config-instructions">
               <p>
@@ -1179,4 +1156,154 @@ function SettingsForm({ settings: s }: { settings: SettingsData }) {
 }
 function SlidersIcon() {
   return <Settings2 size={18} className="muted" />;
+}
+
+type BackupItem = {
+  name: string;
+  size_bytes: number;
+  created_at: string;
+  reason: "scheduled" | "manual";
+};
+type BackupOverview = {
+  enabled: boolean;
+  keep: number;
+  hour_utc: number;
+  folder: string;
+  backups: BackupItem[];
+};
+function fileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+export function BackupsPanel() {
+  const data = useData<BackupOverview>("backups", "/backups");
+  const action = useAction();
+  const [deleting, setDeleting] = useState<string | null>(null);
+  if (data.isPending) return <Panel title="Backup & restore"><Loading /></Panel>;
+  if (data.isError)
+    return (
+      <Panel title="Backup & restore">
+        <ErrorState error={data.error} retry={() => data.refetch()} />
+      </Panel>
+    );
+  const overview = data.data;
+  async function remove(name: string) {
+    if (
+      !window.confirm(
+        `Delete ${name}? This removes the copy from this computer and cannot be undone.`,
+      )
+    )
+      return;
+    setDeleting(name);
+    await action.run(
+      () =>
+        api(`/backups/${encodeURIComponent(name)}?confirm=${encodeURIComponent("DELETE BACKUP")}`, {
+          method: "DELETE",
+        }),
+      "Backup deleted",
+    );
+    setDeleting(null);
+  }
+  return (
+    <Panel
+      title="Backup & restore"
+      subtitle="A verified copy of the database, taken automatically every night."
+      className="backup-panel"
+      action={<HardDrive size={18} />}
+    >
+      <div className="settings-facts">
+        <div>
+          <span>Automatic backups</span>
+          <Badge tone={overview.enabled ? "green" : "neutral"}>
+            {overview.enabled ? `Daily at ${overview.hour_utc}:00 UTC` : "Disabled"}
+          </Badge>
+        </div>
+        <div>
+          <span>Copies kept</span>
+          <strong>{overview.keep} scheduled · manual copies never pruned</strong>
+        </div>
+        <div>
+          <span>Stored in</span>
+          <strong>{overview.folder}</strong>
+        </div>
+      </div>
+      <div className="toolbar">
+        <Button
+          busy={action.busy}
+          onClick={() =>
+            action.run(() => post("/backups"), "Backup created and verified")
+          }
+        >
+          <Save size={15} /> Create a backup now
+        </Button>
+      </div>
+      {overview.backups.length === 0 ? (
+        <Empty
+          title="No backups yet"
+          description="The first automatic copy runs tonight. Create one now before importing or editing records."
+        />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Copy</th>
+                <th>Taken</th>
+                <th>Size</th>
+                <th>Reason</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {overview.backups.map((item) => (
+                <tr key={item.name}>
+                  <td>
+                    <code>{item.name}</code>
+                  </td>
+                  <td>
+                    <Timestamp value={item.created_at} />
+                  </td>
+                  <td>{fileSize(item.size_bytes)}</td>
+                  <td>
+                    <Badge tone={item.reason === "scheduled" ? "green" : "neutral"}>
+                      {item.reason}
+                    </Badge>
+                  </td>
+                  <td className="row-actions">
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        action.run(
+                          () => download(`/backups/${encodeURIComponent(item.name)}`, item.name),
+                          "Backup downloaded",
+                        )
+                      }
+                    >
+                      <ArrowDownToLine size={15} /> Download
+                    </Button>
+                    <Button
+                      variant="danger"
+                      busy={deleting === item.name}
+                      onClick={() => remove(item.name)}
+                    >
+                      Delete
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="config-instructions">
+        <p>
+          Restore only while the application is stopped: replace{" "}
+          <code>data/acquisitions.db</code> with the downloaded copy, then start
+          again. Backups contain seller records, so treat them as confidential
+          and keep <code>.env</code> separate.
+        </p>
+      </div>
+    </Panel>
+  );
 }

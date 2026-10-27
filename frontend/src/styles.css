@@ -5400,3 +5400,23 @@ td {
 }
 /* WCAG AA contrast on tinted operational surfaces. */
 .nav-caption{color:#adbf9b}.fixture-banner,.fixture-banner span,.fixture-banner strong,.fixture-banner a{color:#706131}.metric-green .metric-top{color:#526c3f}.seller-avatar.color-0{color:#55683e}.seller-avatar.color-1{color:#456b55}.seller-avatar.color-2{color:#806038}.seller-avatar.color-3{color:#705480}.badge-red{color:#994e3d}
+
+/* Backup panel: one row per stored copy, with per-row actions. */
+.backup-actions,
+.row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.backup-toolbar,
+.toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 14px 0 6px;
+}
+.backup-panel code {
+  font-size: 12px;
+  word-break: break-all;
+}

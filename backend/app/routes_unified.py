@@ -100,7 +100,7 @@ def merge_prepare(body: MergeSource, db: DB):
     if get_settings().app_host not in {"127.0.0.1", "localhost", "::1"}:
         raise HTTPException(
             403,
-            "Database selection is local-only. Run MERGE-WORKSPACES.cmd on your PC; do not upload company databases.",
+            "Database selection is local-only. Run legacy/windows/MERGE-WORKSPACES.cmd on your PC; do not upload company databases.",
         )
     if body.confirmation != "PREPARE READ ONLY SNAPSHOT":
         raise ValueError("Explicitly approve a local read-only source snapshot first")

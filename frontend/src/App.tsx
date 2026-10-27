@@ -87,7 +87,13 @@ export default function App() {
     <Workspace
       onLogout={
         auth.data.required
-          ? () => {
+          ? async () => {
+              // Cancel the session on the server too, so the token cannot be replayed.
+              try {
+                await post("/auth/logout");
+              } catch {
+                // Even if the server is unreachable, clear this browser.
+              }
               sessionStorage.removeItem(sessionKey);
               setSignedIn(false);
               client.clear();

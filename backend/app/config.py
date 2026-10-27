@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     groq_max_output_tokens: int = Field(default=3000, ge=512, le=4096)
     max_upload_mb: int = 25
     max_import_rows: int = 50000
+    backup_enabled: bool = True
+    backup_keep: int = Field(default=7, ge=1, le=90)
+    backup_hour_utc: int = Field(default=2, ge=0, le=23)
 
     @field_validator("app_timezone")
     @classmethod

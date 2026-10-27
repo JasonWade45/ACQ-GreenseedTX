@@ -20,7 +20,7 @@ def protect_before_upgrade(url):
             fields = {row[1] for row in source.execute("PRAGMA table_info(leads)")}
             if not {"stage_code", "source_data", "full_name"}.issubset(fields):
                 raise ValueError(
-                    "Incompatible GitHub/Next UUID database. Nothing migrated. Keep DATABASE_URL pointing to the unified data/acquisitions.db; use MERGE-WORKSPACES.cmd for a reviewed, backup-first transfer instead."
+                    "Incompatible GitHub/Next UUID database. Nothing migrated. Keep DATABASE_URL pointing to the unified data/acquisitions.db; use legacy/windows/MERGE-WORKSPACES.cmd for a reviewed, backup-first transfer instead."
                 )
         elif tables:
             raise ValueError("Unknown non-empty database schema; no migrations were run")
