@@ -56,6 +56,8 @@ if errorlevel 1 (
 )
 
 echo.
+echo To install a newer release later: extract it somewhere else and run UPDATE-ACQ.cmd there.
+echo.
 echo If another device cannot connect, allow the port once in an Administrator window:
 echo   netsh advfirewall firewall add rule name="Acquisitions Assistant" dir=in action=allow protocol=TCP localport=8010
 echo.

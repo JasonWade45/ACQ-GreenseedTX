@@ -18,6 +18,8 @@ ROOT_FILES = {
     "render-free.yaml",
     "START-ACQ.cmd",
     "start-acq.sh",
+    "UPDATE-ACQ.cmd",
+    "update-acq.sh",
     "LICENSE",
     "README.md",
     "PROJECT_STATUS.md",

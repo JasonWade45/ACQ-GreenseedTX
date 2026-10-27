@@ -37,7 +37,72 @@ jobs:
           bash -n deploy/install.sh
           bash -n deploy/docker-entrypoint.sh
           bash -n start-acq.sh
+          bash -n update-acq.sh
           cat deploy/install.sh | bash -s -- --help | grep -q -- "--no-https"
+      - name: The one-click updater updates a real installation
+        run: |
+          # Copy this checkout into a "new release" folder and a separate "old install",
+          # put a real record and a real password in the old one, then update it and prove
+          # the data, the password and the existing record survive byte for byte.
+          set -euo pipefail
+          work=$(mktemp -d)
+          mkdir -p "$work/new-release" "$work/old-install"
+          tar -C "$GITHUB_WORKSPACE" --exclude=.git --exclude=.venv -cf - . \
+            | tar -C "$work/new-release" -xf -
+          cp -a "$work/new-release/." "$work/old-install/"
+          printf 'APP_ACCESS_PASSWORD=Ci-Update-Password-123\nSESSION_SECRET=%s\n' "$(openssl rand -hex 32)" \
+            > "$work/old-install/.env"
+          # Make the old copy look like a real 1.2.5 install: older version, no updater yet.
+          sed -i 's/APP_VERSION = "[^"]*"/APP_VERSION = "1.2.5"/' "$work/old-install/backend/app/version.py"
+          rm -f "$work/old-install/UPDATE-ACQ.cmd" "$work/old-install/update-acq.sh" \
+                "$work/old-install/scripts/update_acq.py"
+          python -m venv "$work/old-install/.venv"
+          "$work/old-install/.venv/bin/python" -m pip install --disable-pip-version-check -q \
+            -r "$work/old-install/backend/requirements-lock.txt"
+          cd "$work/old-install"
+          "$work/old-install/.venv/bin/python" scripts/manage.py migrate > /dev/null
+          python - <<'PY'
+          import sqlite3
+          db = sqlite3.connect("data/acquisitions.db")
+          db.execute(
+              "INSERT INTO leads (full_name, stage_code, local_stage_override, contact_status, "
+              "local_do_not_contact, restriction_reviewed, source_kind, source_data, created_at, updated_at) "
+              "VALUES ('تحديث تلقائي', 'new', 0, 'not_contacted', 0, 0, 'manual', '{}', "
+              "datetime('now'), datetime('now'))"
+          )
+          db.commit()
+          PY
+          before_env=$(sha256sum .env | cut -d' ' -f1)
+          # Compare the database by content: migrating rewrites pages, so file bytes can
+          # legitimately differ even when every row and every value is unchanged.
+          db_dump() {
+            python - "$1" <<'PY'
+          import hashlib, sqlite3, sys
+          # A first start writes one default app_settings row; every real record must match.
+          rows = [
+              line
+              for line in sqlite3.connect(sys.argv[1]).iterdump()
+              if 'INSERT INTO "app_settings"' not in line
+          ]
+          print(hashlib.sha256("\n".join(rows).encode()).hexdigest())
+          PY
+          }
+          before_db=$(db_dump data/acquisitions.db)
+          cd "$work/new-release"
+          python scripts/update_acq.py --target "$work/old-install" --yes
+          test -f "$work/old-install/UPDATE-ACQ.cmd"
+          test -f "$work/old-install/scripts/update_acq.py"
+          test "$(sha256sum "$work/old-install/.env" | cut -d' ' -f1)" = "$before_env"
+          after_db=$(cd "$work/old-install" && db_dump data/acquisitions.db)
+          test "$after_db" = "$before_db" || { echo "database content changed during the update"; exit 1; }
+          ls "$work/old-install/backups"/before-update-*.db > /dev/null
+          python - "$work/old-install/data/acquisitions.db" <<'PY'
+          import sqlite3, sys
+          rows = sqlite3.connect(sys.argv[1]).execute("SELECT full_name FROM leads").fetchall()
+          assert ("تحديث تلقائي",) in rows, rows
+          print("updater: data, password and the existing record survived")
+          PY
+
       - name: Documentation references resolve
         run: python scripts/check_references.py
       - name: Tests

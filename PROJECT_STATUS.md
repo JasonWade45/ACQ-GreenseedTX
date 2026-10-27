@@ -1,8 +1,8 @@
-# Project status — Acquisitions Assistant AI 1.2.5
+# Project status — Acquisitions Assistant AI 1.2.6
 
-**Updated 2026-10-27.** Unified local-first seller-acquisitions application. **Published
-release: `v1.2.5`** — see `docs/RELEASE_1_2_5.md`. Earlier releases (`v1.2.4`, `v1.2.3`,
-`v1.2.2`, `v1.2.1`, `v1.2.2`) are retained unchanged; a published tag is never rewritten.
+**Updated 2026-10-28.** Unified local-first seller-acquisitions application. **Published
+release: `v1.2.6`** — see `docs/RELEASE_1_2_6.md`. Earlier releases (`v1.2.5`, `v1.2.4`,
+`v1.2.3`, `v1.2.2`, `v1.2.1`) are retained unchanged; a published tag is never rewritten.
 
 ## What the app is now
 
@@ -10,6 +10,11 @@ release: `v1.2.5`** — see `docs/RELEASE_1_2_5.md`. Earlier releases (`v1.2.4`,
   (Linux/macOS) creates the private environment, generates a strong password, prints the
   local and LAN addresses plus a QR code, and opens the browser. Any phone or laptop on the
   same network opens it with that password. Nothing is exposed to the internet.
+- **One-click updates.** `UPDATE-ACQ.cmd` (Windows) or `./update-acq.sh` (Linux/macOS) copies
+  a newer release over an existing installation: it backs up the database, keeps every file it
+  is about to replace, never touches `data/`, `.env` or `.venv`, upgrades the schema, starts the
+  updated copy once to prove `/api/health` answers, and restores the previous version
+  automatically if any step fails.
 - **Verified backups by default.** A nightly copy goes to `data/backups/` through SQLite's
   online-backup API against a read-only connection, is checked with `integrity_check` and
   `foreign_key_check`, is folded out of WAL mode, and is only renamed into place after it
@@ -33,7 +38,7 @@ release: `v1.2.5`** — see `docs/RELEASE_1_2_5.md`. Earlier releases (`v1.2.4`,
 
 | Check | Result |
 |---|---|
-| Backend suite | **224 passed, 1 explicit live-account skip** |
+| Backend suite | **240 passed, 1 explicit live-account skip** |
 | Lint | `ruff check .` clean |
 | Frontend | **20 passed**, `tsc -b` + `vite build` clean |
 | Docker image | **built and run in GitHub Actions**: refuses a weak password, `/api/leads` 401 then 200 after login |
