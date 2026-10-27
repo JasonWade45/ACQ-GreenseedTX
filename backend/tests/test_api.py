@@ -291,3 +291,36 @@ def test_login_and_logout_are_audited_without_recording_the_password(client, db,
     stored = " ".join(str(row.details) for row in db.query(AuditLog).all())
     assert "wrong-password-value" not in stored
     assert "private-test-password" not in stored
+
+
+def test_a_failing_audit_write_never_blocks_sign_in(client, monkeypatch):
+    from app import main as main_module
+
+    monkeypatch.setattr(get_settings(), "app_access_password", "private-test-password")
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("audit storage is unavailable")
+
+    monkeypatch.setattr(main_module, "AuditLog", explode)
+    response = client.post("/api/auth/login", json={"password": "private-test-password"})
+    assert response.status_code == 200
+    token = response.json()["token"]
+    assert client.get("/api/leads", headers={"Authorization": "Bearer " + token}).status_code == 200
+
+
+def test_revocation_memory_is_bounded_without_resurrecting_old_sessions(monkeypatch):
+    import app.security as security
+
+    monkeypatch.setattr(security, "REVOKED_TOKENS", set())
+    monkeypatch.setattr(security, "MAX_REMEMBERED_TOKENS", 3)
+    tokens = [security.new_session() for _ in range(5)]
+    for token in tokens[:3]:
+        security.revoke_token(token)
+    assert len(security.REVOKED_TOKENS) == 3
+
+    security.revoke_token(tokens[3])
+    # The set is capped, and the newest revocation is honoured.
+    assert len(security.REVOKED_TOKENS) == 3
+    assert not security.valid_session(tokens[3])
+    # At least the oldest entries are the ones dropped, never everything at once.
+    assert len(security.REVOKED_TOKENS) > 0

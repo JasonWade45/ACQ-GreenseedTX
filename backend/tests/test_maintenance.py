@@ -145,3 +145,37 @@ def test_busy_local_port_reports_error_instead_of_silent_exit(tmp_path):
     assert result.returncode != 0
     output = result.stdout + result.stderr
     assert "ERROR" in output and str(port) in output, output
+
+
+def test_backup_is_one_self_contained_file_even_from_a_wal_database(tmp_path):
+    """`manage.py backup` must not leave a copy that depends on a -wal sidecar."""
+    database = tmp_path / "live.db"
+    env = {**os.environ, "DATABASE_URL": "sqlite:///" + str(database), "APP_ACCESS_PASSWORD": ""}
+    assert subprocess.run(
+        [sys.executable, "scripts/manage.py", "migrate"], cwd=ROOT, env=env, capture_output=True
+    ).returncode == 0
+
+    live = sqlite3.connect(database)
+    live.execute("PRAGMA journal_mode=WAL")
+    # A settings row keeps the fixture independent of the leads NOT NULL columns.
+    live.execute("INSERT INTO app_settings (key, value) VALUES ('wal_marker', '{\"written\": true}')")
+    live.commit()  # still only in the -wal file
+    assert (tmp_path / "live.db-wal").exists()
+
+    backup = tmp_path / "copy.db"
+    result = subprocess.run(
+        [sys.executable, "scripts/manage.py", "backup", "--output", str(backup)],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    live.close()
+    assert result.returncode == 0, result.stderr
+
+    assert sorted(p.name for p in tmp_path.glob("copy.db*")) == ["copy.db"]
+    with sqlite3.connect(backup) as copy:
+        marker = copy.execute("SELECT value FROM app_settings WHERE key='wal_marker'").fetchone()
+        assert marker is not None and "written" in marker[0]
+        assert copy.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+        assert copy.execute("PRAGMA integrity_check").fetchone()[0] == "ok"

@@ -25,6 +25,8 @@ services:
       SYNC_ENABLED: ${SYNC_ENABLED:-false}
       GROQ_ENABLED: ${GROQ_ENABLED:-false}
       OLLAMA_ENABLED: ${OLLAMA_ENABLED:-false}
+      # Only Caddy can reach this container, so its forwarded headers are trusted.
+      FORWARDED_ALLOW_IPS: "*"
     volumes:
       - app-data:/app/data
     expose:

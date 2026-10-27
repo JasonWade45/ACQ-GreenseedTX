@@ -32,6 +32,14 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r backend/requirements-lock.txt
       - name: Lint
         run: python -m ruff check .
+      - name: Deploy scripts parse and their help works
+        run: |
+          bash -n deploy/install.sh
+          bash -n deploy/docker-entrypoint.sh
+          bash -n start-acq.sh
+          cat deploy/install.sh | bash -s -- --help | grep -q -- "--no-https"
+      - name: Documentation references resolve
+        run: python scripts/check_references.py
       - name: Tests
         run: python -m pytest -q
 

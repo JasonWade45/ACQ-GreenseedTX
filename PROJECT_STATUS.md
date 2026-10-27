@@ -1,64 +1,73 @@
-# Project status — Acquisitions Assistant AI 1.2
+# Project status — Acquisitions Assistant AI 1.2.5
 
-**Updated 2026-10-25.** Unified local-first working seller-acquisitions application. **Published release: `v1.2.2` (documentation delivery) — identical verified application code to 1.2.1 plus the Arabic handover and the Drive audit; `v1.2.1` is retained unchanged as a historical release. See `docs/RELEASE_1_2_2.md`.** **Consolidated 1.2.1 build re-verified on 2026-10-25 (Python 3.11.2 / Node 22): 167 backend passes + 1 intentional skip, 20 frontend passes, production build, fresh 20-table database at head `0a6d91cf17b2`, live authenticated boot and a real 8-row CSV import; the assembled release ZIP passed the extracted-archive smoke test. See `docs/READY_SYSTEM_AR.md` (Arabic handover) and `docs/drive-audit-2026-10-25.json` (Drive folder ↔ repository audit: 145/145 hashes matched, no improvements missing).** Source comparison: GitHub `JasonWade45/ACQ-GreenseedTX` main **`f96bc3d25b4aea4def3e1122a2004c7bf56c04ad`** plus delivered 1.1. Both user workspaces contain important data; neither database is treated as expendable or interchangeable.
+**Updated 2026-10-27.** Unified local-first seller-acquisitions application. **Published
+release: `v1.2.5`** — see `docs/RELEASE_1_2_5.md`. Earlier releases (`v1.2.4`, `v1.2.3`,
+`v1.2.2`, `v1.2.1`, `v1.2.2`) are retained unchanged; a published tag is never rewritten.
 
-## Implemented
+## What the app is now
 
-- Retained DB dashboard/drill-downs, seller search/filter/sort/page/export, source profiles, multiple properties, actual activities/appointments/offers/tasks, independent pipeline/contact/task states, observed history, audit, explained daily queues, zero-safe reports, saved views, indexed SQLite/Alembic data, backups and restore guards.
-- Retained conservative documented read-only REsimpli sync: stable IDs, pagination, bounded retries, manual/optional schedule, truthful never/partial/failure/freshness. Real account response mapping still requires local verification. No CRM create/edit/delete/status/note write is enabled.
-- Retained optional rules/loopback Ollama and manually reviewed/redacted Groq analysis/notes/drafts, meaningful cache, strict schemas, per-request approval/expiry/source/model/key gates, source-linked evidence, second review before notes are saved, editable copy-only drafts, DNC and unknown-eligibility guards. No automatic cloud import/sync/startup/batch requests.
-- Added persistent editable local **call preparation**, recorded property talking points, reviewed-only checklist/notes and guardrails. No inferred contact; stale/restricted openers withheld; regeneration preserves old plans in the DB.
-- Added grounded **property research brief**: exact subject selection, recorded financial references, suggested search criteria, copy address and legitimate portal home links. No MLS feed, scraping, invented comparable addresses/prices/dates or financial offer.
-- Added richer explicit property facts and source provenance, compound-cell/address-only imports, magnitude suffixes, range-as-unknown handling, meaningful counts, optional explicitly linked **fill-empty-only** enrichment and unknown-owner presentation without invented names.
-- Added an explicitly confirmed local rule-only refresh (at most 200 recent records per run), no Groq/Ollama request.
-- Added backup-first **both-workspace migration**: private consistent SQLite snapshot, schema/integrity/FK guard, target recovery backup, pending candidate/conflict preview, explicit separate/link/skip, stable UUID mapping, per-row commits/resumption, stale-review refresh, preserved DNC, no settings/key activation, no automatic person merge. Historical AI/draft/preparation stays unverified source archive rather than becoming active output.
-- Added native Windows `MERGE-WORKSPACES.cmd/.ps1`, updated prebuilt start/update helpers and Arabic guide. Run files, not CMD contents pasted into PowerShell. No Node/WSL required for the release UI.
-- Preserved the professional responsive English interface, keyboard search/tabs/mobile navigation, loading/error/empty/success states, subtle motion and reduced-motion support; added preparation, research and database-migration review UI.
+- **A program you run on your own computer.** `START-ACQ.cmd` (Windows) or `./start-acq.sh`
+  (Linux/macOS) creates the private environment, generates a strong password, prints the
+  local and LAN addresses plus a QR code, and opens the browser. Any phone or laptop on the
+  same network opens it with that password. Nothing is exposed to the internet.
+- **Verified backups by default.** A nightly copy goes to `data/backups/` through SQLite's
+  online-backup API against a read-only connection, is checked with `integrity_check` and
+  `foreign_key_check`, is folded out of WAL mode, and is only renamed into place after it
+  passes. Seven scheduled copies are kept; manual copies are never pruned. The same actions
+  are available in **Settings → Runtime & backups** and over `/api/backups`.
+- **Sessions that can actually be cancelled.** `POST /api/auth/logout` revokes the calling
+  token on the server; `/api/auth/logout-all` revokes every token with a cutoff persisted in
+  the database, so a restart cannot resurrect an old session. Sign-ins and sign-outs are
+  audited without ever storing the password.
+- Retained: dashboard and drill-downs, seller search/filter/sort/page/export, source
+  profiles, multiple properties, activities/appointments/offers/tasks, independent pipeline
+  and contact states, audit trail, explained daily queues, zero-safe reports, local
+  preparation plans, grounded property research, compound/address-only imports with
+  reviewed fill-empty-only enrichment, and a reviewed backup-first bridge for the two legacy
+  company databases.
+- Retained: conservative read-only REsimpli sync (stable IDs, pagination, bounded retries,
+  truthful never/partial/failure/freshness) and optional, manually approved, redacted Groq
+  analysis. **No seller communication, no CRM writes, no automatic cloud batches.**
 
-## Actual current verification
+## Current verification
 
-Current suite artifacts are regenerated for 1.2, not relabelled 1.1 results:
+| Check | Result |
+|---|---|
+| Backend suite | **224 passed, 1 explicit live-account skip** |
+| Lint | `ruff check .` clean |
+| Frontend | **20 passed**, `tsc -b` + `vite build` clean |
+| Docker image | **built and run in GitHub Actions**: refuses a weak password, `/api/leads` 401 then 200 after login |
+| Release archive | built, checksummed, extracted and booted from a path containing a space |
+| Deploy scripts | `install.sh --help` works through a pipe, `--dry-run` complete, `--no-https` publishes the port without Caddy |
+| SQLite schema | 20 tables, head `0a6d91cf17b2`, integrity `ok` |
 
-- Backend: **167 passed, 1 explicit live-account test skipped**; retained one benign upstream TestClient deprecation.
-- Frontend unit: **20 passed**.
-- Real-app browser: **17 passed** against a migrated isolated fixture DB, including four new unified workflows and separately guarded synthetic/no-network Groq cases.
-- Ruff, ESLint, TypeScript and production build passed; locked-install npm audit reported **0 vulnerabilities**. The current 1.2 backup/restore and extracted ZIP boot/hash/empty-DB/SPA/asset/auth checks passed, including paths with spaces.
-- Populated **1.1 → 1.2**: all **17 original application-table values exactly unchanged**, six fictional sellers/DNC/local overrides preserved, new head **`0a6d91cf17b2`**, 19 app tables, integrity `ok`, zero FK violations; automatic recovery backup verified.
-- Exact pinned GitHub ORM-generated UUID database → upgraded target: seller/property/activity/task/appointment conversion, historical edited draft preservation, source main-file unchanged and target backup verified. No remote app/account or provider was run for this conversion.
-- Additional migration tests exercise live-WAL source consistency, no automatic insertion, explicit choices, known-person/property conflicts, stable identity/reapproval/changed-source idempotency, current-target hashes, tampered snapshots, preservation of old artifacts, conservative contact/date handling and later verified event reconciliation.
-- Sixteen actual/synthetic QA screenshots include the new preparation/research/database-review pages; no page exception, and all three new mobile flows fit a 390 px document/viewport.
-- See `docs/VERIFICATION.md`, `docs/UNIFIED_MERGE.md`, `docs/unified-upgrade-check.json` and JUnit/JSON evidence. Native Windows helpers, actual company data and real vendor accounts are **not** validated here.
+CI (`.github/workflows/ci.yml`) runs the four jobs above on every push and pull request;
+`scripts/check_references.py` additionally fails the build if a guide points at a file that
+no longer exists.
 
-## Architecture / migrations
+## Not verified
 
-React 19 / TypeScript / Vite / React Router / React Query, bundled CSS and Lucide icons; single same-origin FastAPI/Pydantic server, SQLAlchemy/Alembic, SQLite WAL/FKs, APScheduler. HTTPX is used only in guarded integrations. Loopback by default; remote preview requires strong password authentication and relative `/api` URLs. No CDN, paid database, mandatory model or automatic download.
+1. Native Windows execution of `START-ACQ.cmd` and the archived helpers; opening the LAN port
+   from a real phone on a real home network.
+2. A real Linux VPS with a real domain and Let's Encrypt issuance; Render/Oracle deployment.
+3. Both real company databases; real REsimpli, Groq and Ollama accounts.
+4. Multi-user roles: there is **one** workspace password and one worker. No per-user actor
+   identity.
+5. Scale: a 2,000-row import was exercised, not the 50,000-row maximum, and not long
+   scheduler soaks or high concurrency.
 
-Migration chain: `daec27051e18` → `9e8b3c712f42` → **`0a6d91cf17b2`**. The new migration adds **call_plans** and **workspace_merges** only. 19 application tables plus Alembic's version table. Existing seller/source/import/task columns are not destructively transformed.
+## Where the old Windows workflow went
 
-The GitHub UUID `backend/acquisitions.db` is **not** a compatible restore file for the unified integer-key `data/acquisitions.db`. The guard refuses applying our migrations to it. Use the reviewed bridge, not replacement SQL copies.
+Deployment is Linux-only by decision. The tunnel, updater and merge helpers now live in
+[`legacy/windows`](legacy/windows/README.md) and are archived, **not supported**. The one
+supported Windows entry point is `START-ACQ.cmd`, which runs the app locally; it is not a
+deployment target. Merging the two legacy databases is still documented in
+[`docs/UNIFIED_MERGE.md`](docs/UNIFIED_MERGE.md) using those archived tools.
 
-## Safety invariants
+## Exact next action
 
-**ABSOLUTELY NO AUTOMATIC SELLER COMMUNICATION.** No SMS/email/calls/dialer/send endpoint, hidden outreach job or external-browser contact is implemented. Preparation/drafts never record contact. Human operators use an approved outside workflow.
-
-REsimpli is intended primary truth; sync stays read-only. Source DNC cannot be lifted locally; unknown restrictions are not clearance; reviewed-clear is not legal consent certification. Failed/unknown/completed calls, internal notes/tasks and pipeline names cannot fabricate successful seller contact or dated history. Existing source values/originals remain preserved with local and AI provenance separate.
-
-Previously pasted vendor keys were not reused, reproduced, inserted into source/frontend/release or tested against an account. Enter rotated replacements locally. Private settings and SQLite/snapshots are plaintext private files requiring OS permissions/disk encryption; not a secret vault.
-
-## Gates / honest limits
-
-1. Actual Windows runtime/helpers, both real company DB conversions, real REsimpli authentication/full field and response semantics, actual Groq completion/entitlements/billing and Ollama inference remain untested. Passing mocks/fixtures do not establish account readiness.
-2. No CRM writes or automatic new-seller submission. Manual reviewed CSV handoff remains supported. An actually verified creation mechanism, confirmation/uncertain-outcome reconciliation and downstream-automation safety are separate future work.
-3. Research supplies criteria, not sold comparables/appraisal. Quote matches/redaction do not guarantee semantic accuracy or complete privacy. Human review/company authorization remain mandatory.
-4. Legacy import/template/sync/audit history, unassigned events and unsupported source fields remain in private whole-source snapshots/table inventory rather than being fabricated into active unified ledgers. Historical AI/drafts/plans are readable as unverified per-lead source archives, not active recommendations.
-5. One workspace/password/worker, no per-user roles or individual actor identity; not a public multi-user security certification. One primary normalized phone/email, no geocoding/identity proof/revenue accounting, no .xls support. 2k-row regression coverage, not 50k-row or large migration/long scheduler/concurrency certification.
-6. **Published to `JasonWade45/ACQ-GreenseedTX` main**, first code commit `c111403b9e21510ec8df2750565e2501fb001668`, verified by both remote Git and the GitHub API. This is a normal descendant of `f96bc3d25b4aea4def3e1122a2004c7bf56c04ad`: history retained, no force-push, no databases/keys uploaded. Old 1.1 publication artifacts remain stale. See `docs/github-publication.json`.
-7. A separate **private** GitHub repository `JasonWade45/acq-company-database-backups` was created for encrypted backups of both real company databases. `UPLOAD-DATABASES.cmd` / `.ps1` and `RESTORE-DATABASES.cmd` / `.ps1` are published here and in that private repo. They use Python SQLite online backups, integrity checks and scrypt + AES-256-GCM before pushing only encrypted payloads and table/count metadata. The backup password is never uploaded. The helpers were tested on synthetic WAL databases, not on the real company DBs or native Windows. See `docs/PRIVATE_DATABASE_BACKUP.md`. **No company database was uploaded from this workspace.**
-
-## Private database backups
-
-Before changing either original, run **`UPLOAD-DATABASES.cmd`** from the updated project root on Windows. It asks for the two original project roots and a strong backup password, then pushes encrypted backups to the separate PRIVATE repository. Verify a restore with `RESTORE-DATABASES.cmd` for both `legacy-github` and `delivered-11`. Never attach either raw DB or the password to the public repository or a chat. Do not copy one DB over the other. See `docs/PRIVATE_DATABASE_BACKUP.md`.
-
-## Exact next action for this user
-
-Stop both old apps → extract 1.2 separately → run the new **UPDATE-WINDOWS.cmd**, selecting the old **delivered 1.1 root** → in that updated root run **MERGE-WORKSPACES.cmd** and choose the GitHub **backend/acquisitions.db** → run **START-WINDOWS.cmd** → **Import Center** → review each pending person and explicitly approve selected decisions. Keep both originals/backups. Do not upload customer DBs or keys to chat, copy one DB over the other, or paste CMD contents into PowerShell.
+Extract the release → run `START-ACQ.cmd` (Windows) or `./start-acq.sh` → open the printed
+address → create a backup in **Settings → Runtime & backups** → import a reviewed CSV in
+**Import Center** and approve only explicit decisions. Configure rotated keys locally in
+**Settings → Connections & AI** if you need Groq or REsimpli. Keep seller communication and
+CRM writes disabled.

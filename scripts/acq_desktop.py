@@ -178,11 +178,12 @@ def banner(port: int, password: str, created: bool, lan: bool, addresses: list[s
     elif lan:
         lines.append("  From your phone  : no network address found — check Wi-Fi/Ethernet")
     lines.append("")
-    if password:
-        label = "  Password (save it): " if created else "  Password         : "
-        lines.append(label + password)
-        if not created:
-            lines.append("  (stored in .env · change it there and restart, or run --new-password)")
+    if password and created:
+        lines.append("  Password (save it): " + password)
+    elif password:
+        # Never print a stored secret on every start: a shared screen or a screen
+        # recording would leak it. The explicit flag exists for when you need it.
+        lines.append("  Password         : saved in .env — pass --show-password to print it")
     else:
         lines.append("  Password         : not set — this computer only")
     lines += ["", "  Keep this window open. Ctrl+C stops the app.", ""]
@@ -192,7 +193,11 @@ def banner(port: int, password: str, created: bool, lan: bool, addresses: list[s
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run Acquisitions Assistant locally and reach it from any device")
     parser.add_argument("--port", type=int, default=int(os.environ.get("APP_PORT", "8010")))
-    parser.add_argument("--local-only", action="store_true", help="Bind to 127.0.0.1 and skip the password")
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="Bind to 127.0.0.1 only; a password already saved in .env still applies",
+    )
     parser.add_argument("--no-browser", action="store_true", help="Do not open a browser window")
     parser.add_argument("--show-password", action="store_true", help="Print the saved password and exit")
     parser.add_argument("--new-password", action="store_true", help="Replace the saved password and exit")
@@ -203,9 +208,7 @@ def main(argv: list[str] | None = None) -> int:
     sys.path.insert(0, str(ROOT / "backend"))
 
     if args.new_password:
-        password, _ = ensure_credentials(ENV_FILE, required=False)
-        write_env(ENV_FILE, {"APP_ACCESS_PASSWORD": new_password(),
-                             "SESSION_SECRET": secrets.token_hex(32)})
+        write_env(ENV_FILE, {"APP_ACCESS_PASSWORD": new_password(), "SESSION_SECRET": secrets.token_hex(32)})
         print(f"New password: {read_env(ENV_FILE)['APP_ACCESS_PASSWORD']}")
         return 0
     if args.show_password:
@@ -245,8 +248,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  Scan to open {url}")
                 print("\n".join("    " + line for line in code))
                 print(flush=True)
-        if not qr_lines("http://example.invalid"):
-            print("  (QR codes need the optional 'segno' package: pip install segno)\n", flush=True)
+            else:
+                print("  (QR codes need the optional 'segno' package: pip install segno)\n", flush=True)
 
     if not args.no_browser:
         threading.Thread(

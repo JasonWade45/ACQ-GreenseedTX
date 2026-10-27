@@ -14,9 +14,9 @@ Automatic on-key/background Groq batches, hardcoded account IDs and unverified C
 
 GitHub contains public code, fictional fixtures and QA evidence—not company SQLite/WAL/snapshots, private environment/password files, vendor keys, dependencies or logs.
 
-The old GitHub `backend/acquisitions.db` and delivered 1.1 `data/acquisitions.db` have different schemas. **Never replace one with the other.** Stop both old apps, keep copies, update the old delivered 1.1 root using the new `UPDATE-WINDOWS.cmd`, then run `MERGE-WORKSPACES.cmd` there and select the old GitHub DB. `START-WINDOWS.cmd` opens the unified server; approve explicit separate/link/skip choices in Import Center. Preparing a source never silently merges people.
+The old GitHub `backend/acquisitions.db` and delivered 1.1 `data/acquisitions.db` have different schemas. **Never replace one with the other.** Stop both old apps, keep copies, update the old delivered 1.1 root using the new `legacy/windows/UPDATE-WINDOWS.cmd`, then run `legacy/windows/MERGE-WORKSPACES.cmd` there and select the old GitHub DB. `START-ACQ.cmd` opens the unified server; approve explicit separate/link/skip choices in Import Center. Preparing a source never silently merges people.
 
-لا تنسخ قاعدة فوق التانية. شغّل ملفات CMD بالدبل كليك، ولا تلصق محتواها في PowerShell. البيانات الحقيقية لا تُرفع إلى GitHub أو المحادثة. التفاصيل في `START_HERE_WINDOWS_AR.md` و`docs/UNIFIED_MERGE.md`.
+لا تنسخ قاعدة فوق التانية. شغّل ملفات CMD بالدبل كليك، ولا تلصق محتواها في PowerShell. البيانات الحقيقية لا تُرفع إلى GitHub أو المحادثة. التفاصيل في `legacy/windows/START_HERE_WINDOWS_AR.md` و`docs/UNIFIED_MERGE.md`.
 
 ## Verification and boundaries
 

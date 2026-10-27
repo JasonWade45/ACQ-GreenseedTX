@@ -1,5 +1,12 @@
 # Upload both company databases safely
 
+> **Archived helper notice (1.2.5).** `UPLOAD-DATABASES` and `RESTORE-DATABASES` now live in
+> [`legacy/windows`](../legacy/windows/README.md) and are **not supported**. The application
+> itself writes verified nightly backups (Settings → Runtime & backups) and exposes
+> `GET/POST/DELETE /api/backups`; use that for everyday protection. Keep this guide only if
+> you specifically need the encrypted, off-site copy to the private repository.
+
+
 The public `ACQ-GreenseedTX` repository contains code only. **Never attach real company
 SQLite databases, WAL files, `.env` files, API keys or an encryption password to the public
 repository or a chat.** A separate **private GitHub repository** has been created for the
@@ -17,7 +24,7 @@ overwrite, migrate or merge them automatically.
 
 1. Stop both old applications so their SQLite connections are closed.
 2. Download the updated unified 1.2 release, or clone the public repository.
-3. In the project root, double-click **`UPLOAD-DATABASES.cmd`**. Do not paste its contents
+3. In the project root, double-click **`legacy/windows/UPLOAD-DATABASES.cmd`**. Do not paste its contents
    into PowerShell. The wrapper asks for:
    - the private repository URL;
    - the old GitHub/legacy project root containing `backend\acquisitions.db`;
@@ -36,7 +43,7 @@ Open **PowerShell**, change to the project root, and paste this one-line command
 two roots if needed. This is a PowerShell command, not `.cmd` file contents:
 
 ```powershell
-python -m pip install cryptography; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\UPLOAD-DATABASES.ps1 -PrivateRepoUrl https://github.com/JasonWade45/acq-company-database-backups -LegacyRoot "C:\Users\ATG\Desktop\New folder\ACQ-GreenseedTX" -DeliveredRoot "C:\Users\ATG\Desktop\New folder\acquisitions-assistant-source\acquisitions-assistant"
+python -m pip install cryptography; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\legacy\windows\UPLOAD-DATABASES.ps1 -PrivateRepoUrl https://github.com/JasonWade45/acq-company-database-backups -LegacyRoot "C:\Users\ATG\Desktop\New folder\ACQ-GreenseedTX" -DeliveredRoot "C:\Users\ATG\Desktop\New folder\acquisitions-assistant-source\acquisitions-assistant"
 ```
 
 If you split a PowerShell command over several lines, end each intermediate line with a
@@ -45,7 +52,7 @@ backtick (`` ` ``), not `^`. Using the `.cmd` wrapper is simpler.
 Optional explicit database paths, if your folder layout differs:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\UPLOAD-DATABASES.ps1 -PrivateRepoUrl https://github.com/JasonWade45/acq-company-database-backups -LegacyRoot "C:\project\legacy" -DeliveredRoot "C:\project\delivered" -LegacyDb "C:\elsewhere\legacy.db" -DeliveredDb "C:\elsewhere\delivered.db"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\legacy\windows\UPLOAD-DATABASES.ps1 -PrivateRepoUrl https://github.com/JasonWade45/acq-company-database-backups -LegacyRoot "C:\project\legacy" -DeliveredRoot "C:\project\delivered" -LegacyDb "C:\elsewhere\legacy.db" -DeliveredDb "C:\elsewhere\delivered.db"
 ```
 
 ## What the helper does
@@ -69,10 +76,10 @@ Native Windows execution and the real company DBs were not available here.
 
 ## Restore and verify on a separate machine
 
-Double-click **`RESTORE-DATABASES.cmd`** and choose `legacy-github` or `delivered-11`, or run:
+Double-click **`legacy/windows/RESTORE-DATABASES.cmd`** and choose `legacy-github` or `delivered-11`, or run:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\RESTORE-DATABASES.ps1 -PrivateRepoUrl https://github.com/JasonWade45/acq-company-database-backups -Database legacy-github -OutputFolder "C:\AcqBackupRestoreCheck"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\legacy\windows\RESTORE-DATABASES.ps1 -PrivateRepoUrl https://github.com/JasonWade45/acq-company-database-backups -Database legacy-github -OutputFolder "C:\AcqBackupRestoreCheck"
 ```
 
 Repeat with `-Database delivered-11` in the same output folder. Enter the same password.
@@ -85,7 +92,7 @@ A backup is useful only after a tested restore. Do the restore check before rely
 ## After the upload
 
 The app is not switched to these backup files. On the Windows machine, use the unified
-`UPDATE-WINDOWS.cmd` against the delivered 1.1 root, then `MERGE-WORKSPACES.cmd` to
+`legacy/windows/UPDATE-WINDOWS.cmd` against the delivered 1.1 root, then `legacy/windows/MERGE-WORKSPACES.cmd` to
 prepare a read-only snapshot of the legacy DB. Approve separate/link/skip decisions in
 Import Center. Keep the originals and all backups.
 

@@ -30,10 +30,10 @@ Both can contain important data. Keep both original folders. **Do not copy one D
 
 1. Stop **both applications** using Ctrl+C in all of their server windows. Do not delete/reset either DB.
 2. Extract the complete 1.2 release into a **separate new folder**.
-3. Run the new release's **`UPDATE-WINDOWS.cmd`** by double-clicking the file. Select the **old delivered 1.1 project root** containing `scripts/manage.py`, `data`, `backend` and `.venv` — not the GitHub Next folder.
+3. Run the new release's **`legacy/windows/UPDATE-WINDOWS.cmd`** by double-clicking the file. Select the **old delivered 1.1 project root** containing `scripts/manage.py`, `data`, `backend` and `.venv` — not the GitHub Next folder.
 4. Approve the stopped-app update. It backs up the target database and overwritten program files, preserves its data/private settings, and applies the additive migration. A pre-migration guard also makes a consistent recovery backup before an older unified schema is upgraded.
-5. In the **old, now-updated unified project folder**, double-click **`MERGE-WORKSPACES.cmd`**. Select the GitHub project's **`backend\acquisitions.db`** in the native picker. This prepares a review, **not an import**.
-6. Run **`START-WINDOWS.cmd`** in that updated unified folder. Open **http://127.0.0.1:8010** after the listening message.
+5. In the **old, now-updated unified project folder**, double-click **`legacy/windows/MERGE-WORKSPACES.cmd`**. Select the GitHub project's **`backend\acquisitions.db`** in the native picker. This prepares a review, **not an import**.
+6. Run **`START-ACQ.cmd`** in that updated unified folder. Open **http://127.0.0.1:8010** after the listening message.
 7. In **Import Center → Bring both workspaces together**, open the prepared review. Every source seller starts **Not reviewed — leave untouched**. Choose:
    - **Separate**: preserve a separate person, including same-property/different-owner cases.
    - **Link**: only after confirming the same actual person. It transfers that selected person's history and binds an available stable CRM ID if the target does not have one. Conflicting known CRM IDs cannot be linked.

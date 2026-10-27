@@ -35,6 +35,15 @@ if not exist ".venv\Scripts\python.exe" (
   )
 )
 
+rem A 3.9 interpreter would create .venv and then fail every dependency install.
+".venv\Scripts\python.exe" -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"
+if errorlevel 1 (
+  echo Python 3.11 or newer is required. Install it, delete the .venv folder,
+  echo then run this file again.
+  pause
+  exit /b 1
+)
+
 ".venv\Scripts\python.exe" -c "import fastapi,uvicorn,segno" >nul 2>nul
 if errorlevel 1 (
   echo First run: installing the locked dependencies ^(no AI model is downloaded^)...
@@ -47,7 +56,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo If other devices cannot connect, allow the port once in an Administrator window:
+echo If another device cannot connect, allow the port once in an Administrator window:
 echo   netsh advfirewall firewall add rule name="Acquisitions Assistant" dir=in action=allow protocol=TCP localport=8010
 echo.
 

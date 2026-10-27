@@ -53,10 +53,17 @@ def valid_session(token):
 
 
 def revoke_token(token: str) -> bool:
-    """Forget one session. Returns False when the token was already invalid."""
-    if not token or len(REVOKED_TOKENS) >= MAX_REMEMBERED_TOKENS:
-        REVOKED_TOKENS.clear()
-    REVOKED_TOKENS.add(_fingerprint(token))
+    """Forget one session. Never resurrect an older one just because the set is full."""
+    if not token:
+        return False
+    fingerprint = _fingerprint(token)
+    if fingerprint in REVOKED_TOKENS:
+        return True
+    if len(REVOKED_TOKENS) >= MAX_REMEMBERED_TOKENS:
+        # Drop the least recently remembered entry, not the whole list: clearing it
+        # would silently make every earlier "sign out" reversible.
+        REVOKED_TOKENS.pop()
+    REVOKED_TOKENS.add(fingerprint)
     return True
 
 

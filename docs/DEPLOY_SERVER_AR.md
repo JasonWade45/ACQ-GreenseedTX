@@ -67,6 +67,18 @@ sudo ./deploy/install.sh --domain acq.example.com --timezone Africa/Cairo --forc
 - إعادة التشغيل آمنة: `.env` الموجود بكلمة مرور صالحة **لا يُستبدل**، و`--force` وحده يدوّرها.
 - `--dry-run` يعرض كل خطوة دون تنفيذ — مُختبَر ويعمل.
 
+### بلا نطاق؟ استخدم `--no-https`
+
+إن كان لديك سيرفر بعنوان IP فقط، لا يمكن إصدار شهادة له. هذا المسار ينشر المنفذ مباشرة
+ويستخدم نفس قرص البيانات:
+
+```bash
+sudo ./deploy/install.sh --domain 203.0.113.10 --no-https --port 8000
+```
+
+يفتح `http://203.0.113.10:8000` ويحذّرك صراحة أن الاتصال غير مشفّر. استخدمه على شبكة
+موثوقة فقط، أو ضع أمامه وكيل TLS خاصًا بك.
+
 التحقق:
 ```bash
 curl -s https://acq.example.com/api/health
@@ -196,11 +208,11 @@ sudo systemctl restart acq
 
 | البند | النتيجة |
 |---|---|
-| `deploy/install.sh` | `bash -n` نظيف؛ `--dry-run` يعمل ويطبع كل خطوة؛ منطق `.env` مُختبَر: توليد، حفظ كلمة المرور عند إعادة التشغيل، تدويرها مع `--force`، إبقاء مفاتيح مخصصة، أذون 600 |
+| `deploy/install.sh` | `bash -n` نظيف؛ `--help` يعمل حتى عند التشغيل عبر الأنبوب؛ `--dry-run` كامل؛ `--no-https` ينشر المنفذ مباشرة بلا Caddy ويقبل عنوان IP؛ منطق `.env` مُختبَر: توليد، حفظ، تدوير بـ`--force`، إبقاء مفاتيح مخصصة، أذون 600 |
 | `deploy/docker-entrypoint.sh` | `sh -n` نظيف؛ **شُغّل فعليًا**: احترم `$PORT=8100` وخدم على 8100 لا 8000، أنشأ القاعدة في `DATA_DIR` (20 جدولًا، رأس `0a6d91cf17b2`، `integrity ok`)، ورفض كلمة مرور فارغة/قصيرة بـ`FATAL` وخروج 1 |
 | `render.yaml` | YAML صالح: خدمة `web`، `runtime: docker`، `healthCheckPath: /api/health`، قرص على `/app/data`، `APP_ACCESS_PASSWORD` معلَّم `sync: false`، `SESSION_SECRET` بـ`generateValue`، ولا أسرار حرفية فيه |
 | `deploy/acq.service` | وحدة systemd مع تقييد صلاحيات؛ **لم تُشغَّل** (لا systemd في بيئة الإعداد) |
-| `Dockerfile` | يبني واجهة مسبقة داخل الصورة؛ **بناء الصورة لم يُنفَّذ** (لا Docker هنا) |
+| `Dockerfile` | **بُني وشُغِّل فعليًا في GitHub Actions**: يرفض كلمة مرور قصيرة، و`/api/leads` بلا توكن = 401 ثم 200 بعده |
 | تشغيل على نطاق/سيرفر حقيقي | **لم يُنفَّذ**: يلزم نطاق وسيرفر يملكه المشغّل |
 | REsimpli / Groq الحيّان وقاعدتا الشركة | **لم يُتحقق منها** كما في كل إصدار |
 
@@ -209,11 +221,15 @@ sudo systemctl restart acq
 
 ---
 
-## ملحق: Windows (اختياري، غير موصى به)
+## ويندوز: ليس هدف نشر
 
-النشر على Windows مدعوم عبر `START-ONLINE-WINDOWS.cmd` و`SETUP-TUNNEL-WINDOWS.cmd`
-(Cloudflare Tunnel)، لكنه ليس المسار الموصى به لبيانات الإنتاج: لا يوجد عزل حاويات،
-والنسخ الاحتياطي والتحديث يدويان. استخدمه فقط إن لم يتوفر سيرفر Linux.
+قرار المشروع: **النشر على Linux فقط**. أدوات النفق والتحديث التي كانت تعمل من ويندوز
+(`START-ONLINE-WINDOWS.cmd` و`SETUP-TUNNEL-WINDOWS.cmd` و`UPDATE-WINDOWS.*`) نُقلت إلى
+[`legacy/windows`](../legacy/windows/README.md) وهي **مؤرشفة وغير مدعومة**.
 
-انظر أيضًا: `READY_SYSTEM_AR.md` (التشغيل المحلي ودمج القاعدتين)،
-`PRIVATE_DATABASE_BACKUP.md` (النسخ المشفّر)، و`VERIFICATION.md`.
+- لتشغيل النظام على جهاز ويندوز كبرنامج محلي يُفتح من الموبايل على نفس الشبكة:
+  [`DESKTOP_LAN_AR.md`](DESKTOP_LAN_AR.md) — وهذا ليس نشرًا على الإنترنت.
+- لخدمة الفريق عبر الإنترنت: سيرفر Linux أو Render، كما في هذا الدليل.
+
+انظر أيضًا: [`READY_SYSTEM_AR.md`](READY_SYSTEM_AR.md)، و[`PRIVATE_DATABASE_BACKUP.md`](PRIVATE_DATABASE_BACKUP.md)،
+و[`VERIFICATION.md`](VERIFICATION.md).

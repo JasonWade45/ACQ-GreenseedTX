@@ -45,7 +45,6 @@ def test_backups_are_listed_newest_first(live_database):
     first = backups.create_backup(url_for(live_database), reason="scheduled")
     second = backups.create_backup(url_for(live_database), reason="manual")
     # Same-second timestamps would make the order ambiguous; nudge the names apart.
-    second = second.rename(second.with_name(second.name.replace("Z-manual", "Z-manual")))
     listed = [item["name"] for item in backups.list_backups(url_for(live_database))]
 
     assert set(listed) == {first.name, second.name}
@@ -57,7 +56,6 @@ def test_prune_keeps_scheduled_copies_and_never_touches_manual_ones(live_databas
     folder = backups.backup_directory(live_database)
     folder.mkdir(parents=True, exist_ok=True)
     for hour in range(5):
-        live_database.with_name(live_database.name).touch()
         target = folder / f"acquisitions-2026010{hour + 1}T020000Z-scheduled.db"
         target.write_bytes(b"x")
     manual = folder / "acquisitions-20260101T030000Z-manual.db"
@@ -201,3 +199,43 @@ def test_wal_writes_are_inside_the_copy_and_no_sidecars_are_left(tmp_path):
         assert copy.execute("SELECT full_name FROM leads").fetchone()[0] == "Uncheckpointed Seller"
         # Reading the mode must not change it: the copy is self-contained, not a WAL pair.
         assert copy.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+
+
+def test_rotation_never_deletes_a_file_it_did_not_create(live_database):
+    folder = backups.backup_directory(live_database)
+    folder.mkdir(parents=True, exist_ok=True)
+    for hour in range(4):
+        (folder / f"acquisitions-2026010{hour + 1}T020000Z-scheduled.db").write_bytes(b"x")
+    bystander = folder / "notes-scheduled.db"
+    bystander.write_bytes(b"keep me")
+
+    backups.prune(url_for(live_database), keep=1)
+
+    assert bystander.exists()
+
+
+def test_a_database_with_another_name_still_lists_and_downloads_its_backups(tmp_path):
+    """Regression: the name pattern was hard-coded to `acquisitions-`, so a database
+    called acq.db produced backups that existed but were invisible and un-downloadable."""
+    database = make_database(tmp_path / "data" / "acq.db")
+    created = backups.create_backup(url_for(database), reason="manual")
+
+    assert created.name.startswith("acq-")
+    listed = backups.list_backups(url_for(database))
+    assert [item["name"] for item in listed] == [created.name]
+    assert backups.resolve_backup(url_for(database), created.name) == created
+    assert backups.prune(url_for(database), keep=1) == []
+
+
+def test_api_creates_and_lists_a_backup_for_a_differently_named_database(tmp_path, client, monkeypatch):
+    from app import main as main_module
+
+    database = make_database(tmp_path / "data" / "acq.db")
+    settings = Settings(_env_file=None, database_url="sqlite:///" + str(database))
+    monkeypatch.setattr(main_module, "get_settings", lambda: settings)
+
+    created = client.post("/api/backups")
+    assert created.status_code == 200, created.text
+    name = created.json()["name"]
+    assert client.get("/api/backups").json()["backups"][0]["name"] == name
+    assert client.get(f"/api/backups/{name}").status_code == 200

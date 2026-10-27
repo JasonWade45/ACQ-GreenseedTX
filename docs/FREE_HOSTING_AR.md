@@ -1,6 +1,6 @@
 # استضافة مجانية 100% — النظام أونلاين بلينك
 
-**آخر تحديث: 26 أكتوبر 2026 — الإصدار 1.2.4.**
+**آخر تحديث: 27 أكتوبر 2026 — الإصدار 1.2.5.**
 
 الهدف: لينك أونلاين حقيقي بلا أي دفع. يوجد مسارَان فقط يستحقّان الحديث، وأحدهما مجاني للأبد
 مع بيانات دائمة، والآخر مجاني بلا كارت بنكيّ لكن ببيانات مؤقتة.
@@ -65,12 +65,11 @@ ssh ubuntu@IP-السيرفر
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JasonWade45/ACQ-GreenseedTX/main/deploy/install.sh -o /tmp/acq.sh
-sudo bash /tmp/acq.sh --domain IP-السيرفر --no-https
+sudo bash /tmp/acq.sh --domain IP-السيرفر --no-https --port 8000
 ```
 
-> `install.sh` يتحقّق من صيغة النطاق، لذا بلا نطاق استخدم الأمر اليدوي في
-> `docs/DEPLOY_SERVER_AR.md` (المسار ج) واضبط `APP_HOST=0.0.0.0` و`APP_ACCESS_PASSWORD`
-> في `deploy/.env`، ثم `docker compose up -d --build`.
+> `--no-https` ينشر المنفذ مباشرة بلا Caddy (لا يمكن إصدار شهادة لعنوان IP)، ويقبل عنوان
+> IP صريحًا. سيحذّرك السكربت أن الاتصال غير مشفّر.
 
 5. افتح `http://IP-السيرفر:8000` — ستظهر شاشة الدخول لأن `APP_ACCESS_PASSWORD` مضبوطة.
 
