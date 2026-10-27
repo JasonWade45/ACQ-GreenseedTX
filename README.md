@@ -1,4 +1,4 @@
-# Acquisitions Assistant AI · 1.2.5
+# Acquisitions Assistant AI · 1.2.6
 
 A working **local-first US residential seller-acquisitions workspace**: React/TypeScript, FastAPI and SQLite. REsimpli is the intended primary CRM. This is an actual database-backed app, not a frontend mockup.
 
@@ -12,7 +12,7 @@ A working **local-first US residential seller-acquisitions workspace**: React/Ty
 
 **Private database backups (1.2.1, archived helpers):** `legacy/windows/UPLOAD-DATABASES.cmd` and `legacy/windows/RESTORE-DATABASES.cmd` prepare encrypted, integrity-checked backups of both original company DBs and push only ciphertext to a separate PRIVATE repository. Everyday protection is now built in: a verified nightly copy in `data/backups/` plus list/create/download/delete from **Settings → Runtime & backups**. The password is never uploaded. Raw DBs, WAL files, `.env` files and keys must never be attached to the public repo or a chat. [Instructions](docs/PRIVATE_DATABASE_BACKUP.md).
 
-Current release verification: **224 backend passed + 1 explicit live-account skip; 20 frontend unit passed**; `ruff`, `tsc -b` and the production build clean. The Docker image is built and smoke-tested in GitHub Actions on every push (it must refuse a weak password, answer 401 without a token and 200 after sign-in), and the release archive is rebuilt with its checksum. The 17 browser workflows and the 1.1 migration evidence remain recorded in [docs/VERIFICATION.md](docs/VERIFICATION.md) as a 1.2 log; they were not re-run for this release. These are synthetic/local checks, not verification of your real databases, vendor accounts or a native Windows runtime.
+Current release verification: **240 backend passed + 1 explicit live-account skip; 20 frontend unit passed**; `ruff`, `tsc -b` and the production build clean. The Docker image is built and smoke-tested in GitHub Actions on every push (it must refuse a weak password, answer 401 without a token and 200 after sign-in), and the release archive is rebuilt with its checksum. The 17 browser workflows and the 1.1 migration evidence remain recorded in [docs/VERIFICATION.md](docs/VERIFICATION.md) as a 1.2 log; they were not re-run for this release. These are synthetic/local checks, not verification of your real databases, vendor accounts or a native Windows runtime.
 
 > **ABSOLUTELY NO SELLER COMMUNICATION.** No SMS, email, calls, dialer, send controls, hidden outreach jobs or automated seller contact exists. Drafts are review/edit/copy only. CRM sync is strictly read-only. External lead creation, record edits/deletes, notes/status writes and public-form automation remain disabled.
 
