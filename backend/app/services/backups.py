@@ -14,7 +14,14 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+# The prefix comes from the database filename, not a constant: a database called
+# acq.db produced backups that were created, then invisible to listing, download and
+# rotation because this pattern only accepted "acquisitions-...".
 NAME = re.compile(r"^acquisitions-\d{8}T\d{6}Z-(scheduled|manual)\.db$")
+
+
+def _name_pattern(database: Path) -> re.Pattern[str]:
+    return re.compile(rf"^{re.escape(database.stem)}-\d{{8}}T\d{{6}}Z-(scheduled|manual)\.db$")
 
 
 def database_path(url: str) -> Path:
@@ -76,9 +83,10 @@ def list_backups(url: str) -> list[dict]:
     folder = backup_directory(source)
     if not folder.is_dir():
         return []
+    pattern = _name_pattern(source)
     items = []
     for path in folder.iterdir():
-        if not path.is_file() or not NAME.match(path.name):
+        if not path.is_file() or not pattern.match(path.name):
             continue
         stat = path.stat()
         items.append(
@@ -100,7 +108,12 @@ def prune(url: str, keep: int) -> list[str]:
     folder = backup_directory(source)
     if not folder.is_dir():
         return []
-    scheduled = [p for p in sorted(folder.iterdir()) if p.is_file() and p.name.endswith("-scheduled.db")]
+    # Only files this module created are candidates. A user file that merely ends in
+    # "-scheduled.db" must never be deleted by rotation.
+    pattern = _name_pattern(source)
+    scheduled = [
+        p for p in sorted(folder.iterdir()) if p.is_file() and pattern.match(p.name) and p.name.endswith("-scheduled.db")
+    ]
     removed = []
     for path in scheduled[:-keep] if len(scheduled) > keep else []:
         path.unlink(missing_ok=True)
@@ -110,9 +123,9 @@ def prune(url: str, keep: int) -> list[str]:
 
 def resolve_backup(url: str, name: str) -> Path:
     """Map a requested filename to a path inside the backup folder, or refuse."""
-    if not NAME.match(name or ""):
-        raise ValueError("Unknown backup name")
     source = database_path(url)
+    if not _name_pattern(source).match(name or ""):
+        raise ValueError("Unknown backup name")
     path = (backup_directory(source) / name).resolve()
     if path.parent != backup_directory(source):
         raise ValueError("Unknown backup name")

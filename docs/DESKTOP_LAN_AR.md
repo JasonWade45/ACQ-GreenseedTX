@@ -49,8 +49,11 @@ PORT=8020 ./start-acq.sh
 - **QR**: صوّره بكاميرا الموبايل فيفتح الرابط مباشرة.
 
 > **احفظ كلمة المرور.** هي في ملف `.env` داخل نفس المجلد (صلاحية 600 على لينكس/ماك).
-> لو نسيتها: `python scripts/acq_desktop.py --show-password`.
-> لتغييرها: `python scripts/acq_desktop.py --new-password` ثم أعد التشغيل.
+> لو نسيتها:
+> - ويندوز: `.venv\Scripts\python.exe scripts\acq_desktop.py --show-password`
+> - لينكس/ماك: `.venv/bin/python scripts/acq_desktop.py --show-password`
+>
+> لتغييرها استخدم `--new-password` بنفس المسار، ثم أعد التشغيل.
 
 ---
 
@@ -133,10 +136,12 @@ BACKUP_HOUR_UTC=2
 ```bash
 # 1) اقفل البرنامج
 # 2) خذ نسخة من الحالة الحالية قبل أي شيء
-python scripts/manage.py backup --output backups/before-restore.db
+.venv/bin/python scripts/manage.py backup --output backups/before-restore.db
 # 3) استرجع
-python scripts/manage.py restore --input data/backups/<الاسم>.db --confirm "RESTORE LOCAL DATABASE"
+.venv/bin/python scripts/manage.py restore --input data/backups/<الاسم>.db --confirm "RESTORE LOCAL DATABASE"
 ```
+
+> على ويندوز استبدل `.venv/bin/python` بـ`.venv\Scripts\python.exe`.
 
 ---
 

@@ -1,0 +1,42 @@
+# Acquisitions Assistant AI - HTTP-only variant, for a server without a domain.
+#
+#   sudo deploy/install.sh --domain 203.0.113.10 --no-https --port 8000
+#
+# This file starts the app alone and publishes its port directly. There is no Caddy
+# and therefore no TLS: the password crosses the network in clear text. Use it only on
+# a trusted LAN, behind your own reverse proxy, or for a first look at a fresh server.
+#
+# The `name:` below matches docker-compose.yml on purpose, so the same named volume
+# (`acq-assistant_app-data`) is reused. Switching between the two files never moves or
+# recreates your database.
+
+name: acq-assistant
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ACCESS_PASSWORD: ${APP_ACCESS_PASSWORD:?Set APP_ACCESS_PASSWORD in deploy/.env (12+ characters)}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in deploy/.env}
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/New_York}
+      DATABASE_URL: sqlite:////app/data/acquisitions.db
+      PORT: "8000"
+      # Guarded features stay off until configured deliberately.
+      RESIMPLI_MODE: ${RESIMPLI_MODE:-disabled}
+      SYNC_ENABLED: ${SYNC_ENABLED:-false}
+      GROQ_ENABLED: ${GROQ_ENABLED:-false}
+      OLLAMA_ENABLED: ${OLLAMA_ENABLED:-false}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - app-data:/app/data
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  app-data: {}

@@ -39,7 +39,10 @@ def main():
         log_level="info",
         use_colors=False if os.name == "nt" else None,
         proxy_headers=True,
-        forwarded_allow_ips="127.0.0.1",
+        # Behind Caddy in Docker the peer is a bridge address, not loopback. Set
+        # FORWARDED_ALLOW_IPS to that network (or "*" when the app port is not published)
+        # so rate limiting sees real clients instead of one shared proxy address.
+        forwarded_allow_ips=os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1"),
     )
 
 

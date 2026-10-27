@@ -133,3 +133,24 @@ def test_show_password_prints_the_saved_value(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(desktop, "ENV_FILE", path)
     assert desktop.main(["--show-password"]) == 0
     assert "Acq-abcdefghijklmnop" in capsys.readouterr().out
+
+
+def test_a_saved_password_is_not_printed_on_every_start():
+    """A shared screen must not leak the workspace password."""
+    text = desktop.banner(8010, "Acq-abcdefghijklmnop", False, True, ["192.168.1.5"])
+    assert "Acq-abcdefghijklmnop" not in text
+    assert "--show-password" in text
+
+
+def test_the_first_run_still_prints_the_generated_password_once():
+    text = desktop.banner(8010, "Acq-abcdefghijklmnop", True, True, ["192.168.1.5"])
+    assert "Acq-abcdefghijklmnop" in text
+
+
+def test_new_password_rotates_without_needing_a_previous_file(tmp_path, monkeypatch, capsys):
+    path = tmp_path / ".env"
+    monkeypatch.setattr(desktop, "ENV_FILE", path)
+    assert desktop.main(["--new-password"]) == 0
+    written = desktop.read_env(path)["APP_ACCESS_PASSWORD"]
+    assert written in capsys.readouterr().out
+    assert len(written) >= desktop.MIN_PASSWORD

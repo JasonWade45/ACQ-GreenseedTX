@@ -1,5 +1,11 @@
 # Executed verification · Unified 1.2
 
+> **Historical log.** This file records the checks executed for the 1.2 build (25 October
+> 2026) and is kept unchanged on purpose. Current results for this release are in
+> [`RELEASE_1_2_5.md`](RELEASE_1_2_5.md) and reproduce with `pytest`, `npm test` and
+> `.github/workflows/ci.yml`.
+
+
 **Release date: October 25, 2026 (Africa/Cairo).** Actual checks ran on Debian 13, Python 3.13.16, Node 20.20.2 and Playwright Chromium. Generated UTC timestamps are retained as generated. No actual company database, previously pasted key, live CRM account or real Groq completion was used. Native Windows helpers were reviewed/supplied, **not executed on Windows here**.
 
 ## Final current-code results

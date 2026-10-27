@@ -69,3 +69,15 @@ def make_lead(db):
         return lead
 
     return make
+
+
+@pytest.fixture(autouse=True)
+def reset_session_state():
+    """Signed sessions live in module globals; tests must not leak them to each other."""
+    from app import security
+
+    before_cutoff = security.REVOKED_BEFORE
+    security.REVOKED_TOKENS.clear()
+    yield
+    security.REVOKED_BEFORE = before_cutoff
+    security.REVOKED_TOKENS.clear()

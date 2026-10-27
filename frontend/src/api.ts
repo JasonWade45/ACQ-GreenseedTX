@@ -51,7 +51,8 @@ export async function download(path: string, filename: string) {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  // Revoking immediately cancels the download in Safari; give the click a moment.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 export const human = (s: string) =>
   s.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());

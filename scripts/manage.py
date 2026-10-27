@@ -42,8 +42,16 @@ def backup(output):
         with sqlite3.connect(destination) as dst:
             src.backup(dst)
             result = dst.execute("PRAGMA integrity_check").fetchone()[0]
+            if result == "ok" and list(dst.execute("PRAGMA foreign_key_check")):
+                result = "foreign key mismatch"
+            # The header records the copy's journal mode, so a WAL source yields a WAL copy.
+            # Fold the log in and leave one self-contained file behind.
+            dst.execute("PRAGMA journal_mode=DELETE")
     if result != "ok":
-        raise ValueError("Backup integrity check failed")
+        destination.unlink(missing_ok=True)
+        raise ValueError(f"Backup integrity check failed ({result}); the copy was discarded")
+    for suffix in ("-wal", "-shm", "-journal"):
+        Path(str(destination) + suffix).unlink(missing_ok=True)
     private_permissions(destination)
     print(f"Consistent SQLite backup created: {destination}")
 

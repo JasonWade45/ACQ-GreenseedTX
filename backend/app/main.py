@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from typing import Annotated
 from alembic import command
@@ -11,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from .config import get_settings, ROOT
+from .version import APP_VERSION
 from .db import get_db, SessionLocal, utcnow
 from .models import (
     Lead,
@@ -147,7 +149,7 @@ async def lifespan(app):
 
 app = FastAPI(
     title="Acquisitions Assistant AI",
-    version="1.2.0",
+    version=APP_VERSION,
     lifespan=lifespan,
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
@@ -212,6 +214,15 @@ def health():
     return {"status": "ok", "application": "Acquisitions Assistant AI"}
 
 
+def record_audit(db, action: str, details: dict):
+    """Authentication must never fail because the audit row could not be written."""
+    try:
+        db.add(AuditLog(action=action, details=details))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 @app.get("/api/auth/status")
 def auth_status():
     return {"required": bool(get_settings().app_access_password)}
@@ -222,13 +233,11 @@ def login(body: LoginIn, request: Request, db: DB):
     client = request.client.host if request.client else "local"
     token, status = check_login(client, body.password, get_settings())
     if status != 200:
-        db.add(AuditLog(action="auth_login_failed", details={"client": client, "status": status}))
-        db.commit()
+        record_audit(db, "auth_login_failed", {"client": client, "status": status})
         raise HTTPException(
             status, "Too many attempts; wait a minute" if status == 429 else "Incorrect workspace password"
         )
-    db.add(AuditLog(action="auth_login", details={"client": client}))
-    db.commit()
+    record_audit(db, "auth_login", {"client": client})
     return {"token": token, "expires_in_seconds": 43200}
 
 
@@ -237,8 +246,7 @@ def logout(request: Request, db: DB):
     """Cancel this browser's session immediately; the token stops working at once."""
     token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     revoke_token(token)
-    db.add(AuditLog(action="auth_logout", details={"scope": "this_session"}))
-    db.commit()
+    record_audit(db, "auth_logout", {"scope": "this_session"})
     return {"signed_out": True}
 
 
@@ -259,8 +267,7 @@ def logout_all(db: DB):
     from .security import now_ms
 
     revoke_before(now_ms(), persist=persist)
-    db.add(AuditLog(action="auth_logout", details={"scope": "all_sessions"}))
-    db.commit()
+    record_audit(db, "auth_logout", {"scope": "all_sessions"})
     return {"signed_out": True, "scope": "all_sessions"}
 
 
@@ -998,8 +1005,16 @@ def create_backup_now(db: DB):
         )
     )
     db.commit()
-    item = next(b for b in backup_service.list_backups(settings.database_url) if b["name"] == created.name)
-    return backup_view(item)
+    # Describe the file we just wrote instead of searching a listing: a naming mismatch
+    # must not turn a successful backup into a 500.
+    return backup_view(
+        {
+            "name": created.name,
+            "size_bytes": created.stat().st_size,
+            "created_at": datetime.fromtimestamp(created.stat().st_mtime, timezone.utc),
+            "reason": "manual",
+        }
+    )
 
 
 @app.get("/api/backups/{name}")
