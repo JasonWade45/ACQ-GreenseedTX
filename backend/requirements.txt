@@ -11,6 +11,7 @@ python-dateutil>=2.9,<3
 APScheduler>=3.11,<4
 pytest>=9,<10
 ruff>=0.14,<1
+segno>=1.6,<2
 
 tzdata>=2025.2
 defusedxml>=0.7.1,<1

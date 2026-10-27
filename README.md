@@ -18,55 +18,45 @@ Current release verification: **167 backend passed + 1 explicit live skip; 20 fr
 
 Keys previously pasted into chat were **not copied into source, used against an account, put in the ZIP or configured in the preview**. Rotate exposed keys, then enter replacements locally in **Settings → Connections & AI**. Real Groq and REsimpli account access has not been verified here; provider requests were tested with synthetic mocks.
 
-## Start on Windows — no WSL, Bash or Node required
+## Run it on this computer, and open it from any device at home
 
-1. Download/extract the **complete release ZIP**.
-2. Open the **inner `acquisitions-assistant` folder**, the one containing `backend`, `frontend`, `scripts` and this README.
-3. Install Python 3.11+ if necessary, including the Windows launcher (`py`). Python 3.12/3.13 is recommended. Python 3.12.10 package installation was reported successful by the user; native Windows runtime/helper execution is not claimed as tested here.
-4. Double-click **`START-WINDOWS.cmd`**. It creates the local Python environment when missing, installs the locked dependencies when needed, and starts the bundled interface. No AI model is downloaded.
-5. After the listening message appears, open **http://127.0.0.1:8010**. Keep the terminal open. `Ctrl+C` stops the app.
+No server, no cloud account and no extra download. Extraction and one start file are enough.
 
-PowerShell alternative, from that actual extracted project folder:
+1. Download and extract the **complete release ZIP**.
+2. Open the inner `acquisitions-assistant` folder — the one containing `backend`, `frontend`, `scripts` and this README.
+3. **Windows:** double-click `START-ACQ.cmd`. **Linux/macOS:** run `./start-acq.sh`.
+4. The first run creates `.venv`, installs the locked dependencies, generates a strong password and prints:
 
-```powershell
-py -3 -m venv .venv
-& .\.venv\Scripts\python.exe -m pip install -r .\backend\requirements-lock.txt
-& .\.venv\Scripts\python.exe .\scripts\run.py --port 8010
+```
+  On this computer : http://127.0.0.1:8010
+  From your phone  : http://192.168.1.24:8010
+
+  Password (save it): Acq-xxxxxxxxxxxxxxxxxxxx
+
+  Scan to open http://192.168.1.24:8010
+  ████ ▄▄▄▄▄ █ ▄▄██▄▀█▄█ ▄▄▄▄▄ ████
 ```
 
-If `py` is unavailable but `python` works, check its version then use `python -m venv .venv`. Do not use `.venv/bin/python` or `bash` in native Windows PowerShell. Do not run later commands after a failure. The pip update notice alone is not an installation failure.
+5. Type the **From your phone** address on a phone or another laptop on the same Wi-Fi, or scan the QR code. Keep the window open; `Ctrl+C` stops the app.
 
-For another port:
+The password is stored in `.env` (mode 600 on Linux/macOS) and asked once per device. Run `scripts/acq_desktop.py --show-password` to read it again, `--new-password` to rotate it, and `--local-only` to run without a password on this machine alone.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_windows.ps1 -Port 8011
-```
-
-The helper's execution-policy bypass applies only to that process; it does not disable antivirus/firewalls or change the system policy. The complete release includes a prebuilt frontend. Node is needed only to rebuild/develop it.
-
-### Upgrade an existing Windows installation — preserve data
-
-**Do not delete `data`, `.env`, `.env.secrets` or `.venv`.** Extract 1.2 into a **new separate folder**, stop the old app in every window, then double-click **`UPDATE-WINDOWS.cmd` in the NEW folder**. Select the OLD project root and confirm the stopped-app/code-update prompt.
-
-The updater:
-
-- creates a consistent SQLite backup with the old maintenance tool **before changing any code**;
-- copies each overwritten program file to a dated `backups/code-before-v1.2-*` recovery folder;
-- updates only a whitelist of program/source/assets/docs files;
-- preserves the old database, private configuration, virtualenv and backups;
-- verifies locked Python dependencies, applies the additive migration and runs database checks;
-- does not contact a CRM, run Groq, seed sellers or communicate with anyone.
-
-Then start **the OLD, now-updated folder's `START-WINDOWS.cmd`**. The PowerShell equivalent is:
+**If another device cannot connect**, the operating system firewall is blocking the port, not the app:
 
 ```powershell
-# Run from the NEW extracted folder. Replace the example with your real OLD root.
-powershell -NoProfile -ExecutionPolicy Bypass -File .\UPDATE-WINDOWS.ps1 -ExistingProject "C:\path\to\old\acquisitions-assistant" -ConfirmStopped -ApplyUpdate
+# Windows, Administrator window, once
+netsh advfirewall firewall add rule name="Acquisitions Assistant" dir=in action=allow protocol=TCP localport=8010
 ```
 
-This native Windows updater has been supplied/reviewed but not executed on Windows here. The **1.1 → 1.2 additive schema** test was executed on Linux: all 17 original app-table values were unchanged, six fictional leads/DNC/local override were preserved, integrity/FKs passed (`docs/unified-upgrade-check.json`). The older `docs/upgrade-check.json` is historical 1.0 → 1.1 evidence, not the new merge validation. The updater cannot detect every other process using SQLite: you must stop all app instances first. If backup/migration fails, keep the error and recovery copies; never delete the DB to make an error disappear.
+```bash
+sudo ufw allow 8010/tcp     # Linux
+```
 
-Arabic quick start: [START_HERE_WINDOWS_AR.md](START_HERE_WINDOWS_AR.md).
+Everything stays on your own network: no port is opened on the internet, nothing is uploaded, and the app still refuses unauthenticated requests. Full Arabic guide: [docs/DESKTOP_LAN_AR.md](docs/DESKTOP_LAN_AR.md).
+
+### Windows scripts moved to `legacy/windows`
+
+Deployment is Linux-only by decision ([docs/DEPLOY_SERVER_AR.md](docs/DEPLOY_SERVER_AR.md)). The old tunnel, updater and merge helpers now live in [legacy/windows](legacy/windows/README.md) and are **archived, not supported**; `START-ACQ.cmd` replaced `START-WINDOWS.cmd`. The merge of two legacy databases is documented in [docs/UNIFIED_MERGE.md](docs/UNIFIED_MERGE.md).
 
 ## Linux / macOS and developer build
 
@@ -277,6 +267,9 @@ No automatic model download or arbitrary external Ollama URL is allowed. Local m
 
 ## Configuration / local security
 
+**Sessions.** A signed-in browser receives a 12-hour signed token. **Sign out** cancels that token on the server immediately (the interface calls `POST /api/auth/logout`), not just in the browser. `POST /api/auth/logout-all` cancels every session on every device and persists the cutoff, so a restart cannot resurrect an old token. Successful and failed sign-ins and sign-outs are written to the audit log — never with the password itself.
+
+
 Important variables in `.env.example`: `DATABASE_URL`, `APP_TIMEZONE` (default America/New_York, explicitly the company business timezone), `APP_HOST`/`APP_PORT` (127.0.0.1/8000), `APP_ACCESS_PASSWORD`, `SESSION_SECRET`, integration/AI flags and limits.
 
 Backend settings precedence: process environment > private `.env.secrets` > `.env` > defaults. Normal users use the default private file; the test runner may supply a private-file location within its disposable DB directory. No credentials are placed in the release.
@@ -293,6 +286,18 @@ Use trusted HTTPS/VPN/tunnel. The launcher rejects remote binds without a strong
 The Arena preview is explicitly authenticated, **fictional CRM data only**, Groq disabled/no account keys. Its generated ignored `.preview-password` is not in the download. Default company DB remains empty. No integration is represented as verified by that preview.
 
 ## Maintenance / backup / restore
+
+**Automatic backups are on by default.** A verified copy is written every night at `BACKUP_HOUR_UTC` (default 02:00) into `data/backups/`, and the last `BACKUP_KEEP` (default 7) scheduled copies are kept. Manual copies are never pruned. Each copy is taken through SQLite's online-backup API against a read-only connection, checked with `integrity_check` and `foreign_key_check`, folded out of WAL mode, and only renamed into place after it passes — a failed copy is discarded, never left behind.
+
+Manage them in **Settings → Runtime & backups**: create one now, download it, or delete it (with an explicit confirmation). The same endpoints are available to the interface:
+
+```bash
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:8010/api/backups
+curl -X POST -H "Authorization: Bearer <token>" http://127.0.0.1:8010/api/backups
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:8010/api/backups/<name> -o copy.db
+```
+
+Disable with `BACKUP_ENABLED=false`, change the hour with `BACKUP_HOUR_UTC`, keep more with `BACKUP_KEEP` (1–90).
 
 Run from project root; on Windows use `.\.venv\Scripts\python.exe` instead of `.venv/bin/python`.
 
@@ -397,7 +402,7 @@ The browser runner uses a fresh temporary authenticated loopback DB and only fic
 - **Data limits:** one normalized primary phone/email, selected mapped CRM fields rather than every unknown payload/secondary-contact roster, no formal financial offer ledger or pre-import stage/revenue reconstruction. Source summaries are not full transcripts.
 - **Security/AI limits:** private plaintext local store, single-workspace auth, automatic redaction/quote checks not semantic/privacy certification, real account verification and human approval still necessary.
 
-**Exact next action:** stop both old apps → extract 1.2 separately → run the new `UPDATE-WINDOWS.cmd` and select the old **delivered 1.1 root** → run `MERGE-WORKSPACES.cmd` in that updated root and choose the GitHub `backend/acquisitions.db` → `START-WINDOWS.cmd` → **Import Center** → review each selected person and approve only explicit decisions. Then configure rotated keys/verified read-only mapping locally if needed. Never copy one DB over the other or paste CMD contents into PowerShell. Keep seller communication and CRM writes disabled.
+**Exact next action:** extract this release into a new folder → run `START-ACQ.cmd` (Windows) or `./start-acq.sh` → open the printed address on your computer → create a backup from **Settings → Runtime & backups** before importing anything → import a reviewed seller CSV in **Import Center** and approve only explicit decisions. Configure rotated keys locally in **Settings → Connections & AI** if you need Groq or REsimpli. Keep seller communication and CRM writes disabled.
 
 ## License
 

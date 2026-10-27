@@ -50,7 +50,14 @@ from .schemas import (
     PipelineRename,
 )
 from .seed import initialize_defaults
-from .security import AccessMiddleware, check_login
+from .security import (
+    AccessMiddleware,
+    check_login,
+    revoke_before,
+    revoke_token,
+    restore_revocation,
+)
+from .services import backups as backup_service
 from .scheduler import scheduler, configure_scheduler
 from .services.leads import (
     lead_query,
@@ -113,6 +120,7 @@ async def lifespan(app):
     migrate()
     with SessionLocal() as db:
         initialize_defaults(db)
+        restore_revocation(db)
         for run in db.scalars(select(SyncRun).where(SyncRun.result == "running")):
             run.result, run.finished_at, run.errors = (
                 "failed",
@@ -210,13 +218,50 @@ def auth_status():
 
 
 @app.post("/api/auth/login")
-def login(body: LoginIn, request: Request):
-    token, status = check_login(request.client.host if request.client else "local", body.password, get_settings())
+def login(body: LoginIn, request: Request, db: DB):
+    client = request.client.host if request.client else "local"
+    token, status = check_login(client, body.password, get_settings())
     if status != 200:
+        db.add(AuditLog(action="auth_login_failed", details={"client": client, "status": status}))
+        db.commit()
         raise HTTPException(
             status, "Too many attempts; wait a minute" if status == 429 else "Incorrect workspace password"
         )
+    db.add(AuditLog(action="auth_login", details={"client": client}))
+    db.commit()
     return {"token": token, "expires_in_seconds": 43200}
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request, db: DB):
+    """Cancel this browser's session immediately; the token stops working at once."""
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    revoke_token(token)
+    db.add(AuditLog(action="auth_logout", details={"scope": "this_session"}))
+    db.commit()
+    return {"signed_out": True}
+
+
+@app.post("/api/auth/logout-all")
+def logout_all(db: DB):
+    """Cancel every session issued so far, on every device, and remember it."""
+
+    def persist(cutoff):
+        stored = db.get(AppSetting, "auth")
+        value = dict(stored.value) if stored else {}
+        value["revoked_before"] = cutoff
+        if stored:
+            stored.value = value
+        else:
+            db.add(AppSetting(key="auth", value=value))
+        db.commit()
+
+    from .security import now_ms
+
+    revoke_before(now_ms(), persist=persist)
+    db.add(AuditLog(action="auth_logout", details={"scope": "all_sessions"}))
+    db.commit()
+    return {"signed_out": True, "scope": "all_sessions"}
 
 
 @app.get("/api/meta")
@@ -915,6 +960,71 @@ def settings_update(body: SettingsIn, db: DB):
     db.add(AuditLog(action="settings_changed", details={"keys": list(body.model_fields_set)}))
     db.commit()
     return settings_view(db)
+
+
+def backup_view(item: dict) -> dict:
+    return {**item, "created_at": item["created_at"].isoformat()}
+
+
+def backup_overview():
+    settings = get_settings()
+    source = backup_service.database_path(settings.database_url)
+    return {
+        "enabled": settings.backup_enabled,
+        "keep": settings.backup_keep,
+        "hour_utc": settings.backup_hour_utc,
+        "folder": str(backup_service.backup_directory(source)),
+    }
+
+
+@app.get("/api/backups")
+def list_backups():
+    settings = get_settings()
+    return {**backup_overview(), "backups": [backup_view(b) for b in backup_service.list_backups(settings.database_url)]}
+
+
+@app.post("/api/backups")
+def create_backup_now(db: DB):
+    settings = get_settings()
+    try:
+        created = backup_service.create_backup(settings.database_url, reason="manual")
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
+    backup_service.prune(settings.database_url, settings.backup_keep)
+    db.add(
+        AuditLog(
+            action="backup_created",
+            details={"file": created.name, "reason": "manual", "bytes": created.stat().st_size},
+        )
+    )
+    db.commit()
+    item = next(b for b in backup_service.list_backups(settings.database_url) if b["name"] == created.name)
+    return backup_view(item)
+
+
+@app.get("/api/backups/{name}")
+def download_backup(name: str):
+    settings = get_settings()
+    try:
+        path = backup_service.resolve_backup(settings.database_url, name)
+    except ValueError as error:
+        raise HTTPException(404, str(error)) from error
+    return FileResponse(path, filename=path.name, media_type="application/vnd.sqlite3")
+
+
+@app.delete("/api/backups/{name}")
+def delete_backup(name: str, db: DB, confirm: str = Query(default="")):
+    if confirm != "DELETE BACKUP":
+        raise HTTPException(400, "Deleting a backup requires confirm=DELETE BACKUP")
+    settings = get_settings()
+    try:
+        path = backup_service.resolve_backup(settings.database_url, name)
+    except ValueError as error:
+        raise HTTPException(404, str(error)) from error
+    path.unlink(missing_ok=True)
+    db.add(AuditLog(action="backup_deleted", details={"file": name}))
+    db.commit()
+    return {"deleted": name}
 
 
 @app.get("/api/examples/{filename}")

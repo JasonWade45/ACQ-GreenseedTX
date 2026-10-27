@@ -230,3 +230,64 @@ def test_startup_is_quiet_when_password_is_configured(monkeypatch, capsys):
     monkeypatch.setattr("logging.Logger.warning", lambda *a, **k: None)
     warn_if_unreachable(Settings(_env_file=None, app_access_password="a-long-enough-password"))
     assert capsys.readouterr().out == ""
+
+
+def _login(client, password="private-test-password"):
+    return client.post("/api/auth/login", json={"password": password}).json()["token"]
+
+
+def test_logout_cancels_only_the_session_that_asked(client, monkeypatch):
+    import app.security as security
+
+    monkeypatch.setattr(security, "REVOKED_BEFORE", 0.0)
+    monkeypatch.setattr(get_settings(), "app_access_password", "private-test-password")
+    first = _login(client)
+    second = _login(client)
+    assert client.get("/api/leads", headers={"Authorization": "Bearer " + first}).status_code == 200
+
+    assert client.post("/api/auth/logout", headers={"Authorization": "Bearer " + first}).status_code == 200
+    assert client.get("/api/leads", headers={"Authorization": "Bearer " + first}).status_code == 401
+    assert client.get("/api/leads", headers={"Authorization": "Bearer " + second}).status_code == 200
+
+
+def test_logout_all_invalidates_every_issued_token_and_survives_restart(client, db, monkeypatch):
+    import app.security as security
+
+    monkeypatch.setattr(security, "REVOKED_BEFORE", 0.0)
+    monkeypatch.setattr(get_settings(), "app_access_password", "private-test-password")
+    token = _login(client)
+    assert client.get("/api/leads", headers={"Authorization": "Bearer " + token}).status_code == 200
+
+    # Signing out everywhere still requires being signed in.
+    assert client.post("/api/auth/logout-all").status_code == 401
+    assert client.post(
+        "/api/auth/logout-all", headers={"Authorization": "Bearer " + token}
+    ).status_code == 200
+    assert client.get("/api/leads", headers={"Authorization": "Bearer " + token}).status_code == 401
+    assert not security.valid_session(token)
+
+    # A restart must not resurrect the cancelled sessions.
+    security.REVOKED_BEFORE = 0.0
+    security.restore_revocation(db)
+    assert security.REVOKED_BEFORE > 0
+    assert not security.valid_session(token)
+
+    fresh = _login(client)
+    assert client.get("/api/leads", headers={"Authorization": "Bearer " + fresh}).status_code == 200
+
+
+def test_login_and_logout_are_audited_without_recording_the_password(client, db, monkeypatch):
+    from app.models import AuditLog
+
+    monkeypatch.setattr(get_settings(), "app_access_password", "private-test-password")
+    client.post("/api/auth/login", json={"password": "wrong-password-value"})
+    token = _login(client)
+    client.post("/api/auth/logout", headers={"Authorization": "Bearer " + token})
+
+    actions = [row.action for row in db.query(AuditLog).all()]
+    assert "auth_login_failed" in actions
+    assert "auth_login" in actions
+    assert "auth_logout" in actions
+    stored = " ".join(str(row.details) for row in db.query(AuditLog).all())
+    assert "wrong-password-value" not in stored
+    assert "private-test-password" not in stored

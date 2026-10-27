@@ -618,7 +618,7 @@ export function WorkspaceBridge() {
         <div className="merge-local">
           <strong>Keep company data on your PC.</strong>
           <p>
-            Run <code>MERGE-WORKSPACES.cmd</code> in the updated unified
+            Run <code>legacy/windows/MERGE-WORKSPACES.cmd</code> in the updated unified
             project. Choose the GitHub <code>backend\acquisitions.db</code>{" "}
             locally, then return here to review. Do not upload a company
             database to this chat.

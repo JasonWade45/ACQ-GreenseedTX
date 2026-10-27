@@ -5,7 +5,7 @@
 #   3. open https://<SITE_ADDRESS>
 #
 # The SQLite database lives in the named volume "app-data" and survives rebuilds.
-# Never delete that volume unless you have a verified backup (UPLOAD-DATABASES).
+# Never delete that volume unless you have a verified backup (Settings -> Runtime & backups).
 
 name: acq-assistant
 

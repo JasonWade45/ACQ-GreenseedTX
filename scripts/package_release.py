@@ -16,25 +16,15 @@ ROOT_FILES = {
     "Dockerfile",
     "render.yaml",
     "render-free.yaml",
+    "START-ACQ.cmd",
+    "start-acq.sh",
     "LICENSE",
     "README.md",
     "PROJECT_STATUS.md",
-    "START_HERE_WINDOWS_AR.md",
-    "START-WINDOWS.cmd",
-    "START-ONLINE-WINDOWS.cmd",
-    "SETUP-TUNNEL-WINDOWS.cmd",
-    "UPDATE-WINDOWS.cmd",
-    "UPDATE-WINDOWS.ps1",
-    "MERGE-WORKSPACES.cmd",
-    "MERGE-WORKSPACES.ps1",
-    "UPLOAD-DATABASES.cmd",
-    "UPLOAD-DATABASES.ps1",
-    "RESTORE-DATABASES.cmd",
-    "RESTORE-DATABASES.ps1",
     "alembic.ini",
     "pyproject.toml",
 }
-PUBLIC_FOLDERS = {"backend", "frontend", "scripts", "docs", "examples", "deploy"}
+PUBLIC_FOLDERS = {"backend", "frontend", "scripts", "docs", "examples", "deploy", "legacy"}
 EXCLUDED_FOLDERS = {
     ".git",
     ".venv",

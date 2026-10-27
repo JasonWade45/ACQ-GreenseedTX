@@ -2,6 +2,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from .config import get_settings
 from .db import SessionLocal
 from .models import AppSetting
+from .services.backups import create_backup, prune
 from .services.sync import begin_sync, sync_run
 
 scheduler = BackgroundScheduler(daemon=True, timezone="UTC")
@@ -15,6 +16,29 @@ def scheduled_sync():
         sync_run(run_id)
     except ValueError:
         pass  # Existing run; max_instances/coalescing also prevent overlaps.
+
+
+def scheduled_backup():
+    """Nightly verified copy. SQLite handles its own locking, so no session is needed."""
+    settings = get_settings()
+    try:
+        created = create_backup(settings.database_url, reason="scheduled")
+        prune(settings.database_url, settings.backup_keep)
+        with SessionLocal() as db:
+            from .models import AuditLog
+
+            db.add(
+                AuditLog(
+                    action="backup_created",
+                    details={"file": created.name, "reason": "scheduled", "bytes": created.stat().st_size},
+                )
+            )
+            db.commit()
+    except Exception:
+        # A failing backup must never take the scheduler down; the log keeps the evidence.
+        import logging
+
+        logging.getLogger("uvicorn.error").exception("Scheduled backup failed")
 
 
 def configure_scheduler(db, enabled=None, interval=None):
@@ -36,6 +60,8 @@ def configure_scheduler(db, enabled=None, interval=None):
     db.commit()
     if scheduler.get_job("crm_sync"):
         scheduler.remove_job("crm_sync")
+    if scheduler.get_job("nightly_backup"):
+        scheduler.remove_job("nightly_backup")
     if value["enabled"]:
         scheduler.add_job(
             scheduled_sync,
@@ -45,5 +71,16 @@ def configure_scheduler(db, enabled=None, interval=None):
             max_instances=1,
             coalesce=True,
             misfire_grace_time=60,
+        )
+    if settings.backup_enabled:
+        scheduler.add_job(
+            scheduled_backup,
+            "cron",
+            hour=settings.backup_hour_utc,
+            minute=0,
+            id="nightly_backup",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
         )
     return value
