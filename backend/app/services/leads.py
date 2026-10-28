@@ -263,6 +263,10 @@ def lead_dict(lead):
         "phone2_type",
         "phone3",
         "phone3_type",
+        "phone4",
+        "phone4_type",
+        "phone5",
+        "phone5_type",
         "email",
         "lead_source",
         "original_created_at",
@@ -300,6 +304,7 @@ def lead_dict(lead):
         "do_not_contact": lead.do_not_contact,
         "restriction_status": lead.restriction_status,
         "properties": [property_dict(p) for p in lead.properties],
+        "phones": [{"id": ph.id, "phone": ph.phone, "phone_normalized": ph.phone_normalized, "phone_type": ph.phone_type, "is_primary": ph.is_primary, "position": ph.position} for ph in getattr(lead, "phones", [])],
         "missing_information": missing_information(lead),
     }
 

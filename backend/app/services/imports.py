@@ -10,6 +10,7 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 from ..models import (
     Lead,
+    LeadPhone,
     Property,
     LeadProperty,
     Activity,
@@ -23,7 +24,7 @@ from ..models import (
 )
 from ..db import utcnow
 from ..seed import record_source_status, stage_mapping
-from .normalization import normalize_record, guess_mapping, FIELDS
+from .normalization import normalize_record, guess_mapping, FIELDS, normalize_phone
 from .property_facts import EXTRA_FACTS
 from .leads import CONTACTED, ATTEMPTED, source_date_is_connection
 
@@ -408,6 +409,27 @@ def create_local_lead(db, data, original, batch_id=None, source_kind="import"):
         lead.source_do_not_contact = True
     db.add(lead)
     db.flush()
+    # Persist ALL detected phone numbers (not just primary/2/3).
+    for pos, ph in enumerate(data.get("phones") or []):
+        num = ph.get("number") if isinstance(ph, dict) else ph
+        if not num:
+            continue
+        norm = None
+        try:
+            norm = normalize_phone(num)
+        except Exception:
+            norm = None
+        db.add(
+            LeadPhone(
+                lead_id=lead.id,
+                phone=str(num),
+                phone_normalized=norm,
+                phone_type=(ph.get("type") if isinstance(ph, dict) else None),
+                is_primary=(pos == 0),
+                position=pos,
+                source_column=(ph.get("source_column") if isinstance(ph, dict) else None),
+            )
+        )
     db.add(StageHistory(lead_id=lead.id, to_stage=stage, source=source_kind))
     attach_property(db, lead, data, {"source": source_kind, "batch_id": batch_id})
     if data.get("notes"):

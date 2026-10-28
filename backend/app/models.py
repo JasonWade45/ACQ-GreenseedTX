@@ -33,6 +33,10 @@ class Lead(Base):
     phone2_type: Mapped[Optional[str]] = mapped_column(String(40))
     phone3: Mapped[Optional[str]] = mapped_column(String(40))
     phone3_type: Mapped[Optional[str]] = mapped_column(String(40))
+    phone4: Mapped[Optional[str]] = mapped_column(String(40))
+    phone4_type: Mapped[Optional[str]] = mapped_column(String(40))
+    phone5: Mapped[Optional[str]] = mapped_column(String(40))
+    phone5_type: Mapped[Optional[str]] = mapped_column(String(40))
     email: Mapped[Optional[str]] = mapped_column(String(320), index=True)
     lead_source: Mapped[Optional[str]] = mapped_column(String(200), index=True)
     original_created_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime(), index=True)
@@ -70,6 +74,7 @@ class Lead(Base):
     source_kind: Mapped[str] = mapped_column(String(40), default="local")
     source_data: Mapped[dict] = mapped_column(JSON, default=dict)
     properties: Mapped[list["Property"]] = relationship(secondary="lead_properties", lazy="selectin")
+    phones: Mapped[list["LeadPhone"]] = relationship("LeadPhone", cascade="all, delete-orphan", lazy="selectin")
     activities: Mapped[list["Activity"]] = relationship(back_populates="lead", cascade="all, delete-orphan")
     followups: Mapped[list["Followup"]] = relationship(back_populates="lead", cascade="all, delete-orphan")
     __table_args__ = (CheckConstraint("contact_status IN ('unknown','not_contacted','attempted','contacted')"),)
@@ -85,6 +90,19 @@ class Lead(Base):
         if self.source_do_not_contact is False or self.restriction_reviewed:
             return "reviewed_clear"
         return "unknown"
+
+
+class LeadPhone(Base):
+    __tablename__ = "lead_phones"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(40))
+    phone_normalized: Mapped[Optional[str]] = mapped_column(String(40), index=True)
+    phone_type: Mapped[Optional[str]] = mapped_column(String(40))
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    source_column: Mapped[Optional[str]] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class Property(Base):

@@ -19,6 +19,10 @@ FIELDS = {
     "phone2_type": "Secondary phone type",
     "phone3": "Tertiary phone",
     "phone3_type": "Tertiary phone type",
+    "phone4": "Quaternary phone",
+    "phone4_type": "Quaternary phone type",
+    "phone5": "Fifth phone",
+    "phone5_type": "Fifth phone type",
     "email": "Email address",
     "street_address": "Property street address",
     "city": "City",
@@ -341,9 +345,23 @@ def guess_mapping(headers):
     # produce a "map each destination at most once" error.
     result = {}
     used_targets = set()
+    phone_slots = ["primary_phone", "phone2", "phone3", "phone4", "phone5"]
+    phone_slot_idx = 0
     for h in headers:
         key = re.sub("[^a-z0-9]", "", h.lower())
         target = aliases.get(key)
+        # Generic phone-column detection for any sheet: a header that looks
+        # like a phone (but not a zip/APN/loan/fax) becomes a phone slot.
+        if target is None:
+            low = h.lower()
+            if ("phone" in low or "mobile" in low or "cell" in low or "tel" in low) and \
+               not any(w in low for w in ("zip", "apn", "loan", "fax", "type")):
+                # find next free phone slot
+                while phone_slot_idx < len(phone_slots) and phone_slots[phone_slot_idx] in used_targets:
+                    phone_slot_idx += 1
+                if phone_slot_idx < len(phone_slots):
+                    target = phone_slots[phone_slot_idx]
+                    phone_slot_idx += 1
         if target and target not in used_targets:
             result[h] = target
             used_targets.add(target)
@@ -477,6 +495,48 @@ def normalize_record(original, mapping, zone, date_order):
     if data.get("source_do_not_contact") is None:
         warnings.append("Contact restriction unknown; not cleared for outreach")
     data["normalized_address"] = normalize_address(data)
+    # Collect ALL phone numbers (Data Syndicate and any sheet) into a list.
+    # Scan the original row for every phone-ish column, so unmapped phone
+    # columns are never lost (e.g. "Owner Phone 1" when "Best Reachable Phone"
+    # already claimed primary_phone).
+    phones = []
+    seen_nums = set()
+    # type lookup: header -> its type column value
+    def _type_for(header):
+        for cand in (header + " Type", header + "Type", header.replace("Phone", "Phone Type")):
+            if cand in (original or {}):
+                v = clean(original.get(cand))
+                if v:
+                    return v
+        return None
+    if original:
+        for h, v in original.items():
+            low = h.lower()
+            if not any(w in low for w in ("phone", "mobile", "cell", "tel")):
+                continue
+            if any(w in low for w in ("zip", "apn", "loan", "fax", "type")):
+                continue
+            nv = clean(v)
+            if not nv:
+                continue
+            try:
+                norm = normalize_phone(nv)
+            except Exception:
+                norm = None
+            if not norm or norm in seen_nums:
+                continue
+            seen_nums.add(norm)
+            phones.append({"number": norm, "type": _type_for(h), "position": len(phones), "source_column": h})
+    # Fall back to mapped phone targets if scan found nothing.
+    if not phones:
+        for pos, tgt in enumerate(["primary_phone", "phone2", "phone3", "phone4", "phone5"]):
+            num = data.get(tgt)
+            if num:
+                phones.append({"number": num, "type": data.get(tgt + "_type"), "position": pos, "source_column": tgt})
+    data["phones"] = phones
+    # Keep primary_phone as the first detected phone for backward compat.
+    if phones and not data.get("primary_phone"):
+        data["primary_phone"] = phones[0]["number"]
     # Dedupe key for re-import matching (Phase 2).
     addr = (data.get("street_address") or "").strip().lower()
     zc = (data.get("zip_code") or "").strip().lower()
