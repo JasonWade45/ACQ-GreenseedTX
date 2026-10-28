@@ -105,6 +105,10 @@ jobs:
 
       - name: Documentation references resolve
         run: python scripts/check_references.py
+      - name: The packaged layout boots with data kept outside it
+        run: python scripts/test_frozen_layout.py
+      - name: The desktop program starts, keeps its data and restarts on it
+        run: python scripts/smoke_desktop_app.py
       - name: Tests
         run: python -m pytest -q
 

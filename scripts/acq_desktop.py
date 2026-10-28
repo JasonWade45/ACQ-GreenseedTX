@@ -12,182 +12,59 @@ Usage:
     python scripts/acq_desktop.py --port 8010
     python scripts/acq_desktop.py --local-only    # this computer only, no password
     python scripts/acq_desktop.py --show-password
+
+The packaged program (``ACQ.exe``, built from ``desktop/``) runs the same code with
+a window instead of a console; both share ``app.launcher``.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import secrets
-import socket
 import sys
 import threading
-import time
-import urllib.error
-import urllib.request
 import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ENV_FILE = ROOT / ".env"
+if str(ROOT / "backend") not in sys.path:
+    sys.path.insert(0, str(ROOT / "backend"))
+
+from app.launcher import (  # noqa: E402
+    MIN_PASSWORD,
+    banner,
+    ensure_credentials,
+    lan_addresses,
+    lan_urls,
+    local_url,
+    new_password,
+    port_is_free,
+    qr_lines,
+    read_env,
+    wait_until_healthy,
+    write_env,
+)
+from app.paths import adopt_legacy_data, data_root, ensure_data_dirs, resource_root  # noqa: E402
+
+ENV_FILE = data_root() / ".env"
 ENV_KEYS = ("APP_ACCESS_PASSWORD", "SESSION_SECRET")
-MIN_PASSWORD = 12
 
-
-# --------------------------------------------------------------------------- settings file
-
-
-def read_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not path.is_file():
-        return values
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        values[key.strip()] = value.strip().strip('"').strip("'")
-    return values
-
-
-def write_env(path: Path, updates: dict[str, str]) -> None:
-    """Merge into an existing file so anything the user added by hand survives."""
-    existing = {}
-    order: list[str] = []
-    if path.is_file():
-        for raw in path.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, value = line.partition("=")
-                existing[key.strip()] = value
-                order.append(key.strip())
-    for key, value in updates.items():
-        if key not in existing:
-            order.append(key)
-        existing[key] = value
-    body = ["# Written by scripts/acq_desktop.py. Never share or commit this file.", ""]
-    body += [f"{key}={existing[key]}" for key in order]
-    temporary = path.with_suffix(".env.tmp")
-    temporary.write_text("\n".join(body) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
-
-
-def new_password() -> str:
-    return "Acq-" + secrets.token_urlsafe(18).replace("-", "x").replace("_", "y")
-
-
-def ensure_credentials(path: Path, required: bool = True) -> tuple[str, bool]:
-    """Return (password, created_now). Generates a strong password once."""
-    values = read_env(path)
-    password = values.get("APP_ACCESS_PASSWORD", "")
-    session = values.get("SESSION_SECRET", "")
-    created = False
-    updates: dict[str, str] = {}
-    if required and len(password) < MIN_PASSWORD:
-        password = new_password()
-        updates["APP_ACCESS_PASSWORD"] = password
-        created = True
-    if len(session) < 32:
-        updates["SESSION_SECRET"] = secrets.token_hex(32)
-    if updates:
-        write_env(path, updates)
-    return password, created
-
-
-# --------------------------------------------------------------------------- network
-
-
-def lan_addresses() -> list[str]:
-    """Best-effort list of IPv4 addresses other devices could use. Never loopback."""
-    found: set[str] = set()
-    try:
-        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            probe.connect(("8.8.8.8", 80))
-            found.add(probe.getsockname()[0])
-        finally:
-            probe.close()
-    except OSError:
-        pass
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            found.add(info[4][0])
-    except OSError:
-        pass
-    return sorted(ip for ip in found if ip and not ip.startswith("127."))
-
-
-def local_url(port: int) -> str:
-    return f"http://127.0.0.1:{port}"
-
-
-def lan_urls(port: int, addresses: list[str]) -> list[str]:
-    return [f"http://{ip}:{port}" for ip in addresses]
-
-
-def port_is_free(port: int, host: str = "0.0.0.0") -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            probe.bind((host, port))
-        except OSError:
-            return False
-    return True
-
-
-def qr_lines(url: str) -> list[str]:
-    """ASCII QR for a phone camera. Optional: segno may be missing on an old install."""
-    try:
-        import segno
-    except ImportError:
-        return []
-    from io import StringIO
-
-    buffer = StringIO()
-    segno.make(url, error="m").terminal(out=buffer, compact=True)
-    return [line for line in buffer.getvalue().splitlines() if line.strip()]
-
-
-# --------------------------------------------------------------------------- server
-
-
-def wait_until_healthy(port: int, timeout: float = 60.0) -> bool:
-    deadline = time.monotonic() + timeout
-    target = f"http://127.0.0.1:{port}/api/health"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(target, timeout=3) as response:
-                if response.status == 200:
-                    return True
-        except (urllib.error.URLError, OSError, TimeoutError):
-            time.sleep(0.4)
-    return False
-
-
-def banner(port: int, password: str, created: bool, lan: bool, addresses: list[str]) -> str:
-    lines = ["", "  Acquisitions Assistant — running on this computer", ""]
-    lines.append(f"  On this computer : {local_url(port)}")
-    if lan and addresses:
-        lines.append("  From your phone  : " + lan_urls(port, addresses)[0])
-        for extra in lan_urls(port, addresses)[1:]:
-            lines.append("                     " + extra)
-    elif lan:
-        lines.append("  From your phone  : no network address found — check Wi-Fi/Ethernet")
-    lines.append("")
-    if password and created:
-        lines.append("  Password (save it): " + password)
-    elif password:
-        # Never print a stored secret on every start: a shared screen or a screen
-        # recording would leak it. The explicit flag exists for when you need it.
-        lines.append("  Password         : saved in .env — pass --show-password to print it")
-    else:
-        lines.append("  Password         : not set — this computer only")
-    lines += ["", "  Keep this window open. Ctrl+C stops the app.", ""]
-    return "\n".join(lines)
+# Re-exported so tests and START-ACQ keep using the same names as before.
+__all__ = [
+    "MIN_PASSWORD",
+    "banner",
+    "ensure_credentials",
+    "lan_addresses",
+    "lan_urls",
+    "local_url",
+    "main",
+    "new_password",
+    "port_is_free",
+    "qr_lines",
+    "read_env",
+    "wait_until_healthy",
+    "write_env",
+]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -208,18 +85,20 @@ def main(argv: list[str] | None = None) -> int:
     sys.path.insert(0, str(ROOT / "backend"))
 
     if args.new_password:
-        write_env(ENV_FILE, {"APP_ACCESS_PASSWORD": new_password(), "SESSION_SECRET": secrets.token_hex(32)})
+        write_env(ENV_FILE, {"APP_ACCESS_PASSWORD": new_password(), "SESSION_SECRET": os.urandom(32).hex()})
         print(f"New password: {read_env(ENV_FILE)['APP_ACCESS_PASSWORD']}")
         return 0
     if args.show_password:
         print(read_env(ENV_FILE).get("APP_ACCESS_PASSWORD", "") or "No password is set.")
         return 0
 
+    ensure_data_dirs()
+    adopt_legacy_data()
     lan = not args.local_only
     password, created = ensure_credentials(ENV_FILE, required=lan)
     host = "0.0.0.0" if lan else "127.0.0.1"
 
-    if not (ROOT / "frontend" / "dist" / "index.html").exists():
+    if not (resource_root() / "frontend" / "dist" / "index.html").exists():
         print("The bundled interface is missing. Use the complete release folder, not loose source files.")
         return 2
     if not port_is_free(args.port):
@@ -270,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     except KeyboardInterrupt:
         pass
-    print("\nStopped. Your data stays in data/acquisitions.db")
+    print(f"\nStopped. Your data stays in {data_root() / 'data' / 'acquisitions.db'}")
     return 0
 
 

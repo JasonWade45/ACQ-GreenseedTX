@@ -26,7 +26,8 @@ ROOT_FILES = {
     "alembic.ini",
     "pyproject.toml",
 }
-PUBLIC_FOLDERS = {"backend", "frontend", "scripts", "docs", "examples", "deploy", "legacy"}
+PUBLIC_FOLDERS = {"backend", "frontend", "scripts", "docs", "examples", "deploy", "legacy", "desktop"}
+# Never shipped from any folder.
 EXCLUDED_FOLDERS = {
     ".git",
     ".venv",
@@ -41,6 +42,9 @@ EXCLUDED_FOLDERS = {
     "backups",
     "release",
 }
+# Only skipped at the repository root, where the Windows build writes its output.
+# ``frontend/dist`` is the compiled interface and must stay in the archive.
+ROOT_ONLY_EXCLUDED = {"dist", "build", "release", "data", "backups"}
 EXCLUDED_NAMES = {"official-docs.bundle.txt"}
 
 
@@ -48,7 +52,8 @@ def public_files():
     files = [ROOT / name for name in ROOT_FILES]
     for folder in sorted(PUBLIC_FOLDERS):
         for directory, subdirectories, names in os.walk(ROOT / folder):
-            subdirectories[:] = sorted(name for name in subdirectories if name not in EXCLUDED_FOLDERS)
+            excluded = EXCLUDED_FOLDERS | (ROOT_ONLY_EXCLUDED if Path(directory) == ROOT else set())
+            subdirectories[:] = sorted(name for name in subdirectories if name not in excluded)
             for name in sorted(names):
                 path = Path(directory) / name
                 if (

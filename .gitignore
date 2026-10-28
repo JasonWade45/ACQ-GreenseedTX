@@ -20,3 +20,9 @@ test-results/
 *.tsbuildinfo
 backups/
 release/
+
+# Windows program build output (built by scripts/build_windows.py or CI).
+# Anchored to the repo root so frontend/dist stays versioned.
+/build/
+/dist/
+*.spec.bak

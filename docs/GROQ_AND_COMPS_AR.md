@@ -1,4 +1,4 @@
-# من الصفر إلى أول رسالة موقّعة — النسخة 1.2.9
+# من الصفر إلى أول رسالة موقّعة — النسخة 1.3.0
 
 هذا المستند يشرح **ثلاثة أشياء فقط**: كيف تشغّل البرنامج، كيف تُفعّل الذكاء الاصطناعي
 المجاني (Groq)، وكيف تتأكد أن أرقام الملاك تُقرأ من REsimpli بشكل صحيح. كل خطوة
@@ -8,7 +8,7 @@
 
 ## 1. التشغيل
 
-المجلد: `C:\ACQ\ACQ-GreenseedTX-1.2.9`
+المجلد: `C:\ACQ\ACQ-GreenseedTX-1.3.0`
 
 1. دبل كليك على `START-ACQ.cmd`.
 2. سيُفتح المتصفح على `http://127.0.0.1:8010` تلقائيًا.
@@ -43,7 +43,7 @@ netsh advfirewall firewall add rule name="Acquisitions Assistant" dir=in action=
 السطر 1 — الانتقال إلى مجلد البرنامج:
 
 ```
-cd C:\ACQ\ACQ-GreenseedTX-1.2.9
+cd C:\ACQ\ACQ-GreenseedTX-1.3.0
 ```
 
 السطر 2 — نسخ القالب إلى ملف الإعدادات:
@@ -128,7 +128,7 @@ Acquisition Manager, GreenSeedTX LLC
 السطر 1:
 
 ```
-cd C:\ACQ\ACQ-GreenseedTX-1.2.9
+cd C:\ACQ\ACQ-GreenseedTX-1.3.0
 ```
 
 السطر 2:

@@ -4,13 +4,19 @@ from functools import lru_cache
 from zoneinfo import ZoneInfo
 from pydantic import field_validator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from .paths import data_root, resource_root
 
-ROOT = Path(__file__).resolve().parents[2]
+# Read-only build files (interface, migrations, fixtures).
+ROOT = resource_root()
+# The person's own files (database, password, backups). Separate on purpose: an
+# update replaces the build, never the data.
+DATA_ROOT = data_root()
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore")
-    database_url: str = f"sqlite:///{ROOT / 'data/acquisitions.db'}"
+    model_config = SettingsConfigDict(env_file=DATA_ROOT / ".env", extra="ignore")
+    # Filled in below so a moved data folder is honoured without re-importing.
+    database_url: str = ""
     app_timezone: str = "America/New_York"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
@@ -43,6 +49,11 @@ class Settings(BaseSettings):
     draft_manager_name: str = "Jason Wade"
     draft_company: str = "GreenSeedTX LLC"
 
+    @field_validator("database_url")
+    @classmethod
+    def default_database(cls, value):
+        return value or f"sqlite:///{DATA_ROOT / 'data/acquisitions.db'}"
+
     @field_validator("app_timezone")
     @classmethod
     def valid_timezone(cls, value):
@@ -65,10 +76,10 @@ class Settings(BaseSettings):
 
 
 def private_settings_path():
-    path = Path(os.environ.get("APP_PRIVATE_SETTINGS_PATH", str(ROOT / ".env.secrets"))).expanduser()
-    return path if path.is_absolute() else ROOT / path
+    path = Path(os.environ.get("APP_PRIVATE_SETTINGS_PATH", str(DATA_ROOT / ".env.secrets"))).expanduser()
+    return path if path.is_absolute() else DATA_ROOT / path
 
 
 @lru_cache
 def get_settings():
-    return Settings(_env_file=(ROOT / ".env", private_settings_path()))
+    return Settings(_env_file=(DATA_ROOT / ".env", private_settings_path()))

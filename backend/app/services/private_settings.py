@@ -74,7 +74,8 @@ def save_adapter(text, verified):
         )
     if "SYNTHETIC FIXTURE" in value.description.upper():
         raise ValueError("The synthetic fixture adapter is not a verified live response contract")
-    folder = config.ROOT / "data"
+    # The adapter is the person's own verified file, so it belongs with their data.
+    folder = config.DATA_ROOT / "data"
     folder.mkdir(exist_ok=True)
     destination = folder / "private-resimpli-adapter.json"
     descriptor, temporary = tempfile.mkstemp(prefix=".adapter-", dir=folder)
