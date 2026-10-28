@@ -22,7 +22,7 @@ from ..models import (
     StageHistory,
 )
 from ..db import utcnow
-from ..seed import stage_mapping
+from ..seed import record_source_status, stage_mapping
 from .normalization import normalize_record, guess_mapping, FIELDS
 from .property_facts import EXTRA_FACTS
 from .leads import CONTACTED, ATTEMPTED, source_date_is_connection
@@ -348,6 +348,8 @@ def attach_property(db, lead, data, metadata=None, update_from_source=False):
 
 def create_local_lead(db, data, original, batch_id=None, source_kind="import"):
     stage = stage_mapping(db, data.get("source_status"))
+    # A CSV carries the same status titles as the CRM, so they belong in the same table.
+    record_source_status(db, data.get("source_status"))
     keys = [
         "external_id",
         "first_name",
