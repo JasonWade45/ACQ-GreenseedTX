@@ -1,7 +1,7 @@
-# Project status — Acquisitions Assistant AI 1.3.0
+# Project status — Acquisitions Assistant AI 1.3.1
 
 **Updated 2026-10-28.** Unified local-first seller-acquisitions application. **Published
-release: `v1.3.0`** — see `docs/RELEASE_1_3.md`. Earlier releases (`v1.2.9`, `v1.2.8`,
+release: `v1.3.1`** — see `docs/RELEASE_1_3_1.md`. Earlier releases (`v1.2.9`, `v1.2.8`,
 `v1.2.3`, `v1.2.2`, `v1.2.1`) are retained unchanged; a published tag is never rewritten.
 
 ## What the app is now
@@ -41,7 +41,7 @@ release: `v1.3.0`** — see `docs/RELEASE_1_3.md`. Earlier releases (`v1.2.9`, `
 - **The comparables range is never a dead end (1.2.8).** A property the CRM never gave a living
   area used to make the range impossible. `PATCH /api/leads/{id}/properties/{pid}` fills only an
   empty `square_feet`/`bedrooms`/`bathrooms`, is audited, and never replaces a source value.
-- **An installed Windows program (1.3.0).** `ACQ.exe` + `ACQ-Setup-*.exe` built by PyInstaller and
+- **An installed Windows program (1.3.1).** `ACQ.exe` + `ACQ-Setup-*.exe` built by PyInstaller and
   Inno Setup on a free GitHub Windows runner: no Python, no PowerShell, no console, a Desktop and
   Start Menu shortcut, one copy at a time, and a data folder (`%LOCALAPPDATA%\AcquisitionsAssistant`)
   that survives upgrade and uninstall. Running from source keeps the old layout and adopts an
@@ -62,6 +62,7 @@ release: `v1.3.0`** — see `docs/RELEASE_1_3.md`. Earlier releases (`v1.2.9`, `
 | Frontend | **21 passed**, `tsc -b` + `vite build` clean |
 | Docker image | **built and run in GitHub Actions**: refuses a weak password, `/api/leads` 401 then 200 after login |
 | Release archive | 206 files, checksummed, extracted and booted from a path containing a space; comps routes, signature, built version and the packaged `frontend/dist` asserted from inside the ZIP |
+| Windows program | **built on the GitHub Windows runner and run before publishing**: `dist\ACQ.exe` and `dist\ACQ-Setup-1.3.1.exe`, `/api/health` answered from the packaged executable, interface served from inside it, database and `.env` created in the data folder, second copy stood down |
 | Desktop program | `scripts/smoke_desktop_app.py`: first start creates password + database in the data folder, a second copy stands down, one seller imported through the API, restart reuses the password and keeps the seller |
 | Frozen layout | `scripts/test_frozen_layout.py`: bundle boots with `sys._MEIPASS`, migrations reach `0a6d91cf17b2`, interface served from the bundle, database written outside it |
 | Deploy scripts | `install.sh --help` works through a pipe, `--dry-run` complete, `--no-https` publishes the port without Caddy |

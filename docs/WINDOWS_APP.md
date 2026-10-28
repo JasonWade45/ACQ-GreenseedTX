@@ -1,6 +1,6 @@
 # The Windows program
 
-1.3.0 turns the project into something you install, not something you unpack and start
+1.3.1 is the first release that installs: something you install, not something you unpack and start
 with a batch file. This page is for whoever maintains that build.
 
 **Arabic, step by step, for the person using it:** [INSTALL_WINDOWS_AR.md](INSTALL_WINDOWS_AR.md).
@@ -30,7 +30,7 @@ with a batch file. This page is for whoever maintains that build.
 resolve to the repository, which is why every existing script and test still works, and why an
 old ZIP folder opens with the database it already has.
 
-`adopt_legacy_data()` covers the only dangerous upgrade path: an installed 1.3.0 opening next to
+`adopt_legacy_data()` covers the only dangerous upgrade path: an installed 1.3.x opening next to
 a 1.2.x folder that holds the real database. It copies the database and `.env` across once, leaves
 the originals untouched, and writes `.adopted-from-program-folder` so it never runs twice.
 
@@ -53,7 +53,7 @@ Free, either way.
 **On GitHub (no local tooling):**
 
 ```
-git tag v1.3.0 && git push origin v1.3.0
+git tag v1.3.1 && git push origin v1.3.1
 ```
 
 The `Windows app` workflow builds, smoke-tests and attaches `ACQ.exe` and `ACQ-Setup-*.exe` to the
