@@ -43,6 +43,20 @@ class Lead(Base):
     local_do_not_contact: Mapped[bool] = mapped_column(Boolean, default=False)
     restriction_reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
     restriction_evidence: Mapped[Optional[str]] = mapped_column(Text)
+    in_license: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    # Phase 2 (Data Syndicate) fields
+    recorded_date: Mapped[Optional[datetime]] = mapped_column(UTCDateTime(), index=True)
+    score: Mapped[Optional[float]] = mapped_column(Float)
+    heat: Mapped[Optional[str]] = mapped_column(String(20))
+    equity_pct: Mapped[Optional[float]] = mapped_column(Float)
+    county: Mapped[Optional[str]] = mapped_column(String(120), index=True)
+    lead_type: Mapped[Optional[str]] = mapped_column(String(120), index=True)
+    priority_tier: Mapped[Optional[str]] = mapped_column(String(4), index=True)
+    priority_rank: Mapped[Optional[int]] = mapped_column(Integer)
+    dedupe_key: Mapped[Optional[str]] = mapped_column(String(700), index=True)
+    needs_skip_trace: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    user_edited_fields: Mapped[list] = mapped_column(JSON, default=list)
+    import_batch_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
     synced_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
@@ -241,6 +255,109 @@ class AuditLog(Base):
     details: Mapped[dict] = mapped_column(JSON, default=dict)
     actor: Mapped[str] = mapped_column(String(80), default="local_user")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+class Suppression(Base):
+    __tablename__ = "suppression"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    phone: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    phone_normalized: Mapped[Optional[str]] = mapped_column(String(40), index=True)
+    reason: Mapped[str] = mapped_column(String(40), nullable=False)
+    source: Mapped[str] = mapped_column(String(80), nullable=False)
+    lead_id: Mapped[Optional[int]] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class Template(Base):
+    __tablename__ = "templates"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    category: Mapped[str] = mapped_column(String(60), index=True)
+    lead_type_match: Mapped[list] = mapped_column(JSON, default=list)
+    flag_conditions: Mapped[dict] = mapped_column(JSON, default=dict)
+    body: Mapped[str] = mapped_column(Text)
+    variant: Mapped[str] = mapped_column(String(4), default="A")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    stats: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    direction: Mapped[str] = mapped_column(String(10), default="outbound")
+    body: Mapped[str] = mapped_column(Text)
+    template_id: Mapped[Optional[int]] = mapped_column(ForeignKey("templates.id", ondelete="SET NULL"), nullable=True)
+    variant: Mapped[Optional[str]] = mapped_column(String(4))
+    status: Mapped[str] = mapped_column(String(20), default="DRAFT", index=True)
+    validator_result: Mapped[dict] = mapped_column(JSON, default=dict)
+    scheduled_for: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    sent_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    classification: Mapped[Optional[str]] = mapped_column(String(30))
+    confidence: Mapped[Optional[float]] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+class Sequence(Base):
+    __tablename__ = "sequences"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    lead_type: Mapped[Optional[str]] = mapped_column(String(120))
+    cadence: Mapped[list] = mapped_column(JSON, default=list)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class SequenceStep(Base):
+    __tablename__ = "sequence_steps"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sequence_id: Mapped[int] = mapped_column(ForeignKey("sequences.id", ondelete="CASCADE"), index=True)
+    day_offset: Mapped[int] = mapped_column(Integer)
+    template_category: Mapped[str] = mapped_column(String(60))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class LeadSequenceState(Base):
+    __tablename__ = "lead_sequence_state"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    sequence_id: Mapped[int] = mapped_column(ForeignKey("sequences.id", ondelete="CASCADE"), index=True)
+    current_step: Mapped[int] = mapped_column(Integer, default=0)
+    next_due_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime(), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    stop_reason: Mapped[Optional[str]] = mapped_column(String(80))
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class SyncConflict(Base):
+    __tablename__ = "sync_conflicts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    field: Mapped[str] = mapped_column(String(80))
+    local_value: Mapped[Optional[str]] = mapped_column(Text)
+    crm_value: Mapped[Optional[str]] = mapped_column(Text)
+    detected_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+    resolution: Mapped[Optional[str]] = mapped_column(String(40))
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[Optional[int]] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    priority: Mapped[int] = mapped_column(Integer, default=3)
+    due_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime(), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="open", index=True)
+    source: Mapped[str] = mapped_column(String(40), default="manual")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
 
 class StageHistory(Base):

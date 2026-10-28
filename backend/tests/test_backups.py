@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from pathlib import Path
 
@@ -36,6 +37,7 @@ def test_backup_is_verified_and_contains_the_data(live_database):
         assert copy.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
 def test_backup_file_is_private(live_database):
     created = backups.create_backup(url_for(live_database), reason="scheduled")
     assert created.stat().st_mode & 0o077 == 0

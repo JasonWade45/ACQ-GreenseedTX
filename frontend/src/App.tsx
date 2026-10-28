@@ -40,6 +40,8 @@ import {
   SyncPage,
   SettingsPage,
 } from "./pages/OperationsPages";
+import { BriefingPage } from "./pages/BriefingPage";
+import { SafetyPage } from "./SafetyPage";
 
 /* The version comes from package.json at build time, so it can never drift again. */
 const APP_VERSION = typeof __APP_VERSION__ === "undefined" ? "dev" : __APP_VERSION__;
@@ -54,6 +56,8 @@ const navigation = [
   { label: "AI Insights", path: "/insights", icon: Sparkles },
   { label: "Sync Status", path: "/sync", icon: CloudDownload },
   { label: "Settings", path: "/settings", icon: Settings2 },
+  { label: "Briefing", path: "/briefing", icon: ClipboardList },
+  { label: "Safety", path: "/safety", icon: ShieldCheck },
 ];
 export default function App() {
   const [signedIn, setSignedIn] = useState(
@@ -441,6 +445,8 @@ function Workspace({ onLogout }: { onLogout?: () => void }) {
               <Route path="/insights" element={<InsightsPage />} />
               <Route path="/sync" element={<SyncPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/briefing" element={<BriefingPage />} />
+              <Route path="/safety" element={<SafetyPage />} />
               <Route
                 path="*"
                 element={

@@ -26,3 +26,9 @@ release/
 /build/
 /dist/
 *.spec.bak
+
+# Runtime markers / local data (never commit)
+.secrets_migrated
+backend/uploads/
+*.bak-mock-cleanup
+frontend/.next/

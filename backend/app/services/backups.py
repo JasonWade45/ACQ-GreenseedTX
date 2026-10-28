@@ -50,23 +50,38 @@ def create_backup(url: str, reason: str = "scheduled") -> Path:
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     destination = folder / f"{source.stem}-{_stamp()}-{reason}.db"
     temporary = destination.with_suffix(".db.partial")
+    src = None
+    dst = None
     try:
-        with sqlite3.connect(source.as_uri() + "?mode=ro", uri=True) as src:
-            with sqlite3.connect(temporary) as dst:
-                src.backup(dst)
-                if dst.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                    raise ValueError("Backup integrity check failed; the copy was discarded.")
-                if list(dst.execute("PRAGMA foreign_key_check")):
-                    raise ValueError("Backup foreign-key check failed; the copy was discarded.")
-                # The live database runs in WAL mode, so the copy may too. Fold the log into
-                # the main file and leave no -wal/-shm sidecars, otherwise renaming would
-                # split the backup and silently drop the newest writes.
-                dst.execute("PRAGMA journal_mode=DELETE")
+        src = sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)
+        dst = sqlite3.connect(temporary)
+        src.backup(dst)
+        if dst.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise ValueError("Backup integrity check failed; the copy was discarded.")
+        if list(dst.execute("PRAGMA foreign_key_check")):
+            raise ValueError("Backup foreign-key check failed; the copy was discarded.")
+        dst.execute("PRAGMA journal_mode=DELETE")
+        dst.commit()
         _remove_sidecars(temporary)
         os.chmod(temporary, 0o600)
+        # Close before rename: Windows locks open file handles.
+        dst.close()
+        dst = None
+        src.close()
+        src = None
         temporary.replace(destination)
         return destination
     except Exception:
+        if dst is not None:
+            try:
+                dst.close()
+            except Exception:
+                pass
+        if src is not None:
+            try:
+                src.close()
+            except Exception:
+                pass
         _remove_sidecars(temporary)
         temporary.unlink(missing_ok=True)
         raise
@@ -118,6 +133,41 @@ def prune(url: str, keep: int) -> list[str]:
     for path in scheduled[:-keep] if len(scheduled) > keep else []:
         path.unlink(missing_ok=True)
         removed.append(path.name)
+    return removed
+
+
+def prune_policy(url: str, daily_keep: int = 14, weekly_keep: int = 8) -> list[str]:
+    """Rotate scheduled backups: keep ``daily_keep`` newest daily plus one per
+    week for the last ``weekly_keep`` weeks. Manual backups are never touched."""
+    source = database_path(url)
+    folder = backup_directory(source)
+    if not folder.is_dir():
+        return []
+    pattern = _name_pattern(source)
+    scheduled = [
+        p
+        for p in folder.iterdir()
+        if p.is_file() and pattern.match(p.name) and p.name.endswith("-scheduled.db")
+    ]
+    if not scheduled:
+        return []
+    # Group by ISO week; keep the newest of each week.
+    by_week: dict[tuple[int, int], list[Path]] = {}
+    for p in scheduled:
+        st = p.stat()
+        dt = datetime.fromtimestamp(st.st_mtime, timezone.utc)
+        by_week.setdefault((dt.isocalendar().year, dt.isocalendar().week), []).append(p)
+    weekly_keep_set: set[Path] = set()
+    for week in sorted(by_week)[-weekly_keep:]:
+        weekly_keep_set.add(max(by_week[week], key=lambda p: p.stat().st_mtime))
+    # Daily: newest daily_keep overall.
+    daily_keep_set = set(sorted(scheduled, key=lambda p: p.stat().st_mtime, reverse=True)[:daily_keep])
+    keep = daily_keep_set | weekly_keep_set
+    removed = []
+    for p in scheduled:
+        if p not in keep:
+            p.unlink(missing_ok=True)
+            removed.append(p.name)
     return removed
 
 

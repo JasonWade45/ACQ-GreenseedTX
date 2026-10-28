@@ -29,8 +29,8 @@ from .leads import CONTACTED, ATTEMPTED, source_date_is_connection
 
 
 def validate_headers(headers, name):
-    if not headers or len(headers) > 150 or any(not h.strip() for h in headers):
-        raise ValueError(f"{name}: use 1–150 non-empty column headers")
+    if not headers or len(headers) > 300 or any(not h.strip() for h in headers):
+        raise ValueError(f"{name}: use 1–300 non-empty column headers")
     if len(headers) != len(set(headers)):
         raise ValueError(f"{name}: duplicate headers must be renamed")
     if any(len(h) > 300 for h in headers):
@@ -361,6 +361,17 @@ def create_local_lead(db, data, original, batch_id=None, source_kind="import"):
         "source_status",
         "assigned_manager",
         "source_do_not_contact",
+        "county",
+        "lead_type",
+        "score",
+        "heat",
+        "equity_pct",
+        "priority_tier",
+        "priority_rank",
+        "dedupe_key",
+        "needs_skip_trace",
+        "user_edited_fields",
+        "import_batch_id",
     ]
     lead = Lead(
         **{k: (data.get(k) or "") if k == "full_name" else data.get(k) for k in keys},
@@ -372,7 +383,14 @@ def create_local_lead(db, data, original, batch_id=None, source_kind="import"):
         else None,
         contact_outcome=data.get("contact_outcome"),
         source_data={"original": original, "normalized": data, "batch_id": batch_id},
+        recorded_date=_dt(data.get("recorded_date")),
     )
+    try:
+        from .compliance import is_in_license, _settings
+
+        lead.in_license = is_in_license(lead, _settings(db).get("licensed_counties"))
+    except Exception:
+        lead.in_license = True
     if data.get("contact_outcome") in CONTACTED or (
         lead.last_contact_at and source_date_is_connection(data.get("contact_outcome"))
     ):

@@ -22,6 +22,7 @@ FIELDS = {
     "property_type": "Property type",
     "lead_source": "Lead source",
     "original_created_at": "Original lead creation date",
+    "recorded_date": "Recorded date",
     "last_contact_at": "Last contact date",
     "contact_outcome": "Last contact outcome",
     "source_status": "Lead status",
@@ -41,6 +42,19 @@ FIELDS = {
     "year_built": "Year built",
     "bed_bath_sqft": "Combined beds / baths / square feet",
     "county": "County",
+    "score": "Sale probability / score",
+    "heat": "Heat (HOT/VERY HOT)",
+    "equity_pct": "Equity percent",
+    "lead_type": "Lead type",
+    "owner_occupied": "Owner occupied",
+    "vacant": "Vacant",
+    "hoa": "HOA",
+    "lis_pendens_description": "Lis pendens description",
+    "code_violation_description": "Code violation description",
+    "decedent_name": "Decedent name",
+    "representative_name": "Representative name",
+    "property_class": "Property class",
+    "apn": "APN",
     "lot_acres": "Lot acres",
     "tax_market_value": "Recorded county market value",
     "tax_assessed_value": "Recorded county assessed value",
@@ -110,7 +124,7 @@ STATES = dict(
     )
 )
 STATES.update({"guam": "GU", "virgin islands": "VI", "american samoa": "AS", "northern mariana islands": "MP"})
-DATE_FIELDS = {"original_created_at", "last_contact_at", "appointment_at", "next_followup_at"}
+DATE_FIELDS = {"original_created_at", "recorded_date", "last_contact_at", "appointment_at", "next_followup_at"}
 PRICE_FIELDS = {"asking_price", "estimated_value", "repair_estimate", "bathrooms"}
 INT_FIELDS = {"bedrooms", "square_feet", "year_built", "tax_year"}
 EXTRA_NUMERIC = {"lot_acres", "tax_market_value", "tax_assessed_value", "estimated_equity", "mortgage_balance"}
@@ -156,6 +170,50 @@ ALIASES = {
     "addressline1": "street_address",
     "propertycity": "city",
     "propertystate": "state",
+    "recordeddate": "recorded_date",
+    "saleprobability": "score",
+    "salelikelihood": "score",
+    "propertycounty": "county",
+    "leadtype": "lead_type",
+    "combinedpropertyaddress": "street_address",
+    "propertystreetaddress": "street_address",
+    "ownerfirstname": "first_name",
+    "ownerlastname": "last_name",
+    "ownernames": "full_name",
+    "bestreachablephone": "primary_phone",
+    "ownerphone1": "primary_phone",
+    "ownerphone2": "primary_phone",
+    "ownerphone3": "primary_phone",
+    "owneremail1": "email",
+    "owneremail2": "email",
+    "owneremail3": "email",
+    "bestemail": "email",
+    "equitypercent": "equity_pct",
+    "estimatedequity": "equity_pct",
+    "estimatedequitypercent": "equity_pct",
+    "propertytype": "property_type",
+    "propertyclass": "property_class",
+    "squarefeet": "square_feet",
+    "yearbuilt": "year_built",
+    "lotsizeacres": "lot_acres",
+    "vacant": "vacant",
+    "hoa": "hoa",
+    "owneroccupied": "owner_occupied",
+    "lispendensdescription": "lis_pendens_description",
+    "codeviolationdescription": "code_violation_description",
+    "decedentname": "decedent_name",
+    "representativename": "representative_name",
+    "apn": "apn",
+    "bedrooms": "bedrooms",
+    "bathrooms": "bathrooms",
+    "propertyzip": "zip_code",
+    "propertyzipcode": "zip_code",
+    "equity": "estimated_equity",
+    "mailingaddress": "street_address",
+    "mailingcity": "city",
+    "mailingstate": "state",
+    "mailingzip": "zip_code",
+    "mailingzipcode": "zip_code",
 }
 
 
@@ -269,9 +327,18 @@ def guess_mapping(headers):
     aliases = {re.sub("[^a-z0-9]", "", k.lower()): k for k in FIELDS}
     aliases.update({re.sub("[^a-z0-9]", "", label.lower()): k for k, label in FIELDS.items()})
     aliases.update(ALIASES)
-    return {
-        h: aliases[re.sub("[^a-z0-9]", "", h.lower())] for h in headers if re.sub("[^a-z0-9]", "", h.lower()) in aliases
-    }
+    # Keep only the first source column for each destination field, so a
+    # Data Syndicate export (which repeats phone/email columns) does not
+    # produce a "map each destination at most once" error.
+    result = {}
+    used_targets = set()
+    for h in headers:
+        key = re.sub("[^a-z0-9]", "", h.lower())
+        target = aliases.get(key)
+        if target and target not in used_targets:
+            result[h] = target
+            used_targets.add(target)
+    return result
 
 
 def normalize_record(original, mapping, zone, date_order):
@@ -311,6 +378,10 @@ def normalize_record(original, mapping, zone, date_order):
                 data[target] = value.zfill(5) if "-" not in value else value
             elif target in DATE_FIELDS:
                 data[target] = parse_datetime(value, zone, date_order).isoformat()
+            elif target == "estimated_equity":
+                cleaned = value.replace(",", "").strip()
+                num = float(re.sub(r"[^0-9.\-]", "", cleaned))
+                data[target] = num
             elif target in PRICE_FIELDS | INT_FIELDS | EXTRA_NUMERIC:
                 number, warning, label = labelled_amount(value)
                 if warning:
@@ -340,6 +411,29 @@ def normalize_record(original, mapping, zone, date_order):
                     data[target] = None
                 else:
                     raise ValueError("Use yes/no, true/false or unknown for DNC")
+            elif target == "score":
+                num = float(re.sub(r"[^0-9.\-]", "", value))
+                if not (0 <= num <= 100):
+                    raise ValueError("Score must be between 0 and 100")
+                data[target] = num
+                if num >= 85:
+                    data["heat"] = "VERY_HOT"
+                elif num >= 75:
+                    data["heat"] = "HOT"
+                else:
+                    data["heat"] = "NONE"
+            elif target == "equity_pct":
+                cleaned = value.replace("%", "").strip()
+                num = float(re.sub(r"[^0-9.\-]", "", cleaned))
+                data[target] = num
+            elif target in {"owner_occupied", "vacant", "hoa"}:
+                low = value.lower()
+                if low in {"true", "yes", "y", "1", "owner occupied", "vacant", "yes hoa", "hoa"}:
+                    data[target] = True
+                elif low in {"false", "no", "n", "0", "occupied", "no"}:
+                    data[target] = False
+                else:
+                    data[target] = None
             else:
                 data[target] = value
         except (ValueError, TypeError) as exc:
@@ -374,6 +468,32 @@ def normalize_record(original, mapping, zone, date_order):
     if data.get("source_do_not_contact") is None:
         warnings.append("Contact restriction unknown; not cleared for outreach")
     data["normalized_address"] = normalize_address(data)
+    # Dedupe key for re-import matching (Phase 2).
+    addr = (data.get("street_address") or "").strip().lower()
+    zc = (data.get("zip_code") or "").strip().lower()
+    if addr:
+        data["dedupe_key"] = f"{addr}|{zc}" if zc else addr
+    # Skip-trace flag.
+    data["needs_skip_trace"] = not bool(data.get("full_name")) or not bool(data.get("primary_phone"))
+    # Tiering (Phase 2.2).
+    score = data.get("score")
+    heat = (data.get("heat") or "NONE").upper()
+    equity = data.get("equity_pct")
+    recently_sold = "recently_sold" in (data.get("extra_flags") or [])
+    if equity is not None and (equity < 20 or equity < 0):
+        tier = "P4"
+    elif recently_sold:
+        tier = "P4"
+    elif score is not None and score >= 85 or heat == "VERY_HOT":
+        tier = "P1"
+    elif heat == "HOT" or (score is not None and score >= 75):
+        tier = "P2"
+    else:
+        tier = "P3"
+    data["priority_tier"] = tier
+    # priority_rank: score desc, then equity desc, then lead_type weight
+    lead_type_weight = {"Tax Deed Sale": 5, "Inheritance": 4, "Probate": 4, "Divorce": 3, "Lis Pendens": 3}.get(data.get("lead_type") or "", 1)
+    data["priority_rank"] = int((score or 0) * 100 + (equity or 0) + lead_type_weight)
     return data, errors, warnings
 
 

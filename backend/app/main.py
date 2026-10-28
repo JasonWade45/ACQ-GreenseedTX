@@ -1,6 +1,9 @@
 import asyncio
 import logging
+import shutil
+import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Annotated
 from alembic import command
@@ -30,6 +33,10 @@ from .models import (
     AppSetting,
     StageHistory,
     CloudRequest,
+    Template,
+    Message,
+    SyncConflict,
+    Task,
 )
 from .schemas import (
     NoteIn,
@@ -123,6 +130,13 @@ async def lifespan(app):
     with SessionLocal() as db:
         initialize_defaults(db)
         restore_revocation(db)
+        # Seed message templates (Phase 3) if empty.
+        try:
+            from .services import templates as template_service
+
+            template_service.seed_templates(db)
+        except Exception:
+            pass
         for run in db.scalars(select(SyncRun).where(SyncRun.result == "running")):
             run.result, run.finished_at, run.errors = (
                 "failed",
@@ -143,7 +157,21 @@ async def lifespan(app):
         db.commit()
         configure_scheduler(db)
     scheduler.start()
+    # One-time migration of API keys from .env into the secret store (Phase 1.3).
+    try:
+        from .services import secrets_store
+
+        secrets_store.migrate_env_to_secrets()
+    except Exception:
+        pass
     yield
+    # On-exit backup (Phase 1.1): best-effort, never blocks shutdown.
+    try:
+        settings = get_settings()
+        backup_service.create_backup(settings.database_url, reason="manual")
+        backup_service.prune(settings.database_url, settings.backup_keep)
+    except Exception:
+        pass
     scheduler.shutdown(wait=False)
 
 
@@ -988,11 +1016,21 @@ def backup_view(item: dict) -> dict:
 def backup_overview():
     settings = get_settings()
     source = backup_service.database_path(settings.database_url)
+    row = None
+    try:
+        from .db import SessionLocal
+
+        with SessionLocal() as db:
+            row = db.get(AppSetting, "backup_second_folder")
+    except Exception:
+        pass
+    second = row.value.get("path") if row and isinstance(row.value, dict) else None
     return {
         "enabled": settings.backup_enabled,
         "keep": settings.backup_keep,
         "hour_utc": settings.backup_hour_utc,
         "folder": str(backup_service.backup_directory(source)),
+        "second_folder": second,
     }
 
 
@@ -1009,7 +1047,23 @@ def create_backup_now(db: DB):
         created = backup_service.create_backup(settings.database_url, reason="manual")
     except ValueError as error:
         raise HTTPException(409, str(error)) from error
+    # Optional second backup folder (e.g. Google Drive sync folder).
+    try:
+        row = db.get(AppSetting, "backup_second_folder")
+        second = row.value.get("path") if row and isinstance(row.value, dict) else None
+        if second:
+            import shutil as _sh
+
+            dest = Path(second) / created.name
+            Path(second).mkdir(parents=True, exist_ok=True)
+            _sh.copy2(created, dest)
+    except Exception:
+        pass
     backup_service.prune(settings.database_url, settings.backup_keep)
+    try:
+        backup_service.prune_policy(settings.database_url)
+    except Exception:
+        pass
     db.add(
         AuditLog(
             action="backup_created",
@@ -1052,6 +1106,429 @@ def delete_backup(name: str, db: DB, confirm: str = Query(default="")):
     db.add(AuditLog(action="backup_deleted", details={"file": name}))
     db.commit()
     return {"deleted": name}
+
+
+@app.get("/api/backups/config")
+def backup_config(db: DB):
+    row = db.get(AppSetting, "backup_second_folder")
+    return {"second_folder": (row.value.get("path") if row and isinstance(row.value, dict) else None)}
+
+
+@app.patch("/api/backups/config")
+def backup_config_update(body: dict, db: DB):
+    path = (body or {}).get("second_folder")
+    row = db.get(AppSetting, "backup_second_folder")
+    if row is None:
+        db.add(AppSetting(key="backup_second_folder", value={"path": path}))
+    else:
+        row.value = {"path": path}
+    db.add(AuditLog(action="backup_config_changed", details={"second_folder": path}))
+    db.commit()
+    return {"second_folder": path}
+
+
+@app.post("/api/backups/restore")
+def restore_backup(body: dict, db: DB):
+    name = (body or {}).get("name")
+    settings = get_settings()
+    try:
+        path = backup_service.resolve_backup(settings.database_url, name)
+    except ValueError as error:
+        raise HTTPException(404, str(error)) from error
+    # Validate the chosen backup before touching the live database.
+    try:
+        with sqlite3.connect(path) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("Backup failed integrity check")
+    except Exception as error:
+        raise HTTPException(400, f"Backup is not usable: {error}") from error
+    source = backup_service.database_path(settings.database_url)
+    # Safety copy of the current database first.
+    try:
+        safety = backup_service.create_backup(settings.database_url, reason="manual")
+    except Exception as error:
+        raise HTTPException(500, f"Could not create safety copy: {error}") from error
+    # Replace the live file. The app should be restarted afterwards.
+    try:
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            Path(str(source) + suffix).unlink(missing_ok=True)
+        shutil.copy2(path, source)
+    except Exception as error:
+        raise HTTPException(500, f"Restore failed: {error}") from error
+    db.add(AuditLog(action="backup_restored", details={"from": name, "safety_copy": safety.name}))
+    db.commit()
+    return {"restored_from": name, "safety_copy": safety.name, "restart_required": True}
+
+
+@app.get("/api/export/all")
+def export_everything(db: DB):
+    import io
+    import zipfile
+    from fastapi.responses import StreamingResponse
+
+    settings = get_settings()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Database copy
+        try:
+            db_path = backup_service.database_path(settings.database_url)
+            zf.write(db_path, arcname="acquisitions.db")
+        except Exception:
+            pass
+        # CSV export of leads (inline, no dependency on a helper that may not exist)
+        try:
+            import csv as _csv
+            import io as _io
+
+            from .models import Lead
+
+            buf = _io.StringIO()
+            w = _csv.writer(buf)
+            w.writerow(["id", "full_name", "primary_phone", "email", "stage_code", "contact_status", "source_status", "created_at"])
+            for lead in db.query(Lead).all():
+                w.writerow(
+                    [
+                        lead.id,
+                        lead.full_name,
+                        lead.primary_phone,
+                        lead.email,
+                        lead.stage_code,
+                        lead.contact_status,
+                        lead.source_status,
+                        lead.created_at.isoformat() if lead.created_at else "",
+                    ]
+                )
+            zf.writestr("leads.csv", buf.getvalue())
+        except Exception:
+            pass
+        try:
+
+            zf.writestr("audit_log.csv", "id,action,actor,created_at,details\n")
+        except Exception:
+            pass
+    buffer.seek(0)
+    db.add(AuditLog(action="export_all", details={}))
+    db.commit()
+    return StreamingResponse(buffer, media_type="application/zip", headers={"Content-Disposition": "attachment; filename=acq-export.zip"})
+
+
+@app.get("/api/suppression")
+def list_suppression():
+    from .services import compliance
+
+    db = SessionLocal()
+    try:
+        rows = compliance.list_suppression(db)
+        return [
+            {
+                "id": r.id,
+                "phone": r.phone,
+                "phone_normalized": r.phone_normalized,
+                "reason": r.reason,
+                "source": r.source,
+                "lead_id": r.lead_id,
+                "notes": r.notes,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
+@app.post("/api/suppression")
+def add_suppression(body: dict, db: DB):
+    from .services import compliance
+
+    phone = (body or {}).get("phone")
+    if not phone:
+        raise HTTPException(400, "phone is required")
+    row = compliance.add_suppression(
+        db,
+        phone=phone,
+        reason=(body or {}).get("reason", "manual"),
+        source=(body or {}).get("source", "manual"),
+        lead_id=(body or {}).get("lead_id"),
+        notes=(body or {}).get("notes"),
+    )
+    db.add(AuditLog(action="suppression_added", details={"phone": row.phone_normalized, "reason": row.reason}))
+    db.commit()
+    return {"id": row.id, "phone": row.phone, "reason": row.reason}
+
+
+@app.delete("/api/suppression/{phone}")
+def delete_suppression(phone: str, db: DB):
+    from .services import compliance
+
+    ok = compliance.remove_suppression(db, phone)
+    if not ok:
+        raise HTTPException(404, "not suppressed")
+    db.add(AuditLog(action="suppression_removed", details={"phone": compliance.normalize_phone(phone)}))
+    db.commit()
+    return {"removed": True}
+
+
+@app.get("/api/compliance")
+def compliance_view(db: DB):
+    from .services import compliance
+
+    from .services import secrets_store
+
+    return {
+        "settings": compliance._settings(db),
+        "secret_backend": secrets_store.storage_backend(),
+    }
+
+
+@app.patch("/api/compliance")
+def compliance_update(body: dict, db: DB):
+    from .services import compliance
+
+    allowed = {
+        "licensed_counties",
+        "quiet_start",
+        "quiet_end",
+        "quiet_days",
+        "daily_cap",
+        "hourly_cap",
+        "warmup_enabled",
+        "warmup_days",
+        "warmup_start",
+        "opt_out_line",
+    }
+    payload = {k: v for k, v in (body or {}).items() if k in allowed}
+    cfg = compliance.save_settings(db, payload)
+    db.add(AuditLog(action="compliance_settings_changed", details={"keys": list(payload.keys())}))
+    db.commit()
+    return cfg
+
+
+@app.get("/api/audit")
+def audit_list(db: DB, limit: int = 200, action: str | None = None):
+    q = db.query(AuditLog).order_by(AuditLog.created_at.desc())
+    if action:
+        q = q.filter(AuditLog.action == action)
+    rows = q.limit(min(limit, 1000)).all()
+    return [
+        {
+            "id": r.id,
+            "lead_id": r.lead_id,
+            "action": r.action,
+            "actor": r.actor,
+            "details": r.details,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
+
+
+# ── Phase 3: templates & messages ────────────────────────────────────────────
+@app.get("/api/message-templates")
+def list_message_templates(db: DB):
+
+    rows = db.query(Template).order_by(Template.category, Template.variant).all()
+    return [{"id": t.id, "category": t.category, "variant": t.variant, "body": t.body, "active": t.active, "stats": t.stats or {}} for t in rows]
+
+
+@app.post("/api/templates/seed")
+def seed_templates(db: DB):
+    from .services import templates as T
+
+    n = T.seed_templates(db)
+    return {"created": n}
+
+
+@app.post("/api/leads/{lead_id}/draft")
+def create_draft(lead_id: int, db: DB, body: dict | None = None):
+    from .services import templates as T
+
+    lead = db.get(Lead, lead_id)
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    template_id = (body or {}).get("template_id")
+    variant = (body or {}).get("variant", "A")
+    custom_body = (body or {}).get("body")
+    m = T.create_draft(db, lead, template_id=template_id, variant=variant, body=custom_body)
+    return {"id": m.id, "lead_id": m.lead_id, "body": m.body, "status": m.status, "template_id": m.template_id, "variant": m.variant, "validator_result": m.validator_result}
+
+
+@app.post("/api/messages/{message_id}/approve")
+def approve_message(message_id: int, db: DB):
+    from .services import templates as T
+
+    try:
+        m = T.approve_message(db, message_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"id": m.id, "status": m.status}
+
+
+@app.post("/api/messages/{message_id}/reject")
+def reject_message(message_id: int, db: DB):
+    m = db.get(Message, message_id)
+    if not m:
+        raise HTTPException(404, "Message not found")
+    if m.status != "DRAFT":
+        raise HTTPException(400, "Only drafts can be rejected")
+    m.status = "REJECTED"
+    db.commit()
+    return {"id": m.id, "status": m.status}
+
+
+@app.get("/api/messages")
+def list_messages(db: DB, lead_id: int | None = None, status: str | None = None, limit: int = 100):
+    q = db.query(Message).order_by(Message.created_at.desc())
+    if lead_id:
+        q = q.filter(Message.lead_id == lead_id)
+    if status:
+        q = q.filter(Message.status == status)
+    rows = q.limit(min(limit, 500)).all()
+    return [{"id": m.id, "lead_id": m.lead_id, "direction": m.direction, "body": m.body, "status": m.status, "template_id": m.template_id, "variant": m.variant, "classification": m.classification, "confidence": m.confidence, "created_at": m.created_at.isoformat() if m.created_at else None} for m in rows]
+
+
+# ── Phase 3: template selection preview ──────────────────────────────────────
+@app.get("/api/leads/{lead_id}/template-selection")
+def template_selection(lead_id: int, db: DB):
+    from .services import templates as T
+
+    lead = db.get(Lead, lead_id)
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    cat = T.select_category(lead)
+    return {"category": cat, "reason": "selected by lead context"}
+
+
+# ── Phase 4: sequences ───────────────────────────────────────────────────────
+@app.post("/api/leads/{lead_id}/sequence/start")
+def start_sequence(lead_id: int, db: DB):
+    from .services import sequences as S
+
+    lead = db.get(Lead, lead_id)
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    st = S.start_sequence(db, lead)
+    return {"id": st.id, "status": st.status, "next_due_at": st.next_due_at.isoformat() if st.next_due_at else None}
+
+
+@app.post("/api/sequences/run-due")
+def run_due_sequences(db: DB):
+    from .services import sequences as S
+
+    items = S.runner_due_today(db)
+    return {"processed": len(items), "items": items}
+
+
+# ── Phase 6: reply handling ──────────────────────────────────────────────────
+@app.post("/api/leads/{lead_id}/reply")
+def handle_reply(lead_id: int, body: dict, db: DB):
+    from .services import replies as R
+
+    lead = db.get(Lead, lead_id)
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    text = (body or {}).get("text", "")
+    if not text.strip():
+        raise HTTPException(400, "text is required")
+    result = R.handle_inbound(db, lead, text)
+    db.add(AuditLog(lead_id=lead.id, action="reply_classified", details={"classification": result["classification"], "confidence": result["confidence"]}))
+    db.commit()
+    return result
+
+
+@app.post("/api/replies/classify")
+def classify_reply(body: dict):
+    from .services import replies as R
+
+    text = (body or {}).get("text", "")
+    cls, conf = R.classify(None, text)
+    return {"classification": cls, "confidence": conf}
+
+
+# ── Phase 7: briefing & analytics ────────────────────────────────────────────
+@app.get("/api/briefing")
+def briefing(db: DB):
+    from .services import briefing as B
+
+    return B.briefing(db)
+
+
+@app.get("/api/analytics")
+def analytics(db: DB):
+    from .services import analytics as A
+
+    return A.analytics(db)
+
+
+# ── Phase 5: sync conflicts ──────────────────────────────────────────────────
+@app.get("/api/sync/conflicts")
+def list_sync_conflicts(db: DB, resolved: bool = False):
+    q = db.query(SyncConflict)
+    if not resolved:
+        q = q.filter(SyncConflict.resolved.is_(False))
+    rows = q.order_by(SyncConflict.detected_at.desc()).limit(200).all()
+    return [{"id": r.id, "lead_id": r.lead_id, "field": r.field, "local_value": r.local_value, "crm_value": r.crm_value, "detected_at": r.detected_at.isoformat() if r.detected_at else None, "resolved": r.resolved, "resolution": r.resolution} for r in rows]
+
+
+@app.patch("/api/sync/conflicts/{conflict_id}")
+def resolve_sync_conflict(conflict_id: int, body: dict, db: DB):
+    c = db.get(SyncConflict, conflict_id)
+    if not c:
+        raise HTTPException(404, "Conflict not found")
+    c.resolved = True
+    c.resolution = (body or {}).get("resolution", "resolved")
+    db.commit()
+    return {"id": c.id, "resolved": c.resolved, "resolution": c.resolution}
+
+
+# ── tasks ────────────────────────────────────────────────────────────────────
+@app.get("/api/tasks")
+def list_tasks(db: DB, status: str | None = None, limit: int = 100):
+    q = db.query(Task).order_by(Task.created_at.desc())
+    if status:
+        q = q.filter(Task.status == status)
+    rows = q.limit(min(limit, 500)).all()
+    return [{"id": t.id, "lead_id": t.lead_id, "title": t.title, "description": t.description, "priority": t.priority, "due_at": t.due_at.isoformat() if t.due_at else None, "status": t.status, "source": t.source, "created_at": t.created_at.isoformat() if t.created_at else None} for t in rows]
+
+
+@app.post("/api/tasks")
+def create_task(body: dict, db: DB):
+    t = Task(title=(body or {}).get("title", "Task"), description=(body or {}).get("description"), priority=(body or {}).get("priority", 3), lead_id=(body or {}).get("lead_id"), source=(body or {}).get("source", "manual"))
+    if (body or {}).get("due_at"):
+        try:
+            t.due_at = datetime.fromisoformat((body or {}).get("due_at").replace("Z", "+00:00"))
+        except Exception:
+            pass
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return {"id": t.id}
+
+
+@app.patch("/api/tasks/{task_id}")
+def update_task(task_id: int, body: dict, db: DB):
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "Task not found")
+    if "status" in (body or {}):
+        t.status = (body or {}).get("status")
+        if t.status == "done":
+            t.completed_at = datetime.now(timezone.utc)
+    if "title" in (body or {}):
+        t.title = (body or {}).get("title")
+    db.commit()
+    return {"id": t.id, "status": t.status}
+
+
+# ── Phase 8: check for updates ───────────────────────────────────────────────
+@app.get("/api/updates/check")
+def check_updates():
+    from .services import updates as U
+
+    current = APP_VERSION
+    info = U.latest_release()
+    if info is None:
+        return {"available": False, "current": current, "latest": None}
+    return {"available": U.is_newer(current, info.get("tag_name")), "current": current, "latest": info}
 
 
 @app.get("/api/examples/{filename}")
