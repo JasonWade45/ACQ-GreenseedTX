@@ -188,7 +188,30 @@ export default function LeadDetail() {
                 <Info label="Full name">
                   {lead.full_name || "Not recorded — property-only prospect"}
                 </Info>
-                <Info label="Primary phone">{lead.primary_phone}</Info>
+                <Info label="Phone numbers">
+                  {(() => {
+                    const phones: any[] = (lead as any).phones || [];
+                    if (phones.length) {
+                      return phones.map((p: any) => (
+                        <div key={p.id || p.position} style={{ marginBottom: 2 }}>
+                          {p.phone}
+                          {p.phone_type ? ` (${p.phone_type})` : ""}
+                          {p.is_primary ? " — primary" : ""}
+                        </div>
+                      ));
+                    }
+                    return (
+                      <>
+                        {lead.primary_phone && <div>{lead.primary_phone}</div>}
+                        {lead.phone2 && <div>{lead.phone2}{lead.phone2_type ? ` (${lead.phone2_type})` : ""}</div>}
+                        {lead.phone3 && <div>{lead.phone3}{lead.phone3_type ? ` (${lead.phone3_type})` : ""}</div>}
+                        {lead.phone4 && <div>{lead.phone4}{lead.phone4_type ? ` (${lead.phone4_type})` : ""}</div>}
+                        {lead.phone5 && <div>{lead.phone5}{lead.phone5_type ? ` (${lead.phone5_type})` : ""}</div>}
+                        {!lead.primary_phone && !lead.phone2 && !lead.phone3 && !lead.phone4 && !lead.phone5 && "Not recorded"}
+                      </>
+                    );
+                  })()}
+                </Info>
                 <Info label="Email">{lead.email}</Info>
                 <Info label="Assigned manager">{lead.assigned_manager}</Info>
                 <Info label="Lead source">{lead.lead_source}</Info>

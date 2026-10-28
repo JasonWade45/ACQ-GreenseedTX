@@ -126,6 +126,16 @@ export interface Lead {
   last_name: string | null;
   full_name: string;
   primary_phone: string | null;
+  primary_phone_type: string | null;
+  phone2: string | null;
+  phone2_type: string | null;
+  phone3: string | null;
+  phone3_type: string | null;
+  phone4: string | null;
+  phone4_type: string | null;
+  phone5: string | null;
+  phone5_type: string | null;
+  phones: { id: number; phone: string; phone_normalized: string | null; phone_type: string | null; is_primary: boolean; position: number }[];
   email: string | null;
   lead_source: string | null;
   original_created_at: string | null;
