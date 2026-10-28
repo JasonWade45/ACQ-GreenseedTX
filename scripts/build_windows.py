@@ -102,6 +102,8 @@ def build_exe() -> Path:
 
 def build_installer(exe: Path) -> Path | None:
     """Inno Setup, when installed. Produces the double-click installer."""
+    # Inno resolves a relative /DSourceExe from desktop/, not from here.
+    exe = Path(exe).resolve()
     candidates = [
         shutil.which("ISCC"),
         r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
