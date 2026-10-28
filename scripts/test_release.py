@@ -35,7 +35,12 @@ with TestClient(app) as client:
     assert index.status_code == 200 and '<div id="root"></div>' in index.text
     assets = re.findall(r'(?:src|href)="([^\"]+\.(?:js|css))"', index.text)
     assert len(assets) == 2 and all(path.startswith("/assets/") for path in assets)
-    assert all(client.get(path).status_code == 200 for path in assets)
+    bodies = {path: client.get(path).text for path in assets}
+    assert all(bodies.values())
+    # The sidebar version is injected from package.json, so it must match the backend.
+    from app.version import APP_VERSION as built_version
+    script = next(text for path, text in bodies.items() if path.endswith(".js"))
+    assert built_version in script, "the built interface does not carry the packaged version"
     assert client.get("/leads/1").status_code == 200
     assert client.get("/api/leads").status_code == 401
     token = client.post("/api/auth/login", json={"password":settings.app_access_password}).json()["token"]
@@ -44,6 +49,15 @@ with TestClient(app) as client:
     assert client.get("/api/workspace-merges").json() == []
     view = client.get("/api/settings").json()
     assert not view["external_writes"] and not view["automatic_communication"]
+    assert "source_statuses" in view, "the mapping screen needs the observed status titles"
+    paths = client.get("/api/openapi.json").json()["paths"]
+    assert "/api/leads/{lead_id}/comps" in paths, "the comparables worksheet must be served"
+    assert "/api/leads/{lead_id}/comps/{comp_id}" in paths
+    signed = set()
+    with SessionLocal() as session:
+        from app.services.ai import signature_lines
+        signed = signature_lines(settings)
+    assert signed == ["Jason Wade", "Acquisition Manager, GreenSeedTX LLC"], signed
     with SessionLocal() as session:
         cloud = cloud_status(session, settings)
         assert cloud["consent_mode"] == "redacted_review_each_request"

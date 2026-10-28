@@ -1,6 +1,7 @@
 """Merged local preparation/research tools. No dialer, provider calls or CRM writes."""
 
 from copy import deepcopy
+from uuid import uuid4
 import re
 from sqlalchemy import select
 from sqlalchemy.orm import object_session
@@ -229,6 +230,118 @@ def update_plan(db, lead, plan, checks, answers, opener=None):
     return plan
 
 
+COMP_KEYS = ("address", "sold_price", "sold_date", "square_feet", "bedrooms", "bathrooms", "distance_miles", "source", "notes")
+
+
+def _comp_id():
+    return uuid4().hex[:12]
+
+
+def stored_comps(prop):
+    entries = (prop.property_metadata or {}).get("comps", [])
+    return [entry for entry in entries if isinstance(entry, dict)] if isinstance(entries, list) else []
+
+
+def comp_view(entry):
+    """One comparable with the arithmetic a person would make on paper."""
+    price = finite_number(entry.get("sold_price"))
+    sqft = finite_number(entry.get("square_feet"))
+    per_sqft = round(price / sqft, 2) if price and sqft else None
+    return {
+        **entry,
+        "price_per_sqft": per_sqft,
+    }
+
+
+def comps_summary(subject, comps):
+    """A range built only from the numbers the user entered. Never an appraisal."""
+    sqft = finite_number(subject.get("square_feet")) if subject else None
+    rates = sorted(c["price_per_sqft"] for c in comps if c.get("price_per_sqft"))
+    if not rates:
+        return {
+            "count": len(comps),
+            "median_price_per_sqft": None,
+            "suggested_low": None,
+            "suggested_high": None,
+            "note": "Add comparables with a sold price and living area to see a range.",
+        }
+    middle = rates[len(rates) // 2] if len(rates) % 2 else (rates[len(rates) // 2 - 1] + rates[len(rates) // 2]) / 2
+    middle = round(middle, 2)
+    low = high = None
+    if sqft:
+        low, high = round(sqft * middle * 0.95), round(sqft * middle * 1.05)
+    return {
+        "count": len(comps),
+        "median_price_per_sqft": middle,
+        "suggested_low": low,
+        "suggested_high": high,
+        "note": (
+            "Calculated from the comparables you entered and this property's living area. "
+            "It is arithmetic, not an appraisal or an offer, and it is only as good as the comps."
+        ),
+    }
+
+
+def add_comp(db, lead, property_id, payload):
+    prop = next((item for item in lead.properties if item.id == property_id), None)
+    if not prop:
+        raise ValueError("Select the exact subject property for this comparable")
+    address = str(payload.get("address") or "").strip()
+    if len(address) < 4:
+        raise ValueError("A comparable needs a street address")
+    price = finite_number(payload.get("sold_price"))
+    if not price or price <= 0:
+        raise ValueError("A comparable needs the price it sold for")
+    sqft = finite_number(payload.get("square_feet"))
+    if sqft is not None and not 100 <= sqft <= 100_000:
+        raise ValueError("Living area looks wrong; enter square feet between 100 and 100,000")
+    metadata = dict(prop.property_metadata or {})
+    entries = stored_comps(prop)
+    if len(entries) >= 25:
+        raise ValueError("Twenty-five comparables is the limit for one property; remove one first")
+    entry = {
+        "id": _comp_id(),
+        "address": address[:300],
+        "sold_price": price,
+        "sold_date": str(payload.get("sold_date") or "")[:40] or None,
+        "square_feet": int(sqft) if sqft else None,
+        "bedrooms": payload.get("bedrooms"),
+        "bathrooms": payload.get("bathrooms"),
+        "distance_miles": finite_number(payload.get("distance_miles")),
+        "source": str(payload.get("source") or "Entered by the reviewer")[:120],
+        "notes": str(payload.get("notes") or "")[:600] or None,
+        "entered_at": utcnow().isoformat(),
+    }
+    metadata["comps"] = entries + [entry]
+    prop.property_metadata = metadata
+    db.add(
+        AuditLog(
+            lead_id=lead.id,
+            action="comparable_added",
+            details={"property_id": prop.id, "comp_id": entry["id"], "sold_price": price, "verified_by_user": True},
+        )
+    )
+    db.commit()
+    return comp_view(entry)
+
+
+def remove_comp(db, lead, comp_id):
+    removed = False
+    for prop in lead.properties:
+        entries = stored_comps(prop)
+        kept = [entry for entry in entries if entry.get("id") != comp_id]
+        if len(kept) != len(entries):
+            metadata = dict(prop.property_metadata or {})
+            metadata["comps"] = kept
+            prop.property_metadata = metadata
+            removed = True
+    if not removed:
+        raise ValueError("Comparable not found")
+    db.add(AuditLog(lead_id=lead.id, action="comparable_removed", details={"comp_id": comp_id}))
+    db.commit()
+    return {"removed": comp_id}
+
+
 def comps_brief(lead, property_id=None):
     properties = lead.properties
     prop = (
@@ -284,6 +397,7 @@ def comps_brief(lead, property_id=None):
         "price_min": round(anchor * 0.8) if anchor else None,
         "price_max": round(anchor * 1.2) if anchor else None,
     }
+    comps = [comp_view(entry) for entry in stored_comps(prop)]
     return {
         "subject": {
             "id": prop.id,
@@ -300,11 +414,14 @@ def comps_brief(lead, property_id=None):
         },
         "criteria": criteria,
         "references": references,
-        "comps": [],
+        "comps": comps,
+        "comps_summary": comps_summary(
+            {"square_feet": prop.square_feet}, comps
+        ),
         "portals": [
             {"label": "Zillow", "url": "https://www.zillow.com/"},
             {"label": "Redfin", "url": "https://www.redfin.com/"},
             {"label": "Realtor.com", "url": "https://www.realtor.com/"},
         ],
-        "notice": "Suggested research criteria, not actual sold comparables or an appraisal. No MLS feed, scraping or automatic portal requests. Copy the subject address and research using an approved source.",
+        "notice": "Comparables here are the ones you entered yourself. No MLS feed, scraping or automatic portal requests. Copy the subject address and research using an approved source.",
     }

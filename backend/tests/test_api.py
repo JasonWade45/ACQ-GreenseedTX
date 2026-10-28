@@ -324,3 +324,25 @@ def test_revocation_memory_is_bounded_without_resurrecting_old_sessions(monkeypa
     assert not security.valid_session(tokens[3])
     # At least the oldest entries are the ones dropped, never everything at once.
     assert len(security.REVOKED_TOKENS) > 0
+
+
+def test_settings_lists_the_status_titles_the_crm_really_sent(client, db):
+    """Unmapped titles must be visible for a human to decide, never guessed."""
+    from app.seed import initialize_defaults, record_source_status
+
+    initialize_defaults(db)
+    record_source_status(db, "Dead Lead")
+    record_source_status(db, "Dead Lead")
+    record_source_status(db, "Some Title Nobody Predicted")
+    record_source_status(db, None)
+    db.commit()
+
+    rows = client.get("/api/settings").json()["source_statuses"]
+    by_title = {row["title"]: row for row in rows}
+
+    assert by_title["Dead Lead"]["leads"] == 2
+    assert by_title["Dead Lead"]["stage"] == "dead"
+    assert by_title["Dead Lead"]["mapped"] is True
+    assert by_title["Some Title Nobody Predicted"]["stage"] == "unmapped"
+    assert by_title["Some Title Nobody Predicted"]["mapped"] is False
+    assert by_title["(blank)"]["leads"] == 1

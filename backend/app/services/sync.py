@@ -6,7 +6,7 @@ from sqlalchemy import select, func
 from ..config import get_settings
 from ..db import SessionLocal, utcnow
 from ..models import Lead, Activity, Appointment, Followup, SyncRun, AuditLog
-from ..seed import stage_mapping
+from ..seed import record_source_status, stage_mapping
 from .normalization import normalize_record, parse_datetime, FIELDS
 from .imports import create_local_lead, attach_property
 from .leads import (
@@ -102,6 +102,7 @@ def upsert_lead(db, raw, settings, list_hash):
                 )
             else:
                 lead.source_do_not_contact = data["source_do_not_contact"]
+        record_source_status(db, data.get("source_status"))
         if not lead.local_stage_override:
             set_stage(db, lead, stage_mapping(db, data.get("source_status")), source="resimpli")
         attach_property(db, lead, data, {"source": "resimpli"}, update_from_source=True)

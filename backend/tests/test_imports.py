@@ -236,3 +236,20 @@ def test_xlsx_never_silently_discards_values_without_headers():
     wb.save(content)
     with pytest.raises(ValueError, match="without a column header"):
         inspect_file(content.getvalue(), "missing-header.xlsx", 100)
+
+
+def test_reimpli_epoch_timestamps_become_real_dates():
+    """REsimpli sends instants as numbers; every stored date used to be dropped."""
+    from datetime import timezone as tz
+
+    from app.services.normalization import parse_epoch
+
+    assert parse_datetime(1761600000000) == parse_datetime("1761600000000")
+    assert parse_datetime(1761600000) == parse_datetime(1761600000000)
+    assert parse_datetime(1761600000000).tzinfo == tz.utc
+    assert parse_datetime(1761600000000).year == 2025
+    # Milliseconds and seconds must not be confused for one another.
+    assert parse_datetime(1761600000123).microsecond == 123000
+    # Non-timestamps are still refused loudly rather than guessed.
+    for value in (0, 12345, "not-a-date", 1.5):
+        assert parse_epoch(value) is None

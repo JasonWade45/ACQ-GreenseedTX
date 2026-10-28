@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 import httpx
+from ..config import get_settings
 from ..models import Activity, AIInsight, Draft, Appointment, AuditLog
 from .leads import missing_information
 
@@ -352,40 +353,152 @@ def insight_dict(insight):
     }
 
 
-def generate_draft(db, lead, regenerate=False):
-    if not lead.full_name:
-        raise ValueError("Owner identity is unknown; identify and review the seller before drafting")
+def conversation_history(db, lead, limit=8):
+    """The last real exchange, newest first, as grounds for a follow-up.
+
+    Only stored activity is returned. Nothing here is inferred from silence: an empty
+    result means there is no recorded conversation, which is what selects the opener.
+    """
+    rows = db.scalars(
+        select(Activity)
+        .where(Activity.lead_id == lead.id)
+        .where(Activity.summary.is_not(None))
+        .order_by(Activity.occurred_at.desc().nullslast(), Activity.id.desc())
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "summary": (row.summary or "").strip(),
+            "outcome": row.outcome,
+            "direction": row.direction,
+            "kind": row.activity_type,
+            "at": row.occurred_at.isoformat() if row.occurred_at else None,
+        }
+        for row in rows
+        if (row.summary or "").strip()
+    ]
+
+
+def signature_lines(settings):
+    return [line.strip() for line in (settings.draft_signature or "").splitlines() if line.strip()]
+
+
+def draft_plan(db, lead, settings):
+    """Decide whether this lead gets a follow-up or a first-contact opener."""
+    history = conversation_history(db, lead)
     if lead.do_not_contact:
         raise ValueError("Do Not Contact restriction: marketing follow-up drafts are blocked")
     if lead.restriction_status == "unknown":
         raise ValueError(
             "Contact restrictions are unknown. Record an evidence-based permission review before drafting."
         )
+    if not lead.full_name and not any(prop.street_address for prop in lead.properties):
+        raise ValueError("No seller name and no property address; there is nothing to address the message to")
+    callback = lead.contact_outcome == "Callback Requested"
+    motivation = lead.source_data.get("normalized", {}).get("seller_motivation")
+    if history:
+        kind = "follow_up"
+    elif callback or motivation:
+        # A recorded callback or motivation with no stored exchange is still a known relationship.
+        kind = "follow_up"
+    else:
+        kind = "opener"
+    return {"kind": kind, "history": history, "callback": callback, "motivation": motivation}
+
+
+def greeting_for(lead):
+    name = lead.first_name or (lead.full_name.split()[0].title() if lead.full_name else None)
+    return f"Hi {name}," if name else "Hello,"
+
+
+def compose_template_draft(db, lead, settings, plan):
+    """Deterministic wording used when no model is configured.
+
+    It reads the recorded conversation when there is one and falls back to a first
+    contact when there is not, so every seller gets a reviewable message instead of
+    an error.
+    """
+    greeting = greeting_for(lead)
+    properties = lead.properties
+    address = properties[0].street_address if len(properties) == 1 else None
+    subject = f" about {address}" if address else ""
+    latest = plan["history"][0] if plan["history"] else None
+    if plan["kind"] == "opener":
+        body = (
+            f"{greeting} my name is {settings.draft_manager_name} and I am the acquisition manager at "
+            f"{settings.draft_company}. I work with owners{subject or ' in your area'} who are weighing a sale. "
+            "If selling is something you are considering, I would be glad to walk you through your options "
+            "with no obligation. Is now a good time to talk?"
+        )
+    elif plan["callback"]:
+        body = (
+            f"{greeting} I am following up on your callback request{subject}. "
+            "I have your notes in front of me and can pick up wherever is easiest for you. "
+            "What time works best this week?"
+        )
+    elif latest:
+        outcome = (latest.get("outcome") or "").strip().lower()
+        if outcome in {"no answer", "left voicemail"}:
+            body = (
+                f"{greeting} I tried reaching you{subject} and missed you. "
+                "I did not want to keep calling without checking first. "
+                "Is there a better time for a short conversation about your plans for the property?"
+            )
+        elif outcome == "connected":
+            body = (
+                f"{greeting} thanks for taking my call{subject}. "
+                "I have your notes in front of me and I am following up on the questions you raised. "
+                "Would you like me to send the details in writing, or set a time to go through them?"
+            )
+        else:
+            body = (
+                f"{greeting} I am following up on our recent conversation{subject}. "
+                "I would like to make sure I answered everything you needed. "
+                "What would be most useful for you right now?"
+            )
+    else:
+        motivation = plan["motivation"]
+        body = (
+            f"{greeting} you mentioned that {motivation}. I wanted to follow up{subject} and see "
+            "whether your plans have changed. Is there a convenient time to talk this week?"
+        )
+    signature = signature_lines(settings)
+    if signature:
+        body = body + "\n\n" + "\n".join(signature)
+    return body
+
+
+def generate_draft(db, lead, regenerate=False):
+    settings = get_settings()
+    plan = draft_plan(db, lead, settings)
     context = context_for(db, lead)
     if not context:
         raise ValueError("Insufficient verified context. More information is required; no generic draft was generated.")
-    # Conservative deterministic drafting is intentionally narrower than arbitrary text generation.
-    callback = lead.contact_outcome == "Callback Requested"
-    motivation = lead.source_data.get("normalized", {}).get("seller_motivation")
-    if not callback and not motivation:
-        raise ValueError(
-            "Insufficient verified relationship context. Record a callback request or an explicit seller motivation before drafting."
-        )
     existing = db.scalar(select(Draft).where(Draft.lead_id == lead.id).order_by(Draft.id.desc()))
     if existing and not regenerate:
         if existing.context != context:
             raise ValueError("Source context changed since this draft. Explicitly regenerate and review a new draft.")
         return existing
-    verified_name = lead.first_name or (lead.full_name.split()[0] if lead.full_name else None)
-    name = f"Hi {verified_name}," if verified_name else "Hello,"
-    address = lead.properties[0].street_address if len(lead.properties) == 1 else None
-    subject = f" about {address}" if address else ""
-    if callback:
-        body = f"{name} I’m following up on your callback request{subject}. What would be a convenient time for us to talk?"
-    else:
-        body = f"{name} Are you still considering selling{(' ' + address) if address else ' your property'}? If you’d like to discuss your options, please let me know a convenient time."
-    draft = Draft(lead_id=lead.id, body=body, context=context, model_id="reviewed-context-template-v1 (not AI)")
+    body = compose_template_draft(db, lead, settings, plan)
+    draft = Draft(
+        lead_id=lead.id,
+        body=body,
+        context=context,
+        model_id=f"reviewed-context-template-v2 ({plan['kind']}, not AI)",
+    )
     db.add(draft)
-    db.add(AuditLog(lead_id=lead.id, action="draft_prepared", details={"generated_only": True, "never_sent": True}))
+    db.add(
+        AuditLog(
+            lead_id=lead.id,
+            action="draft_prepared",
+            details={
+                "generated_only": True,
+                "never_sent": True,
+                "kind": plan["kind"],
+                "history_records": len(plan["history"]),
+                "signed_by": settings.draft_manager_name,
+            },
+        )
+    )
     db.commit()
     return draft

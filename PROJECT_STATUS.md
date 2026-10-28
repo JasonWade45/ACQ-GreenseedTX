@@ -1,7 +1,7 @@
-# Project status — Acquisitions Assistant AI 1.2.6
+# Project status — Acquisitions Assistant AI 1.2.7
 
 **Updated 2026-10-28.** Unified local-first seller-acquisitions application. **Published
-release: `v1.2.6`** — see `docs/RELEASE_1_2_6.md`. Earlier releases (`v1.2.5`, `v1.2.4`,
+release: `v1.2.7`** — see `docs/RELEASE_1_2_7.md`. Earlier releases (`v1.2.6`, `v1.2.5`,
 `v1.2.3`, `v1.2.2`, `v1.2.1`) are retained unchanged; a published tag is never rewritten.
 
 ## What the app is now
@@ -30,6 +30,14 @@ release: `v1.2.6`** — see `docs/RELEASE_1_2_6.md`. Earlier releases (`v1.2.5`,
   preparation plans, grounded property research, compound/address-only imports with
   reviewed fill-empty-only enrichment, and a reviewed backup-first bridge for the two legacy
   company databases.
+- **Drafts that can actually be sent (1.2.7).** One decision function picks **follow-up** when
+  a conversation is on record, **opener** when there is none, and every body ends with the fixed
+  signature `Jason Wade / Acquisition Manager, GreenSeedTX LLC`, appended locally after validation.
+- **Sold comparables worksheet (1.2.7).** Your own researched sold prices, `$/sq ft` per comp,
+  a median-based range over the subject's living area, audit rows on add/remove. No MLS, no
+  scraping, no invented sales.
+- **The stage table is real (1.2.7).** Sync records every `mainStatusTitle` it sees with a count;
+  Settings shows them with a stage selector, and anything unrecognised stays visibly unmapped.
 - Retained: conservative read-only REsimpli sync (stable IDs, pagination, bounded retries,
   truthful never/partial/failure/freshness) and optional, manually approved, redacted Groq
   analysis. **No seller communication, no CRM writes, no automatic cloud batches.**
@@ -38,11 +46,11 @@ release: `v1.2.6`** — see `docs/RELEASE_1_2_6.md`. Earlier releases (`v1.2.5`,
 
 | Check | Result |
 |---|---|
-| Backend suite | **240 passed, 1 explicit live-account skip** |
+| Backend suite | **248 passed, 1 explicit live-account skip** |
 | Lint | `ruff check .` clean |
-| Frontend | **20 passed**, `tsc -b` + `vite build` clean |
+| Frontend | **21 passed**, `tsc -b` + `vite build` clean |
 | Docker image | **built and run in GitHub Actions**: refuses a weak password, `/api/leads` 401 then 200 after login |
-| Release archive | built, checksummed, extracted and booted from a path containing a space |
+| Release archive | 188 files, checksummed, extracted and booted from a path containing a space; comps routes, signature and built version asserted from inside the ZIP |
 | Deploy scripts | `install.sh --help` works through a pipe, `--dry-run` complete, `--no-https` publishes the port without Caddy |
 | SQLite schema | 20 tables, head `0a6d91cf17b2`, integrity `ok` |
 

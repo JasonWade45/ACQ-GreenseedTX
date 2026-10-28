@@ -1,0 +1,31 @@
+{
+  "_readme": [
+    "Copy ONLY the leads.fields object below over the leads.fields object in your existing adapter file.",
+    "Leave every other block (success_path, activities, calls, appointments, pipelines) exactly as it is: those were verified against your account and already worked.",
+    "Why: contactData.0.phoneNumbers.0.number does not exist. The key is phoneNumber. A wrong JSON path returns nothing WITHOUT raising, so a typo looks exactly like 'the seller has no phone'.",
+    "After editing, run from the install folder: .venv\\Scripts\\python.exe scripts\\manage.py adapter-check",
+    "It prints, per field, how many sampled leads filled in. Any field at 0/5 is a wrong path, not missing CRM data."
+  ],
+  "leads": {
+    "fields": {
+      "external_id": "_id",
+      "full_name": "contactData.0.fullName",
+      "primary_phone": "contactData.0.phoneNumbers.0.phoneNumber",
+      "email": "contactData.0.emails.0.email",
+      "source_do_not_contact": "contactData.0.doNotCall",
+      "street_address": "address",
+      "external_property_id": "propertyInfo.apn",
+      "bedrooms": "propertyInfo.bedRoomCount",
+      "bathrooms": "propertyInfo.bathRoomCount",
+      "square_feet": "propertyInfo.livingArea",
+      "estimated_value": "valuation.estValue",
+      "source_status": "mainStatusTitle",
+      "lead_source": "marketingTitle",
+      "notes": "crmQuestionTitle"
+    }
+  },
+  "contact_outcomes": {
+    "completed": "Connected",
+    "no-answer": "No Answer"
+  }
+}

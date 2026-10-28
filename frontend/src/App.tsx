@@ -41,6 +41,9 @@ import {
   SettingsPage,
 } from "./pages/OperationsPages";
 
+/* The version comes from package.json at build time, so it can never drift again. */
+const APP_VERSION = typeof __APP_VERSION__ === "undefined" ? "dev" : __APP_VERSION__;
+
 const navigation = [
   { label: "Dashboard", path: "/", icon: LayoutDashboard },
   { label: "Seller Leads", path: "/leads", icon: Users },
@@ -309,7 +312,7 @@ function Workspace({ onLogout }: { onLogout?: () => void }) {
             <div className="workspace-mark">W</div>
             <div>
               <strong>Acquisitions workspace</strong>
-              <span>Private · Unified 1.2</span>
+              <span>Private · Unified {APP_VERSION}</span>
             </div>
             <ChevronsUpDown size={14} />
           </div>

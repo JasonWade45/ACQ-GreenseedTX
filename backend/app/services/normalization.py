@@ -182,12 +182,45 @@ def normalize_phone(value):
         raise ValueError("Invalid phone number") from exc
 
 
+EPOCH_DIGITS = re.compile(r"^\d{10}$|^\d{13}$")
+# 1973-03-03 .. 2100-01-01 in seconds: outside this range the number is not a timestamp.
+EPOCH_FLOOR, EPOCH_CEILING = 100_000_000, 4_102_444_800
+
+
+def parse_epoch(value):
+    """Unix seconds or milliseconds -> aware UTC datetime, or None when it is not one.
+
+    Vendor APIs send absolute instants. An instant has no daylight-saving ambiguity,
+    so it can be read without asking the user which side of a clock change it fell on.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str) and EPOCH_DIGITS.match(value.strip()):
+        number = float(value.strip())
+    else:
+        return None
+    # Thirteen digits is milliseconds; ten is seconds.
+    if number > EPOCH_CEILING:
+        number /= 1000.0
+    if not EPOCH_FLOOR <= number <= EPOCH_CEILING:
+        return None
+    try:
+        return datetime.fromtimestamp(number, timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def parse_datetime(value, zone="America/New_York", date_order="reject"):
     if not value:
         return None
     if isinstance(value, datetime):
         dt = value
     else:
+        epoch = parse_epoch(value)
+        if epoch is not None:
+            return epoch
         s = str(value).strip()
         match = re.match(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:\D|$)", s)
         if match and date_order == "reject" and int(match[1]) <= 12 and int(match[2]) <= 12 and match[1] != match[2]:

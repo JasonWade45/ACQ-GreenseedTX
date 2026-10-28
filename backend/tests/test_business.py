@@ -144,9 +144,46 @@ def test_dnc_and_unknown_block_drafts(db, make_lead, restriction):
         generate_draft(db, lead)
 
 
-def test_insufficient_context_does_not_get_generic_draft(db, make_lead):
+def test_first_contact_gets_an_opener_instead_of_an_error(db, make_lead):
+    """No stored conversation means a first-contact opener, never a dead end."""
     lead = make_lead(source_do_not_contact=False)
-    with pytest.raises(ValueError, match="Insufficient"):
+    draft = generate_draft(db, lead)
+
+    assert "opener" in draft.model_id
+    assert draft.body.startswith("Hi Test,")
+    assert "acquisition manager" in draft.body
+    assert draft.body.endswith("Jason Wade\nAcquisition Manager, GreenSeedTX LLC")
+    assert len(draft.context) > 0
+
+
+def test_follow_up_uses_the_last_conversation(db, make_lead):
+    from app.models import Activity
+
+    lead = make_lead(source_do_not_contact=False)
+    db.add(
+        Activity(
+            lead_id=lead.id,
+            activity_type="call",
+            source="resimpli",
+            external_id="call:1",
+            summary="Called and left a voicemail",
+            outcome="Left Voicemail",
+        )
+    )
+    db.commit()
+
+    draft = generate_draft(db, lead)
+
+    assert "follow_up" in draft.model_id
+    assert "missed you" in draft.body
+    assert draft.body.endswith("Jason Wade\nAcquisition Manager, GreenSeedTX LLC")
+
+
+def test_a_lead_with_no_name_and_no_address_is_still_refused(db, make_lead):
+    lead = make_lead(name=None, phone=None, address=None, source_do_not_contact=False)
+    lead.properties.clear()
+    db.commit()
+    with pytest.raises(ValueError, match="no property address|Insufficient"):
         generate_draft(db, lead)
 
 
