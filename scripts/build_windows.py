@@ -37,6 +37,23 @@ def run(command: list[str], cwd: Path | None = None, **kwargs) -> None:
     subprocess.run(command, check=True, cwd=cwd or ROOT, **kwargs)
 
 
+def bundle_datas() -> list[tuple[str, str]]:
+    """What goes inside ACQ.exe, as PyInstaller ``datas`` pairs.
+
+    PyInstaller treats the second element as a *folder*: a file lands inside it.
+    ``alembic.ini`` therefore goes into the bundle root ("."), not into a folder
+    named after itself — that mistake makes Alembic read an empty "file" and the
+    program dies before it can answer.
+    """
+    return [
+        (str(ROOT / "frontend" / "dist"), "frontend/dist"),
+        (str(ROOT / "backend" / "migrations"), "backend/migrations"),
+        (str(ROOT / "backend" / "fixtures"), "backend/fixtures"),
+        (str(ROOT / "examples"), "examples"),
+        (str(ROOT / "alembic.ini"), "."),
+    ]
+
+
 def build_interface() -> None:
     npm = shutil.which("npm") or shutil.which("npm.cmd")
     if not npm:

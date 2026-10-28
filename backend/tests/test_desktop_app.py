@@ -165,12 +165,32 @@ def test_the_installer_keeps_your_data_out_of_the_program_folder():
 
 
 def test_the_windows_build_carries_everything_the_app_needs_at_runtime():
+    build = _load_build_script()
+    folders = {folder for _, folder in build.bundle_datas()}
+    assert "frontend/dist" in folders
+    assert "backend/migrations" in folders
+    assert "backend/fixtures" in folders
+
     spec = (ROOT / "desktop" / "acq.spec").read_text(encoding="utf-8")
-    for required in ('"frontend/dist"', '"backend/migrations"', '"backend/fixtures"', '"alembic.ini"'):
-        assert required in spec, required
+    # The spec must not keep its own copy of the list: that is how alembic.ini
+    # ended up inside a folder named after itself on the Windows runner.
+    assert "datas = bundle_datas()" in spec
     # A window by default; a console only when CI asks for one to read a traceback.
     assert 'CONSOLE = os.environ.get("ACQ_CONSOLE") == "1"' in spec
     assert "console=CONSOLE" in spec
+
+
+def test_alembic_config_lands_at_the_root_of_the_bundle():
+    """PyInstaller treats the second datas element as a folder, not a file name."""
+    build = _load_build_script()
+    pairs = dict((Path(source).name, folder) for source, folder in build.bundle_datas())
+    assert pairs["alembic.ini"] == "."
+    for source, folder in build.bundle_datas():
+        path = Path(source)
+        if path.is_file():
+            assert not Path(folder).name.endswith(path.name), f"{path.name} would land in a folder named after it"
+        else:
+            assert Path(folder).name == path.name or folder.endswith(path.name), folder
 
 
 def test_the_build_script_pins_the_versions_shown_in_windows_explorer():

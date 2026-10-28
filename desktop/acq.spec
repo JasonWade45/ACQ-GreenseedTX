@@ -15,13 +15,11 @@ CONSOLE = os.environ.get("ACQ_CONSOLE") == "1"
 ICON = BUILD_ROOT / "desktop" / "acq.ico"
 VERSION_FILE = BUILD_ROOT / "build" / "version_info.txt"
 
-datas = [
-    (str(BUILD_ROOT / "frontend" / "dist"), "frontend/dist"),
-    (str(BUILD_ROOT / "backend" / "migrations"), "backend/migrations"),
-    (str(BUILD_ROOT / "backend" / "fixtures"), "backend/fixtures"),
-    (str(BUILD_ROOT / "examples"), "examples"),
-    (str(BUILD_ROOT / "alembic.ini"), "alembic.ini"),
-]
+# One definition of what the bundle carries, shared with the pre-PyInstaller test.
+sys.path.insert(0, str(BUILD_ROOT / "scripts"))
+from build_windows import bundle_datas  # noqa: E402
+
+datas = bundle_datas()
 
 # Modules the app imports lazily (inside functions), so PyInstaller cannot see them.
 hiddenimports = [
