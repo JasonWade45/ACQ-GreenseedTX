@@ -145,9 +145,16 @@ jobs:
           Get-ChildItem dist | Format-Table Name, Length
           Get-FileHash dist\*.exe -Algorithm SHA256 | Format-List
 
+      - name: Name the artifact after the version, not the branch
+        id: artifact
+        shell: pwsh
+        run: |
+          $safe = "${{ github.ref_name }}" -replace '[^A-Za-z0-9._-]', '-'
+          "value=acq-windows-$safe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - uses: actions/upload-artifact@v4
         with:
-          name: acq-windows-${{ github.ref_name }}
+          name: ${{ steps.artifact.outputs.value }}
           path: |
             dist/ACQ.exe
             dist/ACQ-Setup-*.exe
