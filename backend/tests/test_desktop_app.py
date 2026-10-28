@@ -168,7 +168,9 @@ def test_the_windows_build_carries_everything_the_app_needs_at_runtime():
     spec = (ROOT / "desktop" / "acq.spec").read_text(encoding="utf-8")
     for required in ('"frontend/dist"', '"backend/migrations"', '"backend/fixtures"', '"alembic.ini"'):
         assert required in spec, required
-    assert "console=False" in spec
+    # A window by default; a console only when CI asks for one to read a traceback.
+    assert 'CONSOLE = os.environ.get("ACQ_CONSOLE") == "1"' in spec
+    assert "console=CONSOLE" in spec
 
 
 def test_the_build_script_pins_the_versions_shown_in_windows_explorer():
@@ -206,6 +208,19 @@ def test_the_build_script_says_so_when_the_interface_cannot_be_compiled(monkeypa
     monkeypatch.setattr(build.shutil, "which", lambda name: None)
     with pytest.raises(SystemExit, match="npm is required"):
         build.build_interface()
+
+
+def test_a_windowed_build_with_no_console_does_not_crash_on_a_print(monkeypatch):
+    """Without this, uvicorn's banner or the first print() kills ACQ.exe at startup."""
+    module = _load_app()
+    monkeypatch.setattr(module.sys, "stdout", None)
+    monkeypatch.setattr(module.sys, "stderr", None)
+    module.ensure_streams()
+    print("the server started", flush=True)
+    print("a warning", file=module.sys.stderr)
+    assert module.sys.stdout.write("health check: ok") == len("health check: ok")
+    assert module.sys.stderr.isatty() is False
+    module.sys.stdout.flush()
 
 
 def test_credentials_survive_inside_the_data_folder(tmp_path):

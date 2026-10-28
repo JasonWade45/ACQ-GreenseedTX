@@ -77,7 +77,7 @@ def write_version_info() -> Path:
     return path
 
 
-def build_exe() -> Path:
+def build_exe(name: str = "ACQ", console: bool = False) -> Path:
     write_version_info()
     run(
         [
@@ -92,11 +92,16 @@ def build_exe() -> Path:
             str(BUILD / "pyinstaller"),
             str(ROOT / "desktop" / "acq.spec"),
         ],
-        env={**os.environ, "ACQ_BUILD_ROOT": str(ROOT)},
+        env={
+            **os.environ,
+            "ACQ_BUILD_ROOT": str(ROOT),
+            "ACQ_EXE_NAME": name,
+            "ACQ_CONSOLE": "1" if console else "0",
+        },
     )
-    exe = DIST / "ACQ.exe"
+    exe = DIST / f"{name}.exe"
     if not exe.is_file():
-        raise SystemExit("PyInstaller finished but ACQ.exe is missing.")
+        raise SystemExit(f"PyInstaller finished but {exe.name} is missing.")
     return exe
 
 

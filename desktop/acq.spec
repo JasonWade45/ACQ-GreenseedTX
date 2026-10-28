@@ -8,6 +8,10 @@ import sys
 from pathlib import Path
 
 BUILD_ROOT = Path(os.environ.get("ACQ_BUILD_ROOT", Path(SPECPATH).resolve().parents[1])).resolve()
+# Normal build: a window, no console. `ACQ_CONSOLE=1` builds the same program with a
+# console so CI can read the traceback when the packaged build misbehaves.
+EXE_NAME = os.environ.get("ACQ_EXE_NAME", "ACQ")
+CONSOLE = os.environ.get("ACQ_CONSOLE") == "1"
 ICON = BUILD_ROOT / "desktop" / "acq.ico"
 VERSION_FILE = BUILD_ROOT / "build" / "version_info.txt"
 
@@ -80,13 +84,13 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="ACQ",
+    name=EXE_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,
+    console=CONSOLE,
     disable_windowed_traceback=False,
-    icon=str(ICON) if ICON.is_file() else None,
+    icon=str(ICON) if ICON.is_file() and not CONSOLE else None,
     version=str(VERSION_FILE) if VERSION_FILE.is_file() else None,
 )
