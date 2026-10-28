@@ -1,0 +1,111 @@
+name: Windows app
+
+# Builds the real Windows program on a free GitHub-hosted Windows machine:
+#   ACQ.exe          — the app itself, no console, no Python needed
+#   ACQ-Setup-*.exe  — the double-click installer
+# The files are attached to the run as artifacts and to a tag as release assets.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Inno Setup (free) when the image does not carry it
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+          }
+
+      - name: Install dependencies and the build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements-lock.txt
+          python -m pip install "pyinstaller==6.*"
+
+      - name: The desktop program starts, keeps its data and restarts on it
+        run: python scripts/smoke_desktop_app.py
+
+      - name: Build the program and the installer
+        run: python scripts/build_windows.py
+
+      - name: Smoke-test the packaged program
+        shell: pwsh
+        run: |
+          $exe = "dist\ACQ.exe"
+          if (-not (Test-Path $exe)) { throw "ACQ.exe was not built" }
+          $data = Join-Path $env:RUNNER_TEMP "acq-smoke"
+          $env:ACQ_DATA_DIR = $data
+          $proc = Start-Process -FilePath $exe -ArgumentList "--no-window","--local-only","--port","8099" -PassThru
+          $ok = $false
+          foreach ($i in 1..60) {
+            Start-Sleep -Seconds 2
+            try {
+              $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 "http://127.0.0.1:8099/api/health"
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch { }
+            if ($proc.HasExited) { break }
+          }
+          if (-not $ok) {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            throw "The packaged program never answered /api/health"
+          }
+          $page = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 "http://127.0.0.1:8099/"
+          if ($page.Content -notmatch '<div id="root">') { throw "The interface was not served from inside the executable" }
+          $db = Join-Path $data "data\acquisitions.db"
+          $envfile = Join-Path $data ".env"
+          "database created: $(Test-Path $db)"
+          "password file created: $(Test-Path $envfile)"
+          if (-not (Test-Path $db)) { throw "No database was created in the data folder" }
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+
+          # A second copy must not start a second server.
+          $again = Start-Process -FilePath $exe -ArgumentList "--no-window","--local-only","--port","8098" -PassThru
+          $again.WaitForExit(60000) | Out-Null
+          "second copy exited: $($again.HasExited)"
+          try {
+            Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "http://127.0.0.1:8098/api/health" | Out-Null
+            throw "A second copy started its own server"
+          } catch {
+            if ($_.Exception.Message -like "*second copy*") { throw }
+          }
+
+          Get-ChildItem dist | Format-Table Name, Length
+          Get-FileHash dist\*.exe -Algorithm SHA256 | Format-List
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acq-windows-${{ github.ref_name }}
+          path: |
+            dist/ACQ.exe
+            dist/ACQ-Setup-*.exe
+          if-no-files-found: error
+
+      - name: Attach to the release when this is a tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/ACQ.exe
+            dist/ACQ-Setup-*.exe
+          fail_on_unmatched_files: false

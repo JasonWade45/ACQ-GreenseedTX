@@ -321,7 +321,9 @@ def test_structured_schema_has_fixed_fact_keys_and_required_fields():
 
 
 def test_private_credentials_are_not_returned_or_audited(client, db, monkeypatch, tmp_path):
+    # Secrets belong to the person's data folder, which is separate from the build.
     monkeypatch.setattr(config, "ROOT", tmp_path)
+    monkeypatch.setattr(config, "DATA_ROOT", tmp_path)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     config.get_settings.cache_clear()
     try:
@@ -348,6 +350,7 @@ def test_private_credentials_are_not_returned_or_audited(client, db, monkeypatch
 
 def test_fixture_adapter_cannot_be_marked_live(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "ROOT", tmp_path)
+    monkeypatch.setattr(config, "DATA_ROOT", tmp_path)
     fixture = Path(__file__).resolve().parents[1] / "fixtures/response-adapter.json"
     with pytest.raises(ValueError, match="synthetic fixture"):
         private_settings.save_adapter(fixture.read_text(), True)

@@ -253,7 +253,7 @@ def _prepare_merge(db, source_path, storage_dir=None):
     default_folder = (
         Path(destination).resolve().parent / "workspace-merges"
         if destination and destination != ":memory:"
-        else config.ROOT / "data/workspace-merges"
+        else config.DATA_ROOT / "data/workspace-merges"
     )
     folder = Path(storage_dir or default_folder)
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
