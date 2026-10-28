@@ -1,7 +1,7 @@
-# Project status — Acquisitions Assistant AI 1.2.8
+# Project status — Acquisitions Assistant AI 1.2.9
 
 **Updated 2026-10-28.** Unified local-first seller-acquisitions application. **Published
-release: `v1.2.8`** — see `docs/RELEASE_1_2_8.md`. Earlier releases (`v1.2.7`, `v1.2.6`,
+release: `v1.2.9`** — see `docs/RELEASE_1_2_9.md`. Earlier releases (`v1.2.8`, `v1.2.7`,
 `v1.2.3`, `v1.2.2`, `v1.2.1`) are retained unchanged; a published tag is never rewritten.
 
 ## What the app is now
@@ -41,6 +41,9 @@ release: `v1.2.8`** — see `docs/RELEASE_1_2_8.md`. Earlier releases (`v1.2.7`,
 - **The comparables range is never a dead end (1.2.8).** A property the CRM never gave a living
   area used to make the range impossible. `PATCH /api/leads/{id}/properties/{pid}` fills only an
   empty `square_feet`/`bedrooms`/`bathrooms`, is audited, and never replaces a source value.
+- **The status table sees CSV imports too (1.2.9).** `create_local_lead` records the status title
+  it was given, so `Settings → Pipeline & priorities` is populated after a CSV import as well as
+  after a CRM sync — previously a local import left the table empty and looked like a broken sync.
 - Retained: conservative read-only REsimpli sync (stable IDs, pagination, bounded retries,
   truthful never/partial/failure/freshness) and optional, manually approved, redacted Groq
   analysis. **No seller communication, no CRM writes, no automatic cloud batches.**

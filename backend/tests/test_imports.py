@@ -253,3 +253,15 @@ def test_reimpli_epoch_timestamps_become_real_dates():
     # Non-timestamps are still refused loudly rather than guessed.
     for value in (0, 12345, "not-a-date", 1.5):
         assert parse_epoch(value) is None
+
+
+def test_an_imported_csv_status_lands_in_the_same_table_as_the_crm(db, make_lead):
+    """The mapping screen must not be blind to CSV statuses."""
+    from app.models import AppSetting
+    from app.seed import initialize_defaults
+
+    initialize_defaults(db)
+    make_lead(source_status="New Lead")
+
+    counts = db.get(AppSetting, "source_status_counts").value
+    assert counts["New Lead"] >= 1
