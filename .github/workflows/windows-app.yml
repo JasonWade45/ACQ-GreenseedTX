@@ -9,6 +9,8 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    # Temporary: build this branch while the Windows build is being fixed.
+    branches: ["arena/5e290f3e-acq-greenseedtx"]
 
 permissions:
   contents: write
