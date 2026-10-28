@@ -334,7 +334,17 @@ export function RichPropertyFacts({ property }: { property: Property }) {
   ) : null;
 }
 type Brief = {
-  subject: Record<string, unknown> | null;
+  subject: {
+    id?: number | string;
+    street_address?: string | null;
+    city?: string | null;
+    state?: string | null;
+    zip_code?: string | null;
+    square_feet?: number | null;
+    bedrooms?: number | null;
+    bathrooms?: number | null;
+    [key: string]: unknown;
+  } | null;
   reason?: string;
   criteria?: Record<string, unknown>;
   references?: {
@@ -391,13 +401,16 @@ function CompsWorksheet({
   propertyId,
   rows,
   summary,
+  subjectSqft,
 }: {
   lead: LeadProfile;
   propertyId: number | null;
   rows: CompRow[];
   summary?: Brief["comps_summary"];
+  subjectSqft: number | null;
 }) {
   const action = useAction();
+  const [subjectArea, setSubjectArea] = useState("");
   const [form, setForm] = useState<CompForm>(EMPTY_COMP);
   const [showForm, setShowForm] = useState(false);
   const set = (key: keyof CompForm, value: string) =>
@@ -533,6 +546,47 @@ function CompsWorksheet({
                 </Button>
                 <Button variant="secondary" onClick={() => setShowForm(false)}>
                   Cancel
+                </Button>
+              </div>
+              {action.error ? <Notice>{action.error}</Notice> : null}
+            </div>
+          ) : null}
+
+          {subjectSqft === null ? (
+            <div className="stack">
+              <h3>This property has no living area</h3>
+              <p className="muted">
+                The range needs it. Type the subject&apos;s living area once and it
+                is saved; if your CRM later sends its own value, that value wins.
+              </p>
+              <div className="row wrap">
+                <Field label="Subject living area (sq ft)">
+                  <input
+                    type="number"
+                    min={100}
+                    max={100000}
+                    value={subjectArea}
+                    onChange={(e) => setSubjectArea(e.target.value)}
+                    placeholder="2000"
+                  />
+                </Field>
+                <Button
+                  disabled={
+                    !Number(subjectArea) ||
+                    Number(subjectArea) < 100 ||
+                    action.busy
+                  }
+                  onClick={() =>
+                    action.run(async () => {
+                      await patch(
+                        `/leads/${lead.id}/properties/${propertyId}`,
+                        { square_feet: Math.round(Number(subjectArea)) },
+                      );
+                      setSubjectArea("");
+                    }, "Living area saved")
+                  }
+                >
+                  Save living area
                 </Button>
               </div>
               {action.error ? <Notice>{action.error}</Notice> : null}
@@ -736,6 +790,7 @@ export function PropertyResearch({ lead }: { lead: LeadProfile }) {
         propertyId={data.data?.subject ? Number(data.data.subject.id) : null}
         rows={data.data?.comps || []}
         summary={data.data?.comps_summary}
+        subjectSqft={data.data?.subject?.square_feet ?? null}
       />
     </div>
   );

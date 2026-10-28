@@ -39,6 +39,18 @@ class CompIn(StrictModel):
     notes: str | None = Field(default=None, max_length=600)
 
 
+class SubjectFacts(StrictModel):
+    """Facts the reviewer knows about the subject property.
+
+    Only ever fills an empty field: a value that came from the source is never
+    replaced here, so the CRM stays the record of what the CRM said.
+    """
+
+    square_feet: int | None = Field(default=None, ge=100, le=100_000)
+    bedrooms: int | None = Field(default=None, ge=0, le=30)
+    bathrooms: float | None = Field(default=None, ge=0, le=30)
+
+
 class LocalRefresh(StrictModel):
     confirm: bool = False
     limit: int = Field(default=100, ge=1, le=200)
@@ -78,6 +90,44 @@ def edit_plan(plan_id: int, body: PlanEdit, db: DB):
 @router.get("/leads/{lead_id}/comps-brief")
 def read_comps(lead_id: int, db: DB, property_id: int | None = None):
     return comps_brief(found(db, lead_id), property_id)
+
+
+@router.patch("/leads/{lead_id}/properties/{property_id}")
+def fill_subject_facts(lead_id: int, property_id: int, body: SubjectFacts, db: DB):
+    lead = found(db, lead_id)
+    prop = next((item for item in lead.properties if item.id == property_id), None)
+    if not prop:
+        raise HTTPException(404, "That property is not attached to this seller")
+    incoming = {key: value for key, value in body.model_dump().items() if value is not None}
+    if not incoming:
+        raise ValueError("Enter at least one fact")
+    filled, kept = {}, {}
+    for field, value in incoming.items():
+        if getattr(prop, field) is not None:
+            kept[field] = getattr(prop, field)
+        else:
+            setattr(prop, field, value)
+            filled[field] = value
+    if filled:
+        db.add(
+            AuditLog(
+                lead_id=lead.id,
+                action="property_facts_entered",
+                details={"property_id": prop.id, "filled": filled, "verified_by_user": True},
+            )
+        )
+        db.commit()
+    return {
+        "property_id": prop.id,
+        "filled": filled,
+        "kept_from_source": kept,
+        "message": (
+            "Saved."
+            if filled and not kept
+            else "Saved the empty fields; values already present from the source were kept."
+        ),
+        "comps_brief": comps_brief(lead, prop.id),
+    }
 
 
 @router.post("/leads/{lead_id}/comps")
