@@ -5420,3 +5420,42 @@ td {
   font-size: 12px;
   word-break: break-all;
 }
+
+/* Dashboard section labels: numbered dividers that organize the page. */
+.section-label {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 26px 2px 13px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e6ede0;
+}
+.section-label:first-of-type {
+  margin-top: 4px;
+}
+.section-index {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #8aa074;
+  background: #f0f6e9;
+  border: 1px solid #dfead2;
+  border-radius: 5px;
+  padding: 3px 7px;
+}
+.section-label strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #3f5137;
+  letter-spacing: 0.01em;
+}
+.section-hint {
+  font-size: 10.5px;
+  color: #8b9781;
+  margin-left: auto;
+}
+@media (max-width: 700px) {
+  .section-hint {
+    display: none;
+  }
+}

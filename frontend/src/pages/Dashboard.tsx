@@ -11,6 +11,7 @@ import {
   Clock3,
   Filter,
   RefreshCw,
+  Search,
   Sparkles,
   TrendingUp,
   Upload,
@@ -37,6 +38,24 @@ import type {
   SyncState,
   Breakdown,
 } from "../types";
+
+function SectionLabel({
+  index,
+  title,
+  hint,
+}: {
+  index: string;
+  title: string;
+  hint?: string;
+}) {
+  return (
+    <div className="section-label">
+      <span className="section-index">{index}</span>
+      <strong>{title}</strong>
+      {hint && <span className="section-hint">{hint}</span>}
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { meta } = useWorkspace();
@@ -77,6 +96,18 @@ export default function Dashboard() {
     else p.delete(key);
     setParams(p);
   }
+  const secondary = metrics.filter((m) =>
+    [
+      "contacted",
+      "attempting_contact",
+      "upcoming",
+      "appointments",
+      "missing",
+      "dnc",
+      "stage:qualified",
+      "stage:offer_made",
+    ].includes(m.key),
+  );
   return (
     <>
       <PageHeader
@@ -111,6 +142,10 @@ export default function Dashboard() {
           <span className="muted">{meta.timezone.replace("_", " ")}</span>
         </div>
         <div className="row">
+          <Link className="btn btn-ghost" to="/leads">
+            <Search size={14} />
+            Search leads
+          </Link>
           <Button variant="ghost" onClick={() => setShowFilters(!showFilters)}>
             <Filter size={14} />
             Filters
@@ -171,6 +206,12 @@ export default function Dashboard() {
           </Button>
         </div>
       )}
+
+      <SectionLabel
+        index="01"
+        title="Today at a glance"
+        hint="The numbers that decide your day"
+      />
       <div className="hero-metrics">
         {[
           {
@@ -224,6 +265,25 @@ export default function Dashboard() {
           </Link>
         ))}
       </div>
+      {secondary.length > 0 && (
+        <div className="small-metrics">
+          {secondary.map((m) => (
+            <Link key={m.key} to={target(m.key)}>
+              <span>{m.label}</span>
+              <strong>
+                {m.value.toLocaleString()}
+                <ArrowUpRight size={14} />
+              </strong>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      <SectionLabel
+        index="02"
+        title="Action queue & workspace"
+        hint="What needs a human decision right now"
+      />
       <div className="dashboard-grid">
         <Panel
           title="Today’s focus"
@@ -341,7 +401,7 @@ export default function Dashboard() {
             />
           )}
           <div className="panel-footnote">
-            <ShieldNote />
+            <CheckCircle2 size={13} />
             No follow-up date? It’s unscheduled, not overdue.
           </div>
         </Panel>
@@ -416,6 +476,12 @@ export default function Dashboard() {
           </Button>
         </Panel>
       </div>
+
+      <SectionLabel
+        index="03"
+        title="Pipeline"
+        hint="Stage by stage, from new lead to closed deal"
+      />
       <Panel
         title="Pipeline at a glance"
         subtitle="Current local stages · original source statuses are preserved."
@@ -450,30 +516,12 @@ export default function Dashboard() {
             ))}
         </div>
       </Panel>
-      <div className="small-metrics">
-        {metrics
-          .filter((m) =>
-            [
-              "contacted",
-              "attempting_contact",
-              "upcoming",
-              "appointments",
-              "missing",
-              "dnc",
-              "stage:qualified",
-              "stage:offer_made",
-            ].includes(m.key),
-          )
-          .map((m) => (
-            <Link key={m.key} to={target(m.key)}>
-              <span>{m.label}</span>
-              <strong>
-                {m.value.toLocaleString()}
-                <ArrowUpRight size={14} />
-              </strong>
-            </Link>
-          ))}
-      </div>
+
+      <SectionLabel
+        index="04"
+        title="Insights"
+        hint="Where leads come from and what’s happening"
+      />
       <div className="dashboard-lower">
         <Panel
           title="Lead sources"
@@ -557,9 +605,6 @@ export default function Dashboard() {
       </details>
     </>
   );
-}
-function ShieldNote() {
-  return <CheckCircle2 size={13} />;
 }
 function Bars({
   data,
