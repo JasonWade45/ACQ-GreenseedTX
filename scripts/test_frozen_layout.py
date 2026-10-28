@@ -20,15 +20,9 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 
-# Exactly what desktop/acq.spec promises to carry.
-BUNDLE = [
-    ("frontend/dist", "frontend/dist"),
-    ("backend/migrations", "backend/migrations"),
-    ("backend/fixtures", "backend/fixtures"),
-    ("examples", "examples"),
-    ("alembic.ini", "alembic.ini"),
-]
+from build_windows import bundle_datas  # noqa: E402
 
 CHILD = r'''
 import json, os, sys
@@ -82,16 +76,23 @@ print(json.dumps({
 
 
 def build_bundle(destination: Path) -> None:
-    for source, target in BUNDLE:
-        src = ROOT / source
-        dst = destination / target
+    """Copy the bundle exactly the way PyInstaller reads ``datas``.
+
+    The second element is a *folder* in the bundle: a folder's contents are copied
+    into it, a file is placed inside it — which is how an ``alembic.ini``
+    destination of "alembic.ini" became a directory and killed the packaged
+    program on Windows.
+    """
+    for source, folder in bundle_datas():
+        src = Path(source)
+        target_folder = destination / folder
         if not src.exists():
             raise SystemExit(f"Missing build input: {source}")
-        dst.parent.mkdir(parents=True, exist_ok=True)
+        target_folder.mkdir(parents=True, exist_ok=True)
         if src.is_dir():
-            shutil.copytree(src, dst)
+            shutil.copytree(src, target_folder, dirs_exist_ok=True)
         else:
-            shutil.copy2(src, dst)
+            shutil.copy2(src, target_folder / src.name)
 
 
 def main() -> int:

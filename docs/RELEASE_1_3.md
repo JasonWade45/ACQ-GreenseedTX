@@ -1,5 +1,9 @@
 # Acquisitions Assistant — 1.3.0 (a program you install, not a folder you open)
 
+**This tag published notes only: its Windows build failed on the runner, so no `.exe`
+was attached. Install [1.3.1](RELEASE_1_3_1.md) instead — it is the same program, built
+and smoke-tested on Windows.**
+
 **Released 2026-10-28 (Africa/Cairo).** Until now, using this meant extracting a ZIP, keeping a
 black console window open, and having Python installed. That is not a program. 1.3.0 turns it into
 one: `ACQ-Setup-1.3.0.exe`, double-click, Next, Install, Finish — and an icon on the Desktop.

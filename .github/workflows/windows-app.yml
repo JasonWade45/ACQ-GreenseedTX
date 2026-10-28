@@ -46,14 +46,33 @@ jobs:
       - name: The desktop program starts, keeps its data and restarts on it
         run: python scripts/smoke_desktop_app.py
 
-      - name: Build the program and the installer
-        run: python scripts/build_windows.py
+      # Split into three steps so a failure names the failing part, and mirror the
+      # last lines of the failing command into annotations, which are readable
+      # without downloading the job log.
+      - name: Compile the interface for the program
+        shell: pwsh
+        run: |
+          python -c "import sys; sys.path.insert(0, 'scripts'); import build_windows as b; b.build_interface()" 2>&1 | Tee-Object build-interface.txt
+          if ($LASTEXITCODE -ne 0) { . ./scripts/ci-annotate.ps1 build-interface.txt; exit 1 }
+
+      - name: Build ACQ.exe with PyInstaller
+        shell: pwsh
+        run: |
+          python -c "import sys; sys.path.insert(0, 'scripts'); import build_windows as b; print(b.build_exe())" 2>&1 | Tee-Object build-exe.txt
+          if ($LASTEXITCODE -ne 0) { . ./scripts/ci-annotate.ps1 build-exe.txt; exit 1 }
+
+      - name: Build the installer with Inno Setup
+        shell: pwsh
+        run: |
+          python -c "import sys, pathlib; sys.path.insert(0, 'scripts'); import build_windows as b; print(b.build_installer(pathlib.Path('dist/ACQ.exe')))" 2>&1 | Tee-Object build-installer.txt
+          if ($LASTEXITCODE -ne 0) { . ./scripts/ci-annotate.ps1 build-installer.txt; exit 1 }
 
       - name: Smoke-test the packaged program
         shell: pwsh
         run: |
+          $log = "smoke.txt"
           $exe = "dist\ACQ.exe"
-          if (-not (Test-Path $exe)) { throw "ACQ.exe was not built" }
+          if (-not (Test-Path $exe)) { Write-Host "::error::ACQ.exe was not built"; exit 1 }
           $data = Join-Path $env:RUNNER_TEMP "acq-smoke"
           $env:ACQ_DATA_DIR = $data
           $proc = Start-Process -FilePath $exe -ArgumentList "--no-window","--local-only","--port","8099" -PassThru
@@ -66,10 +85,40 @@ jobs:
             } catch { }
             if ($proc.HasExited) { break }
           }
+
           if (-not $ok) {
+            # Explain the failure in the annotations, then rebuild the same program
+            # with a console so the traceback is readable.
+            "The packaged program never answered /api/health on port 8099." | Tee-Object $log
+            $state = if ($proc.HasExited) { $proc.ExitCode } else { "still running" }
+            "process state: $state (exited=$($proc.HasExited))" | Tee-Object $log -Append
+            if (Test-Path $data) {
+              Get-ChildItem $data -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { "created: " + $_.FullName } | Tee-Object $log -Append
+              Get-ChildItem $data -Recurse -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object {
+                "---- " + $_.FullName | Tee-Object $log -Append
+                Get-Content $_.FullName -Tail 30 | Tee-Object $log -Append
+              }
+            }
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-            throw "The packaged program never answered /api/health"
+            python -c "import sys; sys.path.insert(0,'scripts'); import build_windows as b; print(b.build_exe('ACQ-console', console=True))" 2>&1 | Tee-Object $log -Append
+            $stdout = Join-Path $env:RUNNER_TEMP "console-out.txt"
+            $stderr = Join-Path $env:RUNNER_TEMP "console-err.txt"
+            $console = Start-Process -FilePath "dist\ACQ-console.exe" -ArgumentList "--no-window","--local-only","--port","8097" -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            Start-Sleep -Seconds 30
+            if (-not $console.HasExited) { Stop-Process -Id $console.Id -Force -ErrorAction SilentlyContinue }
+            "---- console build stdout" | Tee-Object $log -Append
+            if (Test-Path $stdout) { Get-Content $stdout -Tail 20 | Tee-Object $log -Append }
+            "---- console build stderr" | Tee-Object $log -Append
+            if (Test-Path $stderr) { Get-Content $stderr -Tail 30 | Tee-Object $log -Append }
+            foreach ($line in (Get-Content $log -Tail 12)) {
+              if ([string]::IsNullOrWhiteSpace($line)) { continue }
+              $safe = $line -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+              if ($safe.Length -gt 800) { $safe = $safe.Substring(0, 800) }
+              Write-Host "::error title=Packaged program::$safe"
+            }
+            exit 1
           }
+
           $page = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 "http://127.0.0.1:8099/"
           if ($page.Content -notmatch '<div id="root">') { throw "The interface was not served from inside the executable" }
           $db = Join-Path $data "data\acquisitions.db"
@@ -77,6 +126,7 @@ jobs:
           "database created: $(Test-Path $db)"
           "password file created: $(Test-Path $envfile)"
           if (-not (Test-Path $db)) { throw "No database was created in the data folder" }
+          if (-not (Test-Path $envfile)) { throw "No password file was created in the data folder" }
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 
           # A second copy must not start a second server.
@@ -93,9 +143,16 @@ jobs:
           Get-ChildItem dist | Format-Table Name, Length
           Get-FileHash dist\*.exe -Algorithm SHA256 | Format-List
 
+      - name: Name the artifact after the version, not the branch
+        id: artifact
+        shell: pwsh
+        run: |
+          $safe = "${{ github.ref_name }}" -replace '[^A-Za-z0-9._-]', '-'
+          "value=acq-windows-$safe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - uses: actions/upload-artifact@v4
         with:
-          name: acq-windows-${{ github.ref_name }}
+          name: ${{ steps.artifact.outputs.value }}
           path: |
             dist/ACQ.exe
             dist/ACQ-Setup-*.exe

@@ -20,7 +20,7 @@
 #define AppFolder "AcquisitionsAssistant"
 
 [Setup]
-AppId={{8E4C1B77-9A3D-4B2E-9C15-ACQ00000001}
+AppId={{B4F2C1A9-3D7E-4E6B-9C15-8A2D6F0E1001}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
@@ -38,7 +38,7 @@ UninstallDisplayName={#AppName}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesInstallIn64BitMode=x64
 MinVersion=10.0
 CloseApplications=yes
 RestartApplications=no

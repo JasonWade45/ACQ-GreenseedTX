@@ -165,16 +165,82 @@ def test_the_installer_keeps_your_data_out_of_the_program_folder():
 
 
 def test_the_windows_build_carries_everything_the_app_needs_at_runtime():
+    build = _load_build_script()
+    folders = {folder for _, folder in build.bundle_datas()}
+    assert "frontend/dist" in folders
+    assert "backend/migrations" in folders
+    assert "backend/fixtures" in folders
+
     spec = (ROOT / "desktop" / "acq.spec").read_text(encoding="utf-8")
-    for required in ('"frontend/dist"', '"backend/migrations"', '"backend/fixtures"', '"alembic.ini"'):
-        assert required in spec, required
-    assert "console=False" in spec
+    # The spec must not keep its own copy of the list: that is how alembic.ini
+    # ended up inside a folder named after itself on the Windows runner.
+    assert "datas = bundle_datas()" in spec
+    # A window by default; a console only when CI asks for one to read a traceback.
+    assert 'CONSOLE = os.environ.get("ACQ_CONSOLE") == "1"' in spec
+    assert "console=CONSOLE" in spec
+
+
+def test_alembic_config_lands_at_the_root_of_the_bundle():
+    """PyInstaller treats the second datas element as a folder, not a file name."""
+    build = _load_build_script()
+    pairs = dict((Path(source).name, folder) for source, folder in build.bundle_datas())
+    assert pairs["alembic.ini"] == "."
+    for source, folder in build.bundle_datas():
+        path = Path(source)
+        if path.is_file():
+            assert not Path(folder).name.endswith(path.name), f"{path.name} would land in a folder named after it"
+        else:
+            assert Path(folder).name == path.name or folder.endswith(path.name), folder
 
 
 def test_the_build_script_pins_the_versions_shown_in_windows_explorer():
     script = (ROOT / "scripts" / "build_windows.py").read_text(encoding="utf-8")
     assert "FileVersion" in script and "ProductName" in script
     assert "GreenSeedTX LLC" in script
+
+
+def _load_build_script():
+    spec = importlib.util.spec_from_file_location("acq_build_windows", ROOT / "scripts" / "build_windows.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_build_script_runs_a_command_in_the_folder_it_was_given(tmp_path, monkeypatch):
+    """npm must run inside frontend/, and a duplicate cwd= keyword used to raise TypeError."""
+    build = _load_build_script()
+    seen = {}
+
+    def fake_run(command, check, cwd, **kwargs):
+        seen["command"] = command
+        seen["check"] = check
+        seen["cwd"] = Path(cwd)
+
+    monkeypatch.setattr(build.subprocess, "run", fake_run)
+    build.run(["npm", "run", "build"], cwd=tmp_path)
+    assert seen["cwd"] == tmp_path
+    build.run(["npm", "run", "build"])
+    assert seen["cwd"] == build.ROOT
+
+
+def test_the_build_script_says_so_when_the_interface_cannot_be_compiled(monkeypatch):
+    build = _load_build_script()
+    monkeypatch.setattr(build.shutil, "which", lambda name: None)
+    with pytest.raises(SystemExit, match="npm is required"):
+        build.build_interface()
+
+
+def test_a_windowed_build_with_no_console_does_not_crash_on_a_print(monkeypatch):
+    """Without this, uvicorn's banner or the first print() kills ACQ.exe at startup."""
+    module = _load_app()
+    monkeypatch.setattr(module.sys, "stdout", None)
+    monkeypatch.setattr(module.sys, "stderr", None)
+    module.ensure_streams()
+    print("the server started", flush=True)
+    print("a warning", file=module.sys.stderr)
+    assert module.sys.stdout.write("health check: ok") == len("health check: ok")
+    assert module.sys.stderr.isatty() is False
+    module.sys.stdout.flush()
 
 
 def test_credentials_survive_inside_the_data_folder(tmp_path):

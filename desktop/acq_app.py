@@ -23,6 +23,39 @@ import time
 import webbrowser
 from pathlib import Path
 
+
+class _NoConsole:
+    """Stands in for a missing stdout/stderr in the windowed build.
+
+    ``ACQ.exe`` has no console, so PyInstaller hands the program ``sys.stdout = None``
+    and ``sys.stderr = None``. A single ``print()`` or a logging handler pointed at
+    them would raise ``AttributeError: 'NoneType' object has no attribute 'write'``
+    and kill the program before the window appears.
+    """
+
+    def write(self, text: str) -> int:
+        return len(text)
+
+    def flush(self) -> None:
+        return None
+
+    def isatty(self) -> bool:
+        return False
+
+    def fileno(self) -> int:
+        raise OSError("this build has no console")
+
+
+def ensure_streams() -> None:
+    """Give the program something to write to when it has no console."""
+    if sys.stdout is None:
+        sys.stdout = _NoConsole()  # type: ignore[assignment]
+    if sys.stderr is None:
+        sys.stderr = _NoConsole()  # type: ignore[assignment]
+
+
+ensure_streams()
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "backend") not in sys.path:
     sys.path.insert(0, str(ROOT / "backend"))

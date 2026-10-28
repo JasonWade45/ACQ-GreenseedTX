@@ -32,9 +32,26 @@ def version() -> str:
     return namespace["APP_VERSION"]
 
 
-def run(command: list[str], **kwargs) -> None:
+def run(command: list[str], cwd: Path | None = None, **kwargs) -> None:
     print("+", " ".join(str(part) for part in command), flush=True)
-    subprocess.run(command, check=True, cwd=ROOT, **kwargs)
+    subprocess.run(command, check=True, cwd=cwd or ROOT, **kwargs)
+
+
+def bundle_datas() -> list[tuple[str, str]]:
+    """What goes inside ACQ.exe, as PyInstaller ``datas`` pairs.
+
+    PyInstaller treats the second element as a *folder*: a file lands inside it.
+    ``alembic.ini`` therefore goes into the bundle root ("."), not into a folder
+    named after itself — that mistake makes Alembic read an empty "file" and the
+    program dies before it can answer.
+    """
+    return [
+        (str(ROOT / "frontend" / "dist"), "frontend/dist"),
+        (str(ROOT / "backend" / "migrations"), "backend/migrations"),
+        (str(ROOT / "backend" / "fixtures"), "backend/fixtures"),
+        (str(ROOT / "examples"), "examples"),
+        (str(ROOT / "alembic.ini"), "."),
+    ]
 
 
 def build_interface() -> None:
@@ -77,7 +94,7 @@ def write_version_info() -> Path:
     return path
 
 
-def build_exe() -> Path:
+def build_exe(name: str = "ACQ", console: bool = False) -> Path:
     write_version_info()
     run(
         [
@@ -92,16 +109,23 @@ def build_exe() -> Path:
             str(BUILD / "pyinstaller"),
             str(ROOT / "desktop" / "acq.spec"),
         ],
-        env={**os.environ, "ACQ_BUILD_ROOT": str(ROOT)},
+        env={
+            **os.environ,
+            "ACQ_BUILD_ROOT": str(ROOT),
+            "ACQ_EXE_NAME": name,
+            "ACQ_CONSOLE": "1" if console else "0",
+        },
     )
-    exe = DIST / "ACQ.exe"
+    exe = DIST / f"{name}.exe"
     if not exe.is_file():
-        raise SystemExit("PyInstaller finished but ACQ.exe is missing.")
+        raise SystemExit(f"PyInstaller finished but {exe.name} is missing.")
     return exe
 
 
 def build_installer(exe: Path) -> Path | None:
     """Inno Setup, when installed. Produces the double-click installer."""
+    # Inno resolves a relative /DSourceExe from desktop/, not from here.
+    exe = Path(exe).resolve()
     candidates = [
         shutil.which("ISCC"),
         r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
