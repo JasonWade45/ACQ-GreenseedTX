@@ -83,6 +83,45 @@ def restore(input_path, confirm):
     print(f"Restored trusted backup into {destination}. Run migrate and check before starting the app.")
 
 
+def adapter_check(limit):
+    """Fetch a few real leads and report which mapped fields actually fill in.
+
+    A wrong JSON path does not raise: it silently yields None, and a mistyped
+    adapter then looks like "the source has no phone numbers". This prints how
+    many of the sampled records produced a value for each field.
+    """
+    from itertools import islice
+
+    from app.config import get_settings
+    from app.services.resimpli import ResimpliClient
+
+    settings = get_settings()
+    client = ResimpliClient(settings)
+    try:
+        resource = client.adapter.leads
+        records = list(islice(client.pages(resource.list_path, resource, limit=min(limit, 100)), limit))
+    finally:
+        client.close()
+    if not records:
+        raise ValueError("The source returned no leads to check; nothing was verified")
+    print(f"Sampled {len(records)} lead(s). Fill rate only; no seller values are printed.")
+    problems = []
+    for field in sorted(resource.fields):
+        filled = sum(1 for record in records if record.get(field) not in (None, ""))
+        rate = round(100 * filled / len(records))
+        marker = "ok" if filled else "NEVER FILLED"
+        print(f"  leads.{field:<18} {filled}/{len(records)} ({rate}%) {marker}")
+        if not filled:
+            problems.append(field)
+    if problems:
+        raise ValueError(
+            "These mapped fields never filled: "
+            + ", ".join(problems)
+            + ". The JSON path is probably wrong (a wrong path returns nothing without an error)."
+        )
+    print("Every mapped lead field produced a value on at least one record.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Acquisitions Assistant maintenance")
     sub = parser.add_subparsers(dest="action", required=True)
@@ -97,6 +136,11 @@ def main():
         "fixture-sync", help="Explicitly load fictional integration records into the configured database"
     )
     f.add_argument("--confirm", required=True, choices=["LOAD SYNTHETIC"])
+    a = sub.add_parser(
+        "adapter-check",
+        help="Sample live leads and show which mapped fields actually fill (no values printed)",
+    )
+    a.add_argument("--limit", type=int, default=5)
     args = parser.parse_args()
     try:
         if args.action == "migrate":
@@ -120,6 +164,8 @@ def main():
                 print("Foreign-key violations:", violations)
                 if integrity != "ok" or violations:
                     raise ValueError("Database validation failed")
+        elif args.action == "adapter-check":
+            adapter_check(max(1, min(args.limit, 25)))
         elif args.action == "fixture-sync":
             from app.config import get_settings
             from app.db import SessionLocal

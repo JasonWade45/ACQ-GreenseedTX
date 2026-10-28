@@ -932,10 +932,22 @@ def export_reports(request: Request, db: DB):
 @app.get("/api/settings")
 def settings_view(db: DB):
     settings = get_settings()
+    mapping = db.get(AppSetting, "stage_mapping").value
+    observed = db.get(AppSetting, "source_status_counts")
+    observed = observed.value if observed else {}
     return {
         "timezone": settings.app_timezone,
         "mode": settings.resimpli_mode,
-        "stage_mapping": db.get(AppSetting, "stage_mapping").value,
+        "stage_mapping": mapping,
+        "source_statuses": [
+            {
+                "title": title,
+                "leads": count,
+                "stage": mapping.get(title.strip().lower(), "unmapped"),
+                "mapped": title.strip().lower() in mapping,
+            }
+            for title, count in sorted(observed.items(), key=lambda item: (-item[1], item[0]))
+        ],
         "priority_rules": db.get(AppSetting, "priority_rules").value,
         "local_only": settings.app_host in {"127.0.0.1", "localhost", "::1"},
         "authentication_enabled": bool(settings.app_access_password),

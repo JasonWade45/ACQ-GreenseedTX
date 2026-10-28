@@ -37,6 +37,9 @@ export function post<T>(path: string, body: unknown = {}) {
 export function patch<T>(path: string, body: unknown) {
   return api<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 }
+export function del<T>(path: string) {
+  return api<T>(path, { method: "DELETE" });
+}
 export async function download(path: string, filename: string) {
   const headers: Record<string, string> = {};
   const token = sessionStorage.getItem(sessionKey);

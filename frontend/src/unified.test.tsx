@@ -134,13 +134,98 @@ it("research opens no external portal automatically and fabricates no sold comps
     notice: "Not actual sold comparables",
   };
   mount(<PropertyResearch lead={lead} />);
-  await screen.findByText("No verified sold comparables connected");
+  await screen.findByText("No comparables yet");
   expect(
     await screen.findByRole("link", { name: "Open Zillow" }),
   ).toHaveAttribute("href", "https://www.zillow.com/");
   expect(screen.getByText("Unknown — verify first")).toBeInTheDocument();
   expect(requests.mock.calls.every(([path]) => path.startsWith("/api/"))).toBe(
     true,
+  );
+});
+
+it("adds a comparable, shows the arithmetic, and never invents a sold price", async () => {
+  responses["/leads/1/comps-brief?property_id=2"] = {
+    subject: {
+      id: 2,
+      street_address: "35 Fictional Lane",
+      city: "Austin",
+      state: "TX",
+      square_feet: 2000,
+    },
+    references: [],
+    criteria: {},
+    portals: [],
+    comps: [
+      {
+        id: "abc123",
+        address: "37 Fictional Lane",
+        sold_price: 300000,
+        price_per_sqft: 150,
+        square_feet: 2000,
+        sold_date: "2026-08-01",
+        source: "County deed",
+      },
+    ],
+    comps_summary: {
+      count: 1,
+      median_price_per_sqft: 150,
+      suggested_low: 285000,
+      suggested_high: 315000,
+      note: "Arithmetic on your comparables, not an appraisal.",
+    },
+    notice: "Comparables here are the ones you entered yourself.",
+  };
+  mount(<PropertyResearch lead={lead} />);
+
+  await screen.findByText("37 Fictional Lane");
+  // The median and the row's own rate are both shown and must agree.
+  expect(screen.getAllByText("$150.00")).toHaveLength(2);
+  expect(screen.getByText("$285,000 – $315,000")).toBeInTheDocument();
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Add comparable" }),
+  );
+  await userEvent.type(
+    screen.getByLabelText("Comparable address"),
+    "39 Fictional Lane",
+  );
+  await userEvent.type(screen.getByLabelText("Sold price (USD)"), "250000");
+  await userEvent.type(screen.getByLabelText("Living area (sq ft)"), "1800");
+  expect(screen.getByText("$138.89 per sq ft")).toBeInTheDocument();
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Save comparable" }),
+  );
+  await waitFor(() =>
+    expect(
+      requests.mock.calls.some(
+        ([path, init]) =>
+          path === "/api/leads/1/comps" && init?.method === "POST",
+      ),
+    ).toBe(true),
+  );
+  const [, init] = requests.mock.calls.find(
+    ([path]) => path === "/api/leads/1/comps",
+  )!;
+  const body = JSON.parse(init.body as string);
+  expect(body).toMatchObject({
+    property_id: 2,
+    address: "39 Fictional Lane",
+    sold_price: 250000,
+    square_feet: 1800,
+  });
+  // The screen cannot pass anything the server has to trust blindly beyond these fields.
+  expect(Object.keys(body).sort()).toEqual(
+    [
+      "address",
+      "notes",
+      "property_id",
+      "sold_date",
+      "sold_price",
+      "source",
+      "square_feet",
+    ].sort(),
   );
 });
 

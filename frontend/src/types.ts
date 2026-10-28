@@ -326,6 +326,12 @@ export interface SettingsData {
   timezone: string;
   mode: string;
   stage_mapping: Record<string, string>;
+  source_statuses?: {
+    title: string;
+    leads: number;
+    stage: string;
+    mapped: boolean;
+  }[];
   priority_rules: Record<string, number>;
   local_only: boolean;
   authentication_enabled: boolean;

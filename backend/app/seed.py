@@ -19,13 +19,50 @@ STAGES = [
 ]
 
 
+# Default readings of the status titles REsimpli accounts use. Only a starting point:
+# any title not listed here stays "unmapped" and is shown for the user to decide.
+SOURCE_STATUS_DEFAULTS = {
+    "new lead": "new",
+    "lead": "new",
+    "new": "new",
+    "not contacted": "not_contacted",
+    "attempted contact": "attempting_contact",
+    "attempting contact": "attempting_contact",
+    "contacted": "contacted",
+    "follow up": "follow_up",
+    "follow-up": "follow_up",
+    "qualified": "qualified",
+    "appointment set": "appointment_set",
+    "offer made": "offer_made",
+    "negotiation": "negotiation",
+    "contract sent": "contract_sent",
+    "under contract": "under_contract",
+    "closed": "closed",
+    "sold": "closed",
+    "nurture": "nurture",
+    "dead lead": "dead",
+    "dead": "dead",
+    "not interested": "dead",
+    "bad number": "dead",
+    "do not call": "dead",
+}
+
+
 def initialize_defaults(db):
     for position, (code, label) in enumerate(STAGES):
         if not db.get(PipelineStage, code):
             db.add(PipelineStage(code=code, label=label, position=position))
-    if not db.get(AppSetting, "stage_mapping"):
-        mapping = {code: code for code, _ in STAGES}
-        mapping.update({label.lower(): code for code, label in STAGES})
+    # A choice the user already made is never overwritten; missing defaults are added.
+    setting = db.get(AppSetting, "stage_mapping")
+    mapping = dict(setting.value) if setting else {}
+    mapping.update({code: code for code, _ in STAGES if code not in mapping})
+    mapping.update({label.lower(): code for code, label in STAGES if label.lower() not in mapping})
+    mapping.update(
+        {title: stage for title, stage in SOURCE_STATUS_DEFAULTS.items() if title not in mapping}
+    )
+    if setting:
+        setting.value = mapping
+    else:
         db.add(AppSetting(key="stage_mapping", value=mapping))
     if not db.get(AppSetting, "priority_rules"):
         db.add(
@@ -47,3 +84,15 @@ def initialize_defaults(db):
 def stage_mapping(db, source_status):
     setting = db.get(AppSetting, "stage_mapping")
     return setting.value.get(str(source_status).strip().lower(), "unmapped") if source_status else "new"
+
+
+def record_source_status(db, source_status):
+    """Remember the exact source titles so the mapping screen can show real ones."""
+    title = (str(source_status).strip() if source_status not in (None, "") else "") or "(blank)"
+    setting = db.get(AppSetting, "source_status_counts")
+    counts = dict(setting.value) if setting else {}
+    counts[title] = counts.get(title, 0) + 1
+    if setting:
+        setting.value = counts
+    else:
+        db.add(AppSetting(key="source_status_counts", value=counts))

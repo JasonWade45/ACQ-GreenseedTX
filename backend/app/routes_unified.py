@@ -9,7 +9,7 @@ from .db import get_db
 from .models import Lead, CallPlan, WorkspaceMerge, AuditLog
 from .schemas import StrictModel
 from .config import get_settings
-from .services.research import prepare_plan, get_plan, plan_dict, update_plan, comps_brief
+from .services.research import prepare_plan, get_plan, plan_dict, update_plan, comps_brief, add_comp, remove_comp
 from .services.ai import analyze_lead
 
 router = APIRouter(prefix="/api")
@@ -24,6 +24,19 @@ class PlanEdit(StrictModel):
     checks: dict[str, bool] = Field(default_factory=dict)
     answers: dict[str, str] = Field(default_factory=dict)
     opener: str | None = Field(default=None, max_length=1200)
+
+
+class CompIn(StrictModel):
+    property_id: int
+    address: str = Field(min_length=4, max_length=300)
+    sold_price: float = Field(gt=0, le=100_000_000)
+    square_feet: int | None = Field(default=None, ge=100, le=100_000)
+    sold_date: str | None = Field(default=None, max_length=40)
+    bedrooms: int | None = Field(default=None, ge=0, le=30)
+    bathrooms: float | None = Field(default=None, ge=0, le=30)
+    distance_miles: float | None = Field(default=None, ge=0, le=200)
+    source: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=600)
 
 
 class LocalRefresh(StrictModel):
@@ -65,6 +78,19 @@ def edit_plan(plan_id: int, body: PlanEdit, db: DB):
 @router.get("/leads/{lead_id}/comps-brief")
 def read_comps(lead_id: int, db: DB, property_id: int | None = None):
     return comps_brief(found(db, lead_id), property_id)
+
+
+@router.post("/leads/{lead_id}/comps")
+def create_comp(lead_id: int, body: CompIn, db: DB):
+    lead = found(db, lead_id)
+    comp = add_comp(db, lead, body.property_id, body.model_dump())
+    return {"comps": comps_brief(lead, body.property_id)["comps"], "added": comp}
+
+
+@router.delete("/leads/{lead_id}/comps/{comp_id}")
+def delete_comp(lead_id: int, comp_id: str, db: DB):
+    lead = found(db, lead_id)
+    return remove_comp(db, lead, comp_id)
 
 
 @router.post("/insights/refresh-local")

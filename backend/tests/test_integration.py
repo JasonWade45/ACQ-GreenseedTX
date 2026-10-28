@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+
 import httpx
 import pytest
 from sqlalchemy import select, func
@@ -6,6 +8,8 @@ from app.config import Settings
 from app.models import Lead, Activity, Appointment, AIInsight, SyncRun
 from app.services.resimpli import ResimpliClient, IntegrationError, load_adapter, at_path
 from app.services.sync import begin_sync, sync_run
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def live_client(settings, handler, **kwargs):
@@ -192,3 +196,49 @@ def test_overlapping_sync_runs_rejected(db, settings):
     begin_sync(db, settings)
     with pytest.raises(ValueError, match="already running"):
         begin_sync(db, settings)
+
+
+def test_the_shipped_adapter_snippet_matches_a_real_contact_shape():
+    """The corrected paths must resolve on a REsimpli-shaped detail record.
+
+    A wrong JSON path returns nothing without raising, which reads exactly like
+    "the seller has no phone". This pins the keys probe4 confirmed.
+    """
+    import json
+
+    from app.services.resimpli import AdapterResource, at_path
+
+    snippet = json.loads((ROOT / "examples/resimpli-adapter-greenTX.json").read_text())
+    resource = AdapterResource(fields=snippet["leads"]["fields"])
+    record = {
+        "_id": "665f0b2c1a2b3c4d5e6f7a8b",
+        "address": "123 MAIN ST, AUSTIN, TX 78701",
+        "mainStatusTitle": "Dead Lead",
+        "marketingTitle": "Cold Calling High Business solutions",
+        "crmQuestionTitle": "Asked about timeline",
+        "contactData": [
+            {
+                "fullName": "MARY ELLEN SMITH",
+                "doNotCall": False,
+                "phoneNumbers": [{"phoneNumber": "+19725550143", "isPrimary": True}],
+                "emails": [],
+            }
+        ],
+        "propertyInfo": {"apn": "0123456789", "bedRoomCount": 3, "bathRoomCount": 2, "livingArea": 1850},
+        "valuation": {"estValue": 275000},
+    }
+
+    mapped = {field: at_path(record, path) for field, path in resource.fields.items()}
+
+    assert mapped["external_id"] == "665f0b2c1a2b3c4d5e6f7a8b"
+    assert mapped["full_name"] == "MARY ELLEN SMITH"
+    assert mapped["primary_phone"] == "+19725550143"
+    assert mapped["source_do_not_contact"] is False
+    assert mapped["street_address"].startswith("123 MAIN ST")
+    assert mapped["source_status"] == "Dead Lead"
+    assert mapped["bedrooms"] == 3 and mapped["square_feet"] == 1850
+    assert mapped["estimated_value"] == 275000
+    # This contact genuinely has no email; that is not a mapping failure.
+    assert mapped["email"] is None
+    # The old, wrong key must not come back.
+    assert "number" not in resource.fields.values()

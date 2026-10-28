@@ -195,9 +195,14 @@ def test_cloud_drafts_block_dnc_and_unknown_permission(db, make_lead, cloud_sett
     assert FakeClient.calls == 0
 
 
-def test_draft_requires_real_relationship_context(db, make_lead, cloud_settings):
-    with pytest.raises(ReviewError, match="Insufficient verified"):
-        create_preview(db, make_lead(source_do_not_contact=False), "draft", cloud_settings)
+def test_draft_without_a_conversation_becomes_an_opener(db, make_lead, cloud_settings):
+    """A seller with no stored conversation still gets a reviewable first contact."""
+    request = create_preview(db, make_lead(source_do_not_contact=False), "draft", cloud_settings)
+
+    assert request.result["constraints"]["draft_kind"] == "opener"
+    assert request.result["constraints"]["conversation_records"] == 0
+    assert request.result["constraints"]["signature_added_locally"] is True
+    assert FakeClient.calls == 0
 
 
 def test_cloud_draft_fills_private_placeholders_only_locally(db, make_lead, cloud_settings):

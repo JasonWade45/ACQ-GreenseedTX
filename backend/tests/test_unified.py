@@ -566,3 +566,66 @@ def test_legacy_actual_epoch_event_date_preserved_but_absent_date_is_not_filled(
         }
     )
     assert outcome == "Connected" and stamp.isoformat() == "2024-01-02T12:00:00+00:00"
+
+
+def test_comparables_are_the_ones_the_reviewer_entered(db, make_lead):
+    """Comps are arithmetic on real input, never a fabricated sold price."""
+    from app.services.research import add_comp, comps_brief, remove_comp
+
+    lead = make_lead(bedrooms=3, square_feet=2000, address="12 Example St")
+    prop = lead.properties[0]
+
+    first = add_comp(
+        db,
+        lead,
+        prop.id,
+        {
+            "address": "14 Example St",
+            "sold_price": 300000,
+            "square_feet": 2000,
+            "sold_date": "2026-08-01",
+            "source": "County deed",
+        },
+    )
+    assert first["price_per_sqft"] == 150.0
+    add_comp(db, lead, prop.id, {"address": "16 Example St", "sold_price": 320000, "square_feet": 2000})
+
+    brief = comps_brief(lead, prop.id)
+    assert len(brief["comps"]) == 2
+    summary = brief["comps_summary"]
+    assert summary["count"] == 2
+    assert summary["median_price_per_sqft"] == 155.0
+    # 2000 sqft at the median rate, minus and plus five percent.
+    assert summary["suggested_low"] == 294500
+    assert summary["suggested_high"] == 325500
+
+    remove_comp(db, lead, first["id"])
+    remaining = comps_brief(lead, prop.id)
+    assert len(remaining["comps"]) == 1
+    assert remaining["comps_summary"]["count"] == 1
+
+
+def test_a_comparable_without_a_price_or_address_is_refused(db, make_lead):
+    import pytest as _pytest
+
+    from app.services.research import add_comp
+
+    lead = make_lead()
+    prop = lead.properties[0]
+    with _pytest.raises(ValueError, match="street address"):
+        add_comp(db, lead, prop.id, {"address": "", "sold_price": 1})
+    with _pytest.raises(ValueError, match="price it sold for"):
+        add_comp(db, lead, prop.id, {"address": "14 Example St", "sold_price": 0})
+    with _pytest.raises(ValueError, match="Living area"):
+        add_comp(db, lead, prop.id, {"address": "14 Example St", "sold_price": 100, "square_feet": 5})
+
+
+def test_comparables_survive_a_reload_and_stay_off_other_properties(db, make_lead):
+    from app.services.research import add_comp, comps_brief
+
+    lead = make_lead()
+    prop = lead.properties[0]
+    add_comp(db, lead, prop.id, {"address": "14 Example St", "sold_price": 250000, "square_feet": 1500})
+    db.expire_all()
+    again = db.get(type(lead), lead.id)
+    assert len(comps_brief(again, prop.id)["comps"]) == 1

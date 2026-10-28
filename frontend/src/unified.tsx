@@ -5,6 +5,7 @@ import {
   Clipboard,
   Database,
   FileSearch,
+  Plus,
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
@@ -22,7 +23,7 @@ import {
   useAction,
   useData,
 } from "./components";
-import { currency, human, patch, post } from "./api";
+import { currency, del, human, patch, post } from "./api";
 import type { LeadProfile, Property } from "./types";
 
 type PrepItem = {
@@ -344,8 +345,257 @@ type Brief = {
     as_of: string | number | null;
   }[];
   portals?: { label: string; url: string }[];
+  comps?: CompRow[];
+  comps_summary?: {
+    count: number;
+    median_price_per_sqft: number | null;
+    suggested_low: number | null;
+    suggested_high: number | null;
+    note: string;
+  };
   notice?: string;
 };
+type CompRow = {
+  id: string;
+  address: string;
+  sold_price: number;
+  price_per_sqft: number | null;
+  square_feet: number | null;
+  sold_date: string | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  distance_miles: number | null;
+  source: string | null;
+  notes: string | null;
+};
+type CompForm = {
+  address: string;
+  sold_price: string;
+  square_feet: string;
+  sold_date: string;
+  source: string;
+  notes: string;
+};
+
+const EMPTY_COMP: CompForm = {
+  address: "",
+  sold_price: "",
+  square_feet: "",
+  sold_date: "",
+  source: "",
+  notes: "",
+};
+
+function CompsWorksheet({
+  lead,
+  propertyId,
+  rows,
+  summary,
+}: {
+  lead: LeadProfile;
+  propertyId: number | null;
+  rows: CompRow[];
+  summary?: Brief["comps_summary"];
+}) {
+  const action = useAction();
+  const [form, setForm] = useState<CompForm>(EMPTY_COMP);
+  const [showForm, setShowForm] = useState(false);
+  const set = (key: keyof CompForm, value: string) =>
+    setForm((current) => ({ ...current, [key]: value }));
+  const price = Number(form.sold_price);
+  const sqft = Number(form.square_feet);
+  const preview =
+    price > 0 && sqft > 0 ? `$${(price / sqft).toFixed(2)} per sq ft` : "";
+  const valid = propertyId !== null && form.address.trim().length >= 4 && price > 0;
+
+  return (
+    <Panel
+      title="Sold comparables"
+      subtitle="Your own researched sold prices. Nothing here is generated or imported."
+      action={
+        <Button
+          variant="secondary"
+          disabled={propertyId === null}
+          onClick={() => setShowForm((open) => !open)}
+        >
+          <Plus size={14} /> Add comparable
+        </Button>
+      }
+    >
+      {propertyId === null ? (
+        <Empty
+          title="Choose the subject property first"
+          description="Pick the exact subject above so every comparable is attached to the right property."
+        />
+      ) : (
+        <>
+          {summary && summary.count > 0 ? (
+            <div className="research-grid">
+              <div>
+                <h3>What these numbers say</h3>
+                <div className="info-grid">
+                  <Info label="Comparables">{String(summary.count)}</Info>
+                  <Info label="Median $ / sq ft">
+                    {summary.median_price_per_sqft != null
+                      ? `$${summary.median_price_per_sqft.toFixed(2)}`
+                      : "Unknown"}
+                  </Info>
+                  <Info label="Range from median">
+                    {summary.suggested_low != null && summary.suggested_high != null
+                      ? `${currency(summary.suggested_low)} – ${currency(summary.suggested_high)}`
+                      : "Add this property's living area"}
+                  </Info>
+                </div>
+                <p className="muted">{summary.note}</p>
+              </div>
+              <div>
+                <h3>How the range is built</h3>
+                <p className="muted">
+                  Median of the price per square foot of your comps, multiplied by
+                  this property's living area, then widened by five percent either
+                  way. Change a comp and the range changes with it.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {showForm ? (
+            <div className="stack">
+              <div className="form-grid">
+                <Field label="Comparable address">
+                  <input
+                    value={form.address}
+                    onChange={(e) => set("address", e.target.value)}
+                    placeholder="14 Example St, Austin, TX"
+                  />
+                </Field>
+                <Field label="Sold price (USD)">
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.sold_price}
+                    onChange={(e) => set("sold_price", e.target.value)}
+                    placeholder="300000"
+                  />
+                </Field>
+                <Field label="Living area (sq ft)">
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.square_feet}
+                    onChange={(e) => set("square_feet", e.target.value)}
+                    placeholder="2000"
+                  />
+                </Field>
+                <Field label="Sold date">
+                  <input
+                    type="date"
+                    value={form.sold_date}
+                    onChange={(e) => set("sold_date", e.target.value)}
+                  />
+                </Field>
+                <Field label="Where you saw it">
+                  <input
+                    value={form.source}
+                    onChange={(e) => set("source", e.target.value)}
+                    placeholder="County deed, Zillow, agent"
+                  />
+                </Field>
+                <Field label="Note (optional)">
+                  <input
+                    value={form.notes}
+                    onChange={(e) => set("notes", e.target.value)}
+                    placeholder="Renovated kitchen"
+                  />
+                </Field>
+              </div>
+              {preview ? <p className="muted">{preview}</p> : null}
+              <div className="row wrap">
+                <Button
+                  disabled={!valid || action.busy}
+                  onClick={() =>
+                    action.run(async () => {
+                      await post(`/leads/${lead.id}/comps`, {
+                        property_id: propertyId,
+                        address: form.address.trim(),
+                        sold_price: price,
+                        square_feet: sqft > 0 ? Math.round(sqft) : null,
+                        sold_date: form.sold_date || null,
+                        source: form.source.trim() || null,
+                        notes: form.notes.trim() || null,
+                      });
+                      setForm(EMPTY_COMP);
+                      setShowForm(false);
+                    }, "Comparable saved")
+                  }
+                >
+                  Save comparable
+                </Button>
+                <Button variant="secondary" onClick={() => setShowForm(false)}>
+                  Cancel
+                </Button>
+              </div>
+              {action.error ? <Notice>{action.error}</Notice> : null}
+            </div>
+          ) : null}
+
+          {rows.length ? (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Address</th>
+                  <th>Sold</th>
+                  <th>Living area</th>
+                  <th>$ / sq ft</th>
+                  <th>Source</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((comp) => (
+                  <tr key={comp.id}>
+                    <td>{comp.address}</td>
+                    <td>
+                      {currency(comp.sold_price)}
+                      {comp.sold_date ? <small> · {comp.sold_date}</small> : null}
+                    </td>
+                    <td>
+                      {comp.square_feet ? `${comp.square_feet.toLocaleString()} sq ft` : "Unknown"}
+                    </td>
+                    <td>
+                      {comp.price_per_sqft != null
+                        ? `$${comp.price_per_sqft.toFixed(2)}`
+                        : "Add living area"}
+                    </td>
+                    <td>{comp.source || "—"}</td>
+                    <td>
+                      <Button
+                        variant="secondary"
+                        onClick={() =>
+                          action.run(async () => {
+                            await del(`/leads/${lead.id}/comps/${comp.id}`);
+                          }, "Comparable removed")
+                        }
+                      >
+                        Remove
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <Empty
+              title="No comparables yet"
+              description="Add the sold records you found in a source you trust. The range appears as soon as one comp has a price and a living area."
+            />
+          )}
+        </>
+      )}
+    </Panel>
+  );
+}
+
 export function PropertyResearch({ lead }: { lead: LeadProfile }) {
   const [propertyId, setPropertyId] = useState(
     lead.properties.length === 1 ? String(lead.properties[0].id) : "",
@@ -481,12 +731,12 @@ export function PropertyResearch({ lead }: { lead: LeadProfile }) {
           </Notice>
         )}
       </Panel>
-      <Panel title="Verified sold comparables">
-        <Empty
-          title="No verified sold comparables connected"
-          description="There is no MLS/portal integration. Research actual sold records in an approved source and record supporting evidence yourself. No comparable addresses, sale dates or prices are generated."
-        />
-      </Panel>
+      <CompsWorksheet
+        lead={lead}
+        propertyId={data.data?.subject ? Number(data.data.subject.id) : null}
+        rows={data.data?.comps || []}
+        summary={data.data?.comps_summary}
+      />
     </div>
   );
 }

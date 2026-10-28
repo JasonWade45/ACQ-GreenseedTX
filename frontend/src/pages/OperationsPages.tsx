@@ -950,6 +950,68 @@ function SettingsForm({ settings: s }: { settings: SettingsData }) {
             title="Source status mapping"
             subtitle="Preserves the original source status. Unmapped values remain visibly unmapped."
           >
+            {s.source_statuses?.length ? (
+              <div className="stack">
+                <h3>Status titles your CRM actually sent</h3>
+                <p className="muted">
+                  These are counted from real synced leads. Choose a stage for
+                  each one; anything left is shown as unmapped instead of being
+                  guessed.
+                </p>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Source status</th>
+                      <th>Leads</th>
+                      <th>Local stage</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.source_statuses.map((row) => (
+                      <tr key={row.title}>
+                        <td>
+                          {row.title}
+                          {row.mapped ? null : (
+                            <Badge tone="amber">unmapped</Badge>
+                          )}
+                        </td>
+                        <td>{row.leads}</td>
+                        <td>
+                          <select
+                            aria-label={`Stage for ${row.title}`}
+                            value={row.stage}
+                            onChange={(e) =>
+                              action.run(
+                                () =>
+                                  patch("/settings", {
+                                    stage_mapping: {
+                                      ...s.stage_mapping,
+                                      [row.title.trim().toLowerCase()]:
+                                        e.target.value,
+                                    },
+                                  }),
+                                "Source status saved",
+                              )
+                            }
+                          >
+                            {meta.stages.map((stage) => (
+                              <option key={stage.code} value={stage.code}>
+                                {stage.label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <Notice>
+                No source status has been seen yet. Run a sync and the titles your
+                CRM sends will appear here with their counts.
+              </Notice>
+            )}
             <form
               className="settings-form"
               onSubmit={async (e) => {

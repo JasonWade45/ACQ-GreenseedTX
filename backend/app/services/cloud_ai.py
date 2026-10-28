@@ -9,6 +9,7 @@ import re
 import threading
 from uuid import uuid4
 from sqlalchemy import select, func
+from ..config import get_settings
 from ..db import utcnow
 from ..models import Lead, CloudRequest, Draft, Activity, AuditLog
 from .ai import FACT_KEYS, context_for, context_hash, analyze_lead
@@ -106,19 +107,23 @@ def redacted_context(db, lead, extra=()):
     return records, source_map, replacements, truncated
 
 
-def ensure_draft_allowed(lead):
-    if not lead.full_name:
-        raise ValueError("Owner identity is unknown; identify and review the seller before drafting")
-    if lead.do_not_contact:
-        raise ReviewError("Do Not Contact: marketing drafts are blocked")
-    if lead.restriction_status != "reviewed_clear":
-        raise ReviewError("Review contact restrictions using actual evidence before preparing a draft")
-    if lead.contact_outcome != "Callback Requested" and not lead.source_data.get("normalized", {}).get(
-        "seller_motivation"
-    ):
-        raise ReviewError(
-            "Insufficient verified relationship context. An explicit callback or source seller motivation is required; no generic draft will be generated."
-        )
+def ensure_draft_allowed(db, lead):
+    """The same gate the local drafter uses, so both paths accept the same sellers.
+
+    A recorded conversation always allows a follow-up. With no conversation the draft
+    becomes a first-contact opener, which is a legitimate message rather than an error.
+    Do Not Contact and an unreviewed restriction still block.
+    """
+    from .ai import draft_plan
+
+    try:
+        return draft_plan(db, lead, get_settings())
+    except ReviewError:
+        raise
+    except ValueError as exc:
+        # The local drafter raises ValueError; the reviewed path reports the same facts
+        # with an HTTP status so the screen can show it instead of a generic failure.
+        raise ReviewError(str(exc)) from exc
 
 
 def usage_today(db):
@@ -146,9 +151,18 @@ def cloud_status(db, settings):
 def create_preview(db, lead, purpose, settings, extra=()):
     if not settings.groq_enabled or not settings.groq_api_key:
         raise ReviewError("Enable Groq and save a replacement key in Settings first")
+    plan = None
     if purpose == "draft":
-        ensure_draft_allowed(lead)
+        plan = ensure_draft_allowed(db, lead)
     records, mapping, count, truncated = redacted_context(db, lead, extra)
+    if not records and plan is not None and plan["kind"] == "opener":
+        # A first-contact opener needs no seller history. The only grounds sent are
+        # stage and source wording, which carry no personal detail.
+        records = [{"ref": f"lead:{lead.id}:stage", "text": f"Pipeline stage: {lead.stage_code}"}]
+        mapping = {records[0]["ref"]: records[0]["ref"]}
+        source = (lead.source_data or {}).get("normalized", {}).get("lead_source")
+        if source:
+            records.append({"ref": f"lead:{lead.id}:lead_source", "text": f"Lead source: {source}"})
     if not records:
         raise ReviewError("No useful source context is available after redaction; add verified information first")
     flags = {
@@ -158,6 +172,11 @@ def create_preview(db, lead, purpose, settings, extra=()):
         "has_name_placeholder": bool(lead.first_name or lead.full_name),
         "has_address_placeholder": len(lead.properties) == 1 and bool(lead.properties[0].street_address),
     }
+    if plan is not None:
+        flags["draft_kind"] = plan["kind"]
+        flags["conversation_records"] = len(plan["history"])
+        # The signature is appended locally, so the model is told not to write one.
+        flags["signature_added_locally"] = True
     request = CloudRequest(
         id=str(uuid4()),
         lead_id=lead.id,
@@ -294,9 +313,22 @@ def validate_grounding(output, records, purpose, flags):
 
 def _artifact(db, lead, request, output, settings, records):
     if isinstance(output, CloudDraft):
-        body = output.body.replace("{{seller_first_name}}", lead.first_name or lead.full_name.split()[0])
-        if "{{property_address}}" in body:
+        from .ai import signature_lines
+
+        name = lead.first_name or (lead.full_name.split()[0] if lead.full_name else None)
+        body = output.body
+        if "{{property_address}}" in body and lead.properties and lead.properties[0].street_address:
             body = body.replace("{{property_address}}", lead.properties[0].street_address)
+        else:
+            # Never leave a visible placeholder behind if the address was not supplied.
+            body = body.replace(" {{property_address}}", "").replace("{{property_address}}", "")
+        if name:
+            body = body.replace("{{seller_first_name}}", name)
+        else:
+            body = body.replace("Hi {{seller_first_name}},", "Hello,").replace("{{seller_first_name}}", "")
+        signature = signature_lines(settings)
+        if signature and not body.rstrip().endswith(signature[-1]):
+            body = body.rstrip() + "\n\n" + "\n".join(signature)
         draft = Draft(lead_id=lead.id, body=body, context=context_for(db, lead), model_id="groq:" + request.model_id)
         db.add(draft)
         db.flush()
@@ -351,7 +383,7 @@ def execute_request(
         raise ReviewError("Explicitly approve the reviewed redacted context before sending")
     current_lead = db.get(Lead, request.lead_id)
     if request.purpose == "draft":
-        ensure_draft_allowed(current_lead)
+        ensure_draft_allowed(db, current_lead)
     if request.state == "completed":
         return request
     if request.state != "pending_review":
@@ -371,7 +403,7 @@ def execute_request(
         raise ReviewError("Groq configuration changed or is disabled; preview again", 409)
     lead = db.get(Lead, request.lead_id)
     if request.purpose == "draft":
-        ensure_draft_allowed(lead)
+        ensure_draft_allowed(db, lead)
     if context_hash(lead, context_for(db, lead)) != request.context_hash:
         raise ReviewError("Source context changed after this preview. Nothing was sent; review again.", 409)
     known = {r["ref"] for r in request.records}
@@ -407,7 +439,7 @@ def execute_request(
             db.commit()
             raise ReviewError("This review expired; preview current data again", 409)
         if request.purpose == "draft":
-            ensure_draft_allowed(lead)
+            ensure_draft_allowed(db, lead)
         if context_hash(lead, context_for(db, lead)) != request.context_hash:
             raise ReviewError("Source context changed before processing. Nothing was sent; review again.", 409)
         if not force_refresh:
