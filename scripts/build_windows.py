@@ -32,9 +32,9 @@ def version() -> str:
     return namespace["APP_VERSION"]
 
 
-def run(command: list[str], **kwargs) -> None:
+def run(command: list[str], cwd: Path | None = None, **kwargs) -> None:
     print("+", " ".join(str(part) for part in command), flush=True)
-    subprocess.run(command, check=True, cwd=ROOT, **kwargs)
+    subprocess.run(command, check=True, cwd=cwd or ROOT, **kwargs)
 
 
 def build_interface() -> None:

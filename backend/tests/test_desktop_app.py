@@ -177,6 +177,37 @@ def test_the_build_script_pins_the_versions_shown_in_windows_explorer():
     assert "GreenSeedTX LLC" in script
 
 
+def _load_build_script():
+    spec = importlib.util.spec_from_file_location("acq_build_windows", ROOT / "scripts" / "build_windows.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_build_script_runs_a_command_in_the_folder_it_was_given(tmp_path, monkeypatch):
+    """npm must run inside frontend/, and a duplicate cwd= keyword used to raise TypeError."""
+    build = _load_build_script()
+    seen = {}
+
+    def fake_run(command, check, cwd, **kwargs):
+        seen["command"] = command
+        seen["check"] = check
+        seen["cwd"] = Path(cwd)
+
+    monkeypatch.setattr(build.subprocess, "run", fake_run)
+    build.run(["npm", "run", "build"], cwd=tmp_path)
+    assert seen["cwd"] == tmp_path
+    build.run(["npm", "run", "build"])
+    assert seen["cwd"] == build.ROOT
+
+
+def test_the_build_script_says_so_when_the_interface_cannot_be_compiled(monkeypatch):
+    build = _load_build_script()
+    monkeypatch.setattr(build.shutil, "which", lambda name: None)
+    with pytest.raises(SystemExit, match="npm is required"):
+        build.build_interface()
+
+
 def test_credentials_survive_inside_the_data_folder(tmp_path):
     env_file = tmp_path / "data-home" / ".env"
     password, created = ensure_credentials(env_file, required=True)

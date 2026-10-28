@@ -46,8 +46,26 @@ jobs:
       - name: The desktop program starts, keeps its data and restarts on it
         run: python scripts/smoke_desktop_app.py
 
-      - name: Build the program and the installer
-        run: python scripts/build_windows.py
+      # Split into three steps so a failure names the failing part, and mirror the
+      # last lines of the failing command into annotations, which are readable
+      # without downloading the job log.
+      - name: Compile the interface for the program
+        shell: pwsh
+        run: |
+          python -c "import sys; sys.path.insert(0, 'scripts'); import build_windows as b; b.build_interface()" 2>&1 | Tee-Object build-interface.txt
+          if ($LASTEXITCODE -ne 0) { . ./scripts/ci-annotate.ps1 build-interface.txt; exit 1 }
+
+      - name: Build ACQ.exe with PyInstaller
+        shell: pwsh
+        run: |
+          python -c "import sys; sys.path.insert(0, 'scripts'); import build_windows as b; print(b.build_exe())" 2>&1 | Tee-Object build-exe.txt
+          if ($LASTEXITCODE -ne 0) { . ./scripts/ci-annotate.ps1 build-exe.txt; exit 1 }
+
+      - name: Build the installer with Inno Setup
+        shell: pwsh
+        run: |
+          python -c "import sys, pathlib; sys.path.insert(0, 'scripts'); import build_windows as b; print(b.build_installer(pathlib.Path('dist/ACQ.exe')))" 2>&1 | Tee-Object build-installer.txt
+          if ($LASTEXITCODE -ne 0) { . ./scripts/ci-annotate.ps1 build-installer.txt; exit 1 }
 
       - name: Smoke-test the packaged program
         shell: pwsh
