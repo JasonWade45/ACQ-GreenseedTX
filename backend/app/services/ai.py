@@ -424,9 +424,11 @@ def compose_template_draft(db, lead, settings, plan):
     subject = f" about {address}" if address else ""
     latest = plan["history"][0] if plan["history"] else None
     if plan["kind"] == "opener":
+        # The signature already carries the name and the title; repeating them here
+        # reads like a form letter, so the body introduces the company and the reason.
         body = (
-            f"{greeting} my name is {settings.draft_manager_name} and I am the acquisition manager at "
-            f"{settings.draft_company}. I work with owners{subject or ' in your area'} who are weighing a sale. "
+            f"{greeting} I handle acquisitions for {settings.draft_company} here in town. "
+            f"I work with owners{subject or ' in your area'} who are weighing a sale. "
             "If selling is something you are considering, I would be glad to walk you through your options "
             "with no obligation. Is now a good time to talk?"
         )

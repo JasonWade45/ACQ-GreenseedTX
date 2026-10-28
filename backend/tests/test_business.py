@@ -151,7 +151,9 @@ def test_first_contact_gets_an_opener_instead_of_an_error(db, make_lead):
 
     assert "opener" in draft.model_id
     assert draft.body.startswith("Hi Test,")
-    assert "acquisition manager" in draft.body
+    # The body introduces the company; the name and title appear once, in the signature.
+    assert "GreenSeedTX LLC" in draft.body
+    assert draft.body.count("Jason Wade") == 1
     assert draft.body.endswith("Jason Wade\nAcquisition Manager, GreenSeedTX LLC")
     assert len(draft.context) > 0
 

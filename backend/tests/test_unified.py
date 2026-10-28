@@ -629,3 +629,37 @@ def test_comparables_survive_a_reload_and_stay_off_other_properties(db, make_lea
     db.expire_all()
     again = db.get(type(lead), lead.id)
     assert len(comps_brief(again, prop.id)["comps"]) == 1
+
+
+def test_subject_living_area_fills_only_an_empty_field(client, db, make_lead):
+    """The range needs a living area; a reviewer may supply it, never overwrite the source."""
+    from app.models import Property
+
+    lead = make_lead()
+    prop = lead.properties[0]
+    assert prop.square_feet is None
+
+    first = client.patch(f"/api/leads/{lead.id}/properties/{prop.id}", json={"square_feet": 2000})
+    assert first.status_code == 200
+    body = first.json()
+    assert body["filled"] == {"square_feet": 2000}
+    assert body["kept_from_source"] == {}
+    db.expire_all()
+    assert db.get(Property, prop.id).square_feet == 2000
+
+    # A second attempt must not silently rewrite what is already recorded.
+    second = client.patch(f"/api/leads/{lead.id}/properties/{prop.id}", json={"square_feet": 3000})
+    assert second.status_code == 200
+    assert second.json()["filled"] == {}
+    assert second.json()["kept_from_source"] == {"square_feet": 2000}
+    db.expire_all()
+    assert db.get(Property, prop.id).square_feet == 2000
+
+
+def test_subject_facts_reject_a_property_that_is_not_this_seller(client, db, make_lead):
+    lead = make_lead()
+    other = make_lead(name="Other Owner", phone="+12025550188", address="99 Elsewhere Rd")
+    response = client.patch(
+        f"/api/leads/{lead.id}/properties/{other.properties[0].id}", json={"square_feet": 2000}
+    )
+    assert response.status_code == 404

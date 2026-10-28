@@ -1,7 +1,7 @@
-# Project status — Acquisitions Assistant AI 1.2.7
+# Project status — Acquisitions Assistant AI 1.2.8
 
 **Updated 2026-10-28.** Unified local-first seller-acquisitions application. **Published
-release: `v1.2.7`** — see `docs/RELEASE_1_2_7.md`. Earlier releases (`v1.2.6`, `v1.2.5`,
+release: `v1.2.8`** — see `docs/RELEASE_1_2_8.md`. Earlier releases (`v1.2.7`, `v1.2.6`,
 `v1.2.3`, `v1.2.2`, `v1.2.1`) are retained unchanged; a published tag is never rewritten.
 
 ## What the app is now
@@ -38,6 +38,9 @@ release: `v1.2.7`** — see `docs/RELEASE_1_2_7.md`. Earlier releases (`v1.2.6`,
   scraping, no invented sales.
 - **The stage table is real (1.2.7).** Sync records every `mainStatusTitle` it sees with a count;
   Settings shows them with a stage selector, and anything unrecognised stays visibly unmapped.
+- **The comparables range is never a dead end (1.2.8).** A property the CRM never gave a living
+  area used to make the range impossible. `PATCH /api/leads/{id}/properties/{pid}` fills only an
+  empty `square_feet`/`bedrooms`/`bathrooms`, is audited, and never replaces a source value.
 - Retained: conservative read-only REsimpli sync (stable IDs, pagination, bounded retries,
   truthful never/partial/failure/freshness) and optional, manually approved, redacted Groq
   analysis. **No seller communication, no CRM writes, no automatic cloud batches.**
@@ -46,7 +49,7 @@ release: `v1.2.7`** — see `docs/RELEASE_1_2_7.md`. Earlier releases (`v1.2.6`,
 
 | Check | Result |
 |---|---|
-| Backend suite | **248 passed, 1 explicit live-account skip** |
+| Backend suite | **250 passed, 1 explicit live-account skip** |
 | Lint | `ruff check .` clean |
 | Frontend | **21 passed**, `tsc -b` + `vite build` clean |
 | Docker image | **built and run in GitHub Actions**: refuses a weak password, `/api/leads` 401 then 200 after login |
