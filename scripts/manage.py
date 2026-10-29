@@ -83,6 +83,34 @@ def restore(input_path, confirm):
     print(f"Restored trusted backup into {destination}. Run migrate and check before starting the app.")
 
 
+def restore_postgres(input_path, confirm):
+    """Replace the PostgreSQL database's rows from a logical backup file."""
+    if confirm != "RESTORE POSTGRES DATABASE":
+        raise ValueError("Restore requires --confirm 'RESTORE POSTGRES DATABASE'; it rewrites every table.")
+    from app.config import get_settings
+    from app.db import make_engine
+    from app.services import backups, logical_backup
+
+    settings = get_settings()
+    if not settings.is_postgres:
+        raise ValueError("This command is for PostgreSQL. Use 'restore' for a SQLite file.")
+    source = Path(input_path).expanduser().resolve()
+    if source.suffix == ".db":
+        raise ValueError("That is a SQLite backup. Restore it into a SQLite deployment with 'restore'.")
+    manifest = logical_backup.verify(source)
+    safety = backups.create_backup(settings.database_url, reason="manual")
+    engine = make_engine(settings.database_url, pool_size=1)
+    try:
+        result = logical_backup.restore(engine, source)
+    finally:
+        engine.dispose()
+    print(f"Live copy taken first: {safety}")
+    print(f"Restored {source.name} (revision {manifest.get('alembic_revision')}):")
+    for name, count in sorted(result["tables"].items()):
+        print(f"  {name:<28} {count}")
+    print("Restart the application so it re-reads its settings and sessions.")
+
+
 def adapter_check(limit):
     """Fetch a few real leads and report which mapped fields actually fill in.
 
@@ -131,6 +159,11 @@ def main():
     r = sub.add_parser("restore", help="Stop the app before restoring a trusted SQLite backup")
     r.add_argument("--input", required=True)
     r.add_argument("--confirm", required=True)
+    pg = sub.add_parser(
+        "restore-postgres", help="Replace the PostgreSQL rows from a downloaded logical backup"
+    )
+    pg.add_argument("--file", required=True, dest="input")
+    pg.add_argument("--confirm", required=True)
     sub.add_parser("check")
     f = sub.add_parser(
         "fixture-sync", help="Explicitly load fictional integration records into the configured database"
@@ -161,6 +194,8 @@ def main():
             backup(args.output)
         elif args.action == "restore":
             restore(args.input, args.confirm)
+        elif args.action == "restore-postgres":
+            restore_postgres(args.input, args.confirm)
         elif args.action == "check":
             with sqlite3.connect(database_path().as_uri() + "?mode=ro", uri=True) as db:
                 integrity = db.execute("PRAGMA integrity_check").fetchone()[0]

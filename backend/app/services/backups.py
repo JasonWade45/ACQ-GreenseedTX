@@ -1,9 +1,17 @@
-"""Scheduled, rotating SQLite backups that never touch a live connection unsafely.
+"""Rotating, verified backups for whichever database this deployment uses.
 
-The database is copied with SQLite's own online-backup API against a read-only
-connection, then verified with ``PRAGMA integrity_check``. A file only appears
-under its final name after the copy passed verification, so a half-written
+SQLite: the database is copied with SQLite's own online-backup API against a
+read-only connection, then verified with ``PRAGMA integrity_check``. A file only
+appears under its final name after the copy passed verification, so a half-written
 backup can never be mistaken for a good one.
+
+PostgreSQL: there is no file to copy, and ``pg_dump`` is not available on every
+managed host, so the backup is logical -- one gzipped NDJSON file with a manifest of
+row counts, written and re-verified through the connection the app already has (see
+``logical_backup``).
+
+Both formats share one folder, one naming scheme, one rotation policy and the same
+"verify before it counts" rule, so the interface does not need two code paths.
 """
 
 from __future__ import annotations
@@ -15,20 +23,20 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-# The prefix comes from the database filename, not a constant: a database called
-# acq.db produced backups that were created, then invisible to listing, download and
-# rotation because this pattern only accepted "acquisitions-...".
-NAME = re.compile(r"^acquisitions-\d{8}T\d{6}Z-(scheduled|manual)\.db$")
+from . import logical_backup
+
+SQLITE_SUFFIX = ".db"
+LOGICAL_SUFFIX = ".ndjson.gz"
 
 
-def _name_pattern(database: Path) -> re.Pattern[str]:
-    return re.compile(rf"^{re.escape(database.stem)}-\d{{8}}T\d{{6}}Z-(scheduled|manual)\.db$")
+def is_file_database(url: str) -> bool:
+    return url.startswith("sqlite:///") and ":memory:" not in url
 
 
 def database_path(url: str) -> Path:
     """Resolve a file-backed SQLite URL, refusing anything we cannot copy safely."""
-    if not url.startswith("sqlite:///") or ":memory:" in url:
-        raise ValueError("Automatic backups support a file-backed SQLite database only")
+    if not is_file_database(url):
+        raise ValueError("This operation needs a file-backed SQLite database")
     return Path(url.removeprefix("sqlite:///")).resolve()
 
 
@@ -36,18 +44,64 @@ def backup_directory(database: Path) -> Path:
     return database.parent / "backups"
 
 
+def backup_folder(url: str) -> Path:
+    """Where this deployment keeps its backups.
+
+    A hosted deployment has no database file to sit next to, so it uses BACKUP_DIR and
+    falls back to the data folder. Neither is guaranteed to survive a redeploy; that
+    is reported separately rather than assumed.
+    """
+    from ..config import get_settings
+
+    if is_file_database(url):
+        return backup_directory(database_path(url))
+    configured = get_settings().backup_dir.strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    from ..config import DATA_ROOT
+
+    return (DATA_ROOT / "backups").resolve()
+
+
+def _stem(url: str) -> str:
+    """The backup filename prefix: the database's own name when it has one."""
+    return database_path(url).stem if is_file_database(url) else "acquisitions"
+
+
+def _name_pattern(stem: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"^{re.escape(stem)}-\d{{8}}T\d{{6}}Z-(scheduled|manual)(\.db|\.ndjson\.gz)$"
+    )
+
+
 def _stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
+def engine_for(url: str):
+    from ..db import make_engine
+
+    return make_engine(url, pool_size=1)
+
+
 def create_backup(url: str, reason: str = "scheduled") -> Path:
-    """Write a verified copy and return its path. Raises instead of leaving junk."""
+    """Write a verified backup and return its path. Raises instead of leaving junk."""
     if reason not in {"scheduled", "manual"}:
         reason = "manual"
+    folder = backup_folder(url)
+    if not is_file_database(url):
+        if not url.startswith("postgresql"):
+            # An in-memory or stateless URL has nothing to back up, and must say so
+            # instead of being handed to the PostgreSQL branch.
+            raise ValueError("Automatic backups need a file-backed SQLite database or PostgreSQL")
+        engine = engine_for(url)
+        try:
+            return logical_backup.create(engine, folder, reason, _stamp())
+        finally:
+            engine.dispose()
     source = database_path(url)
     if not source.is_file():
         raise ValueError("Database is not initialized; nothing to back up.")
-    folder = backup_directory(source)
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     destination = folder / f"{source.stem}-{_stamp()}-{reason}.db"
     temporary = destination.with_suffix(".db.partial")
@@ -93,13 +147,20 @@ def _remove_sidecars(path: Path) -> None:
         Path(str(path) + suffix).unlink(missing_ok=True)
 
 
+def backup_reason(name: str) -> str:
+    return "scheduled" if "-scheduled" in name else "manual"
+
+
+def backup_format(name: str) -> str:
+    return "ndjson-gzip" if name.endswith(LOGICAL_SUFFIX) else "sqlite-file"
+
+
 def list_backups(url: str) -> list[dict]:
     """Newest first. Ignores partial files and anything not created by this app."""
-    source = database_path(url)
-    folder = backup_directory(source)
+    folder = backup_folder(url)
     if not folder.is_dir():
         return []
-    pattern = _name_pattern(source)
+    pattern = _name_pattern(_stem(url))
     items = []
     for path in folder.iterdir():
         if not path.is_file() or not pattern.match(path.name):
@@ -110,7 +171,8 @@ def list_backups(url: str) -> list[dict]:
                 "name": path.name,
                 "size_bytes": stat.st_size,
                 "created_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc),
-                "reason": "scheduled" if path.name.endswith("-scheduled.db") else "manual",
+                "reason": backup_reason(path.name),
+                "format": backup_format(path.name),
             }
         )
     return sorted(items, key=lambda item: item["name"], reverse=True)
@@ -120,15 +182,14 @@ def prune(url: str, keep: int) -> list[str]:
     """Delete the oldest scheduled backups beyond ``keep``. Manual copies are never pruned."""
     if keep < 1:
         raise ValueError("Keep at least one backup")
-    source = database_path(url)
-    folder = backup_directory(source)
+    folder = backup_folder(url)
     if not folder.is_dir():
         return []
     # Only files this module created are candidates. A user file that merely ends in
     # "-scheduled.db" must never be deleted by rotation.
-    pattern = _name_pattern(source)
+    pattern = _name_pattern(_stem(url))
     scheduled = [
-        p for p in sorted(folder.iterdir()) if p.is_file() and pattern.match(p.name) and p.name.endswith("-scheduled.db")
+        p for p in sorted(folder.iterdir()) if p.is_file() and pattern.match(p.name) and p.name.endswith(("-scheduled.db", "-scheduled" + LOGICAL_SUFFIX))
     ]
     removed = []
     for path in scheduled[:-keep] if len(scheduled) > keep else []:
@@ -140,15 +201,16 @@ def prune(url: str, keep: int) -> list[str]:
 def prune_policy(url: str, daily_keep: int = 14, weekly_keep: int = 8) -> list[str]:
     """Rotate scheduled backups: keep ``daily_keep`` newest daily plus one per
     week for the last ``weekly_keep`` weeks. Manual backups are never touched."""
-    source = database_path(url)
-    folder = backup_directory(source)
+    folder = backup_folder(url)
     if not folder.is_dir():
         return []
-    pattern = _name_pattern(source)
+    pattern = _name_pattern(_stem(url))
     scheduled = [
         p
         for p in folder.iterdir()
-        if p.is_file() and pattern.match(p.name) and p.name.endswith("-scheduled.db")
+        if p.is_file()
+        and pattern.match(p.name)
+        and p.name.endswith(("-scheduled.db", "-scheduled" + LOGICAL_SUFFIX))
     ]
     if not scheduled:
         return []
@@ -174,15 +236,16 @@ def prune_policy(url: str, daily_keep: int = 14, weekly_keep: int = 8) -> list[s
 
 def resolve_backup(url: str, name: str) -> Path:
     """Map a requested filename to a path inside the backup folder, or refuse."""
-    source = database_path(url)
-    if not _name_pattern(source).match(name or ""):
+    folder = backup_folder(url)
+    if not _name_pattern(_stem(url)).match(name or ""):
         raise ValueError("Unknown backup name")
-    path = (backup_directory(source) / name).resolve()
-    if path.parent != backup_directory(source):
+    path = (folder / name).resolve()
+    if path.parent != folder:
         raise ValueError("Unknown backup name")
     if not path.is_file():
         raise ValueError("Backup not found")
     return path
+
 
 def validate_second_folder(path: str) -> str:
     """Validate an optional second backup folder (e.g. a synced Google Drive folder).
@@ -205,6 +268,28 @@ def validate_second_folder(path: str) -> str:
     return str(target.resolve())
 
 
+def durability(url: str) -> dict:
+    """Say whether the backup folder survives a restart, instead of hoping it does.
+
+    A container or serverless host gives the application a filesystem that is wiped on
+    redeploy, so a backup sitting in it is not a backup. The interface asks for a
+    download or a second folder in that case.
+    """
+    from ..config import get_settings
+
+    settings = get_settings()
+    if not settings.ephemeral_filesystem:
+        return {"durable": True, "detail": "", "folder": str(backup_folder(url))}
+    return {
+        "durable": False,
+        "folder": str(backup_folder(url)),
+        "detail": (
+            "EPHEMERAL_FILESYSTEM is on: this folder is erased when the host restarts or "
+            "redeploys. Download the backup, or set BACKUP_DIR to persistent storage."
+        ),
+    }
+
+
 def copy_to_second_folder(url: str, created: Path, second: str | None) -> dict:
     """Copy one completed backup into the second folder and report the outcome.
 
@@ -213,15 +298,26 @@ def copy_to_second_folder(url: str, created: Path, second: str | None) -> dict:
     """
     if not second:
         return {"configured": False, "ok": True, "detail": "No second folder configured"}
+    from ..config import get_settings
+
+    if get_settings().ephemeral_filesystem:
+        return {
+            "configured": True,
+            "ok": False,
+            "folder": second,
+            "detail": (
+                "This host's second folder is not durable: EPHEMERAL_FILESYSTEM is on, so a "
+                "copy written here is erased on restart. Download the backup instead."
+            ),
+            "copied_at": datetime.now(timezone.utc).isoformat(),
+        }
     try:
         folder = Path(second).expanduser()
         if not folder.is_dir():
             raise ValueError("The second backup folder is not available")
         destination = folder / created.name
         shutil.copy2(created, destination)
-        with sqlite3.connect(destination) as conn:
-            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                raise ValueError("The copy failed its integrity check and was removed")
+        verify_backup(destination)
         return {
             "configured": True,
             "ok": True,
@@ -240,7 +336,10 @@ def copy_to_second_folder(url: str, created: Path, second: str | None) -> dict:
 
 
 def verify_backup(path: Path) -> None:
-    """Raise ValueError unless this file is a readable, self-consistent SQLite database."""
+    """Raise ValueError unless this file is a self-consistent backup of its own format."""
+    if path.name.endswith(LOGICAL_SUFFIX):
+        logical_backup.verify(path)
+        return
     try:
         with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
             if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":

@@ -1485,15 +1485,18 @@ def backup_view(item: dict) -> dict:
 
 def backup_overview(db):
     settings = get_settings()
-    source = backup_service.database_path(settings.database_url)
     row = db.get(AppSetting, "backup_second_folder")
     value = row.value if row and isinstance(row.value, dict) else {}
     second = value.get("path")
+    storage = backup_service.durability(settings.database_url)
     return {
         "enabled": settings.backup_enabled,
         "keep": settings.backup_keep,
         "hour_utc": settings.backup_hour_utc,
-        "folder": str(backup_service.backup_directory(source)),
+        "folder": storage["folder"],
+        "format": "sqlite-file" if settings.database_url.startswith("sqlite") else "ndjson-gzip",
+        "durable": storage["durable"],
+        "storage_detail": storage["detail"],
         "second_folder": second,
         "status": value.get("status") or {},
     }
@@ -1572,8 +1575,17 @@ def backup_config_update(body: dict, db: DB):
     path = (body or {}).get("second_folder")
     path = (path or "").strip() or None
     validated = backup_service.validate_second_folder(path) if path else None
+    storage = backup_service.durability(get_settings().database_url)
+    if validated and not storage["durable"]:
+        # Accept the path (the user may mount persistent storage later) but say plainly
+        # that a copy written here does not survive a redeploy.
+        status = {"ok": False, "checked_at": utcnow().isoformat(), "detail": storage["detail"]}
+    elif validated:
+        status = {"ok": True, "checked_at": utcnow().isoformat()}
+    else:
+        status = {}
     row = db.get(AppSetting, "backup_second_folder")
-    value = {"path": validated, "status": {"ok": True, "checked_at": utcnow().isoformat()} if validated else {}}
+    value = {"path": validated, "status": status}
     if row is None:
         db.add(AppSetting(key="backup_second_folder", value=value))
     else:
@@ -1585,12 +1597,20 @@ def backup_config_update(body: dict, db: DB):
 
 @app.get("/api/backups/{name}")
 def download_backup(name: str):
+    """Hand the user the backup file itself.
+
+    On a host whose filesystem is wiped on redeploy this is the only copy that outlives
+    the deployment, which is why it is a first-class button and not a hidden route.
+    """
     settings = get_settings()
     try:
         path = backup_service.resolve_backup(settings.database_url, name)
     except ValueError as error:
         raise HTTPException(404, str(error)) from error
-    return FileResponse(path, filename=path.name, media_type="application/vnd.sqlite3")
+    media = (
+        "application/gzip" if backup_service.backup_format(path.name) == "ndjson-gzip" else "application/vnd.sqlite3"
+    )
+    return FileResponse(path, filename=path.name, media_type=media)
 
 
 @app.delete("/api/backups/{name}")
@@ -1608,10 +1628,35 @@ def delete_backup(name: str, db: DB, confirm: str = Query(default="")):
     return {"deleted": name}
 
 
+def restore_logical_backup(body, db):
+    """Replace a PostgreSQL database's rows from a verified logical backup."""
+    if (body or {}).get("confirm") != "RESTORE FROM BACKUP":
+        raise ValueError("Restoring a PostgreSQL backup requires confirm=RESTORE FROM BACKUP")
+    settings = get_settings()
+    try:
+        path = backup_service.resolve_backup(settings.database_url, (body or {}).get("name"))
+    except ValueError as error:
+        raise HTTPException(404, str(error)) from error
+    # Take a copy of what is live now first: a restore is not undoable by itself.
+    safety = backup_service.create_backup(settings.database_url, reason="manual")
+    from .services import logical_backup
+
+    engine = backup_service.engine_for(settings.database_url)
+    try:
+        result = logical_backup.restore(engine, path)
+    finally:
+        engine.dispose()
+    db.add(AuditLog(action="backup_restored", details={"from": path.name, "safety_copy": safety.name}))
+    db.commit()
+    return {**result, "safety_copy": safety.name, "restart_required": True}
+
+
 @app.post("/api/backups/restore")
 def restore_backup(body: dict, db: DB):
     name = (body or {}).get("name")
     settings = get_settings()
+    if settings.is_postgres:
+        return restore_logical_backup(body, db)
     try:
         path = backup_service.resolve_backup(settings.database_url, name)
     except ValueError as error:
@@ -1658,10 +1703,14 @@ def export_everything(db: DB):
     settings = get_settings()
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        # Database copy
+        # Database copy: the file when there is one, otherwise a fresh logical dump.
         try:
-            db_path = backup_service.database_path(settings.database_url)
-            zf.write(db_path, arcname="acquisitions.db")
+            if settings.is_postgres:
+                dump = backup_service.create_backup(settings.database_url, reason="manual")
+                zf.write(dump, arcname=dump.name)
+            else:
+                db_path = backup_service.database_path(settings.database_url)
+                zf.write(db_path, arcname="acquisitions.db")
         except Exception:
             pass
         # CSV export of leads (inline, no dependency on a helper that may not exist)

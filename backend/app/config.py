@@ -91,6 +91,9 @@ class Settings(BaseSettings):
     max_upload_mb: int = 25
     max_import_rows: int = 50000
     backup_enabled: bool = True
+    # Where backups go when the database is not a file (PostgreSQL). Empty means the
+    # data folder; on a host that wipes its filesystem, point this at a mounted volume.
+    backup_dir: str = ""
     backup_keep: int = Field(default=7, ge=1, le=90)
     backup_hour_utc: int = Field(default=2, ge=0, le=23)
     # Daily cadence runner: prepares the follow-up drafts that are due today.
