@@ -237,3 +237,13 @@ def copy_to_second_folder(url: str, created: Path, second: str | None) -> dict:
             "detail": str(error),
             "copied_at": datetime.now(timezone.utc).isoformat(),
         }
+
+
+def verify_backup(path: Path) -> None:
+    """Raise ValueError unless this file is a readable, self-consistent SQLite database."""
+    try:
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("Backup failed integrity check")
+    except sqlite3.DatabaseError as error:
+        raise ValueError(f"Backup is not a usable SQLite database: {error}") from None

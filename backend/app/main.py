@@ -1238,34 +1238,36 @@ def settings_update(body: SettingsIn, db: DB):
 
 
 def backup_view(item: dict) -> dict:
-    return {**item, "created_at": item["created_at"].isoformat()}
+    view = {**item, "created_at": item["created_at"].isoformat()}
+    view.pop("second_folder", None)
+    if "second_folder" in item:
+        view["second_folder"] = item["second_folder"]
+    return view
 
 
-def backup_overview():
+def backup_overview(db):
     settings = get_settings()
     source = backup_service.database_path(settings.database_url)
-    row = None
-    try:
-        from .db import SessionLocal
-
-        with SessionLocal() as db:
-            row = db.get(AppSetting, "backup_second_folder")
-    except Exception:
-        pass
-    second = row.value.get("path") if row and isinstance(row.value, dict) else None
+    row = db.get(AppSetting, "backup_second_folder")
+    value = row.value if row and isinstance(row.value, dict) else {}
+    second = value.get("path")
     return {
         "enabled": settings.backup_enabled,
         "keep": settings.backup_keep,
         "hour_utc": settings.backup_hour_utc,
         "folder": str(backup_service.backup_directory(source)),
         "second_folder": second,
+        "status": value.get("status") or {},
     }
 
 
 @app.get("/api/backups")
-def list_backups():
+def list_backups(db: DB):
     settings = get_settings()
-    return {**backup_overview(), "backups": [backup_view(b) for b in backup_service.list_backups(settings.database_url)]}
+    return {
+        **backup_overview(db),
+        "backups": [backup_view(b) for b in backup_service.list_backups(settings.database_url)],
+    }
 
 
 @app.post("/api/backups")
@@ -1275,18 +1277,13 @@ def create_backup_now(db: DB):
         created = backup_service.create_backup(settings.database_url, reason="manual")
     except ValueError as error:
         raise HTTPException(409, str(error)) from error
-    # Optional second backup folder (e.g. Google Drive sync folder).
-    try:
-        row = db.get(AppSetting, "backup_second_folder")
-        second = row.value.get("path") if row and isinstance(row.value, dict) else None
-        if second:
-            import shutil as _sh
-
-            dest = Path(second) / created.name
-            Path(second).mkdir(parents=True, exist_ok=True)
-            _sh.copy2(created, dest)
-    except Exception:
-        pass
+    # Optional second backup folder (e.g. a Google Drive sync folder). A failure is
+    # reported in the Backups panel and the briefing instead of being swallowed.
+    row = db.get(AppSetting, "backup_second_folder")
+    second = row.value.get("path") if row and isinstance(row.value, dict) else None
+    mirror = backup_service.copy_to_second_folder(settings.database_url, created, second)
+    if row is not None and mirror.get("configured"):
+        row.value = {"path": second, "status": mirror}
     backup_service.prune(settings.database_url, settings.backup_keep)
     try:
         backup_service.prune_policy(settings.database_url)
@@ -1295,7 +1292,12 @@ def create_backup_now(db: DB):
     db.add(
         AuditLog(
             action="backup_created",
-            details={"file": created.name, "reason": "manual", "bytes": created.stat().st_size},
+            details={
+                "file": created.name,
+                "reason": "manual",
+                "bytes": created.stat().st_size,
+                "second_folder": mirror,
+            },
         )
     )
     db.commit()
@@ -1307,6 +1309,7 @@ def create_backup_now(db: DB):
             "size_bytes": created.stat().st_size,
             "created_at": datetime.fromtimestamp(created.stat().st_mtime, timezone.utc),
             "reason": "manual",
+            "second_folder": mirror,
         }
     )
 
@@ -1377,10 +1380,8 @@ def restore_backup(body: dict, db: DB):
         raise HTTPException(404, str(error)) from error
     # Validate the chosen backup before touching the live database.
     try:
-        with sqlite3.connect(path) as conn:
-            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                raise ValueError("Backup failed integrity check")
-    except Exception as error:
+        backup_service.verify_backup(path)
+    except ValueError as error:
         raise HTTPException(400, f"Backup is not usable: {error}") from error
     source = backup_service.database_path(settings.database_url)
     # Safety copy of the current database first.
@@ -1388,13 +1389,23 @@ def restore_backup(body: dict, db: DB):
         safety = backup_service.create_backup(settings.database_url, reason="manual")
     except Exception as error:
         raise HTTPException(500, f"Could not create safety copy: {error}") from error
-    # Replace the live file. The app should be restarted afterwards.
+    # Replace the live file, then verify the restored copy. If the restored database
+    # fails its own integrity check, the safety copy is put straight back.
     try:
         for suffix in ("", "-wal", "-shm", "-journal"):
             Path(str(source) + suffix).unlink(missing_ok=True)
         shutil.copy2(path, source)
+        with sqlite3.connect(source) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("The restored database failed its integrity check")
     except Exception as error:
-        raise HTTPException(500, f"Restore failed: {error}") from error
+        try:
+            for suffix in ("", "-wal", "-shm", "-journal"):
+                Path(str(source) + suffix).unlink(missing_ok=True)
+            shutil.copy2(safety, source)
+        except Exception:
+            pass
+        raise HTTPException(500, f"Restore failed and the safety copy was restored: {error}") from error
     db.add(AuditLog(action="backup_restored", details={"from": name, "safety_copy": safety.name}))
     db.commit()
     return {"restored_from": name, "safety_copy": safety.name, "restart_required": True}
