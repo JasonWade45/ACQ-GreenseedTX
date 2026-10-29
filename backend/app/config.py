@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     sync_enabled: bool = False
     sync_interval_minutes: int = 30
     sync_requests_per_minute: int = 90
+    # A second, explicit switch for pushing leads. Sync can be live while writes stay
+    # off; turning this on is the only way a create request can leave the machine.
+    crm_writes_enabled: bool = False
     sync_max_pages: int = 1000
     sync_deep_refresh_hours: int = 24
     ollama_enabled: bool = False
