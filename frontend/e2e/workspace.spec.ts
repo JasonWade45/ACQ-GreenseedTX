@@ -764,7 +764,13 @@ test("bulk restriction review unlocks a tier of drafts without sending anything"
     .getByRole("textbox", { name: "Type IMPORT LOCAL to confirm" })
     .fill("IMPORT LOCAL");
   await page.getByRole("button", { name: "Approve local writes" }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  // A dialog left open means the import was refused; say why instead of timing out.
+  const stuck = page.getByRole("dialog");
+  if (await stuck.count()) {
+    throw new Error(
+      `Import dialog still open: ${(await stuck.first().innerText()).slice(0, 500)}`,
+    );
+  }
 
   // A brand-new lead cannot be drafted until a person records a contact review.
   await page.goto("/drafts");
