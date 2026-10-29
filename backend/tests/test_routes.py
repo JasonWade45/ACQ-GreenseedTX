@@ -1,10 +1,12 @@
 """Route-table guarantees: no duplicate registrations, no shadowed static paths."""
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 
+from app import route_allowlist
 from app.main import app
-from app.route_audit import duplicate_routes, route_problems, shadowed_routes
+from app.route_audit import all_routes, duplicate_routes, route_problems, shadowed_routes
 from app.services.resimpli import READ_PATHS
+from app.services.resimpli_write import WRITE_PATHS
 
 
 def test_the_real_route_table_has_no_duplicates_or_shadowed_paths():
@@ -68,13 +70,15 @@ def test_backups_config_rejects_a_missing_folder(client, tmp_path):
 def test_no_route_can_send_a_message_or_write_to_the_crm():
     """The draft-only boundary is asserted on the route table, not just on prose."""
     forbidden = {"send", "sms", "email", "call", "sms/send", "email/send", "messages/send", "calls"}
-    for route in app.routes:
+    rows = all_routes(app)
+    assert len(rows) > 100, "included routers must be walked, not skipped"
+    for route in rows:
         path = (getattr(route, "path", "") or "").lower()
         for word in forbidden:
             assert f"/{word}" not in path or word == "call" and "call-plan" in path, path
         if path.startswith("/api/"):
             assert "resimpli" not in path or "integrations" in path or "sync" in path, path
-    # REsimpli stays an explicit read allow-list.
+    # REsimpli stays an explicit read allow-list, plus exactly one write.
     assert READ_PATHS == frozenset(
         {
             "/lead/list",
@@ -86,3 +90,48 @@ def test_no_route_can_send_a_message_or_write_to_the_crm():
             "/getUserInfo",
         }
     )
+    assert WRITE_PATHS == frozenset({"/lead/add"})
+
+
+def test_every_new_external_route_is_declared_on_the_allowlist():
+    assert route_allowlist.undeclared(app) == [], "a route under these prefixes must be declared"
+    assert route_allowlist.missing(app) == [], "a declared route that no longer exists is a stale promise"
+    assert route_allowlist.OUTBOUND <= route_allowlist.DECLARED
+    assert set(route_allowlist.SCOPE) == set(route_allowlist.OUTBOUND)
+
+
+def test_the_allowlist_would_catch_an_undeclared_route():
+    sneaky = FastAPI()
+
+    @sneaky.post("/api/leads/{lead_id}/crm/delete")
+    def delete(lead_id: int):
+        return {}
+
+    assert ("POST", "/api/leads/{lead_id}/crm/delete") in route_allowlist.undeclared(sneaky)
+
+
+def test_an_included_router_is_walked_by_the_audit():
+    """A send-shaped route inside a router must fail the boundary test, not hide in it."""
+    hidden = FastAPI()
+    router = APIRouter()
+
+    @router.post("/api/sms/send")
+    def send():
+        return {}
+
+    hidden.include_router(router)
+    paths = [getattr(route, "path", "") for route in all_routes(hidden)]
+    assert "/api/sms/send" in paths
+
+
+def test_a_forbidden_word_is_still_a_failure():
+    """The checker itself is checked: a route the boundary forbids is detectable."""
+    broken = FastAPI()
+
+    @broken.post("/api/email/send")
+    def email_send():
+        return {}
+
+    forbidden = {"send", "sms", "email", "call"}
+    paths = [getattr(route, "path", "").lower() for route in all_routes(broken)]
+    assert any(any(f"/{word}" in path for word in forbidden) for path in paths)

@@ -165,6 +165,52 @@ def _facts_prompt(facts: dict) -> str:
     return "\n".join(f"{key}: {json.dumps(value, ensure_ascii=False, default=str)}" for key, value in facts.items())
 
 
+def prompt_for(purpose, facts) -> str:
+    """The instruction block for a purpose. Shared by the call and by the preview."""
+    if purpose == "followup_draft":
+        return (
+            "Write one short follow-up message for a property seller you have already spoken with.\n"
+            "Rules: plain text only; no links; no emoji; no dollar amounts; no invented facts; do not promise a "
+            "price; one clear question; at most 700 characters. End with the opt-out sentence below and sign "
+            "as the sender name with the company name shown in your instructions.\n"
+            f"Opt-out sentence to include verbatim: {OPT_OUT_LINE}\n"
+            "Return JSON with keys body, reasoning, used. 'used' lists which facts you relied on.\n"
+            f"Facts:\n{_facts_prompt(facts)}"
+        )
+    if purpose == "checklist_suggest":
+        return (
+            "Propose between 3 and 8 concrete, short checklist items for an acquisitions team working this lead.\n"
+            "Rules: each item is an action a person can do this week; no legal, tax or investment advice; no prices; "
+            "no invented facts. Return JSON with key items, each having title (max 120 characters) and detail.\n"
+            f"Facts:\n{_facts_prompt(facts)}"
+        )
+    return (
+        "You advise an acquisitions manager at a Texas real-estate investment company. Assess this lead.\n"
+        "Rules: no legal, tax, financial or investment advice; no invented facts; no prices you were not given; "
+        "name the exit strategies you considered only inside the single best one you return; state clearly what "
+        "information is missing. Return JSON with keys: situation_summary (string), next_steps (3-7 short "
+        "strings), do_not (2-5 short strings), risks (2-5 short strings), exit_strategy {name, reasoning, "
+        "missing_information}, confidence (low|medium|high).\n"
+        f"Facts:\n{_facts_prompt(facts)}"
+    )
+
+
+def preview_for(db: Session, settings, lead, purpose="advisor") -> dict:
+    """What would be sent for this lead and purpose, with PII already stripped."""
+    facts = lead_facts(db, lead, settings)
+    prompt = prompt_for(purpose, facts)
+    return {
+        "purpose": purpose,
+        "model": model_for(purpose, settings),
+        "api": settings.grok_api,
+        "fields": sorted(facts),
+        "prompt": strip_pii(prompt),
+        "prompt_chars": len(prompt),
+        "pii_stripped": True,
+        "note": "Phones, emails and key-shaped strings are replaced before the request leaves this machine.",
+    }
+
+
 def input_hash(*, purpose, model, prompt):
     payload = json.dumps({"purpose": purpose, "model": model, "prompt": strip_pii(prompt)}, sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()
@@ -260,13 +306,7 @@ def draft_followup(db: Session, settings, lead, *, client=None):
     if not facts:
         raise ValueError("No reviewed facts are available for this lead; nothing was sent to the AI")
     prompt = (
-        "Write one short follow-up message for a property seller you have already spoken with.\n"
-        "Rules: plain text only; no links; no emoji; no dollar amounts; no invented facts; do not promise a "
-        "price; one clear question; at most 700 characters. End with the opt-out sentence below and sign "
-        f"as '{sender_name} with {company}'.\n"
-        f"Opt-out sentence to include verbatim: {OPT_OUT_LINE}\n"
-        "Return JSON with keys body, reasoning, used. 'used' lists which facts you relied on.\n"
-        f"Facts:\n{_facts_prompt(facts)}"
+        f"You are writing for {sender_name} with {company}.\n" + prompt_for("followup_draft", facts)
     )
     run_id, digest, parsed, result = _call(
         db,
@@ -330,12 +370,7 @@ def draft_followup(db: Session, settings, lead, *, client=None):
 def suggest_checklist(db: Session, settings, lead, *, client=None):
     """Propose up to eight checklist lines; none of them touches the lead until accepted."""
     facts = lead_facts(db, lead, settings)
-    prompt = (
-        "Propose between 3 and 8 concrete, short checklist items for an acquisitions team working this lead.\n"
-        "Rules: each item is an action a person can do this week; no legal, tax or investment advice; no prices; "
-        "no invented facts. Return JSON with key items, each having title (max 120 characters) and detail.\n"
-        f"Facts:\n{_facts_prompt(facts)}"
-    )
+    prompt = prompt_for("checklist_suggest", facts)
     run_id, digest, parsed, result = _call(
         db,
         settings,
@@ -426,15 +461,7 @@ def suggestions_for(db: Session, lead_id):
 def advise(db: Session, settings, lead, *, client=None):
     """Return strict, schema-validated decision support, labelled as such and stored."""
     facts = lead_facts(db, lead, settings)
-    prompt = (
-        "You advise an acquisitions manager at a Texas real-estate investment company. Assess this lead.\n"
-        "Rules: no legal, tax, financial or investment advice; no invented facts; no prices you were not given; "
-        "name the exit strategies you considered only inside the single best one you return; state clearly what "
-        "information is missing. Return JSON with keys: situation_summary (string), next_steps (3-7 short "
-        "strings), do_not (2-5 short strings), risks (2-5 short strings), exit_strategy {name, reasoning, "
-        "missing_information}, confidence (low|medium|high).\n"
-        f"Facts:\n{_facts_prompt(facts)}"
-    )
+    prompt = prompt_for("advisor", facts)
     run_id, digest, parsed, result = _call(
         db,
         settings,

@@ -94,6 +94,7 @@ from .services.reporting import dashboard, reports, count_query
 from .services.normalization import FIELDS, csv_bytes
 from .services.imports import upload_batch, preview_batch, approve_batch
 from .services.sync import begin_sync, sync_run
+from .routes_crm import router as crm_router
 from .routes_intelligence import router as intelligence_router
 from .routes_unified import router as unified_router
 from .services.cloud_ai import cloud_status
@@ -2406,6 +2407,7 @@ def example_file(filename: str):
 
 app.include_router(intelligence_router)
 app.include_router(unified_router)
+app.include_router(crm_router)
 
 # Frontend is bundled once and served by the same local process. No CDN or cloud dependency.
 frontend = ROOT / "frontend" / "dist"

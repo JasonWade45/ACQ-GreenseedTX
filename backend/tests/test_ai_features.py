@@ -196,7 +196,8 @@ def test_suggestions_are_pending_until_a_person_decides(db, make_lead):
     result = suggest_checklist(db, ai_settings(), lead, client=Stub(checklist_body(3)))
     assert len(result["suggestions"]) == 3
     assert result["accept_each"] is True
-    assert db.scalars(select(LeadChecklistItem)).all() == [], "a suggestion is not a task until accepted"
+    ai_items = [row for row in db.scalars(select(LeadChecklistItem)).all() if row.source == "ai"]
+    assert ai_items == [], "a suggestion is not a task until accepted"
     assert {row.status for row in db.scalars(select(AiChecklistSuggestion)).all()} == {"pending"}
     assert [item["status"] for item in suggestions_for(db, lead.id)] == ["pending", "pending", "pending"]
 
@@ -209,8 +210,8 @@ def test_each_suggestion_can_be_accepted_or_rejected_on_its_own(db, make_lead):
     rejected = decide_suggestion(db, second["id"], False)
     assert accepted["status"] == "accepted" and accepted["checklist_item_id"]
     assert rejected["status"] == "rejected" and rejected["checklist_item_id"] is None
-    items = db.scalars(select(LeadChecklistItem)).all()
-    assert len(items) == 1 and items[0].source == "ai"
+    items = [row for row in db.scalars(select(LeadChecklistItem)).all() if row.source == "ai"]
+    assert len(items) == 1 and items[0].title == "Check item 0"
     with pytest.raises(ValueError, match="already"):
         decide_suggestion(db, first["id"], True)
 

@@ -21,6 +21,25 @@ from typing import Iterable
 PARAM = re.compile(r"\{([^{}]+)\}")
 
 
+def iter_routes(routes: Iterable):
+    """Every real route, including the ones inside an included router.
+
+    Newer FastAPI wraps ``include_router`` in an ``_IncludedRouter`` that has no ``path`` of
+    its own, so walking ``app.routes`` alone would silently skip whole modules -- which is
+    exactly where a new send-shaped route would be added.
+    """
+    for route in routes:
+        children = getattr(route, "original_router", None)
+        if children is not None:
+            yield from iter_routes(children.routes)
+        elif getattr(route, "path", None):
+            yield route
+
+
+def all_routes(app) -> list:
+    return list(iter_routes(app.routes))
+
+
 def _method_set(route) -> set[str]:
     methods = getattr(route, "methods", None) or set()
     return {m.upper() for m in methods if m.upper() not in {"HEAD", "OPTIONS"}}
@@ -45,7 +64,7 @@ def _is_static(path: str) -> bool:
 def duplicate_routes(routes: Iterable) -> list[tuple[str, str]]:
     """Return every (path, method) registered more than once."""
     counter = Counter()
-    for route in routes:
+    for route in iter_routes(routes):
         path = getattr(route, "path", None)
         if not path:
             continue
@@ -56,7 +75,7 @@ def duplicate_routes(routes: Iterable) -> list[tuple[str, str]]:
 
 def shadowed_routes(routes: Iterable) -> list[dict]:
     """Return static paths that an *earlier* parameter route already matches."""
-    ordered = [r for r in routes if getattr(r, "path", None)]
+    ordered = list(iter_routes(routes))
     problems = []
     for index, route in enumerate(ordered):
         path = route.path
@@ -84,7 +103,7 @@ def shadowed_routes(routes: Iterable) -> list[dict]:
 
 def route_problems(app) -> dict:
     """Summarise both problems for the given FastAPI/Starlette app."""
-    routes = list(app.routes)
+    routes = all_routes(app)
     info = defaultdict(list)
     for route in routes:
         for method in _method_set(route):
