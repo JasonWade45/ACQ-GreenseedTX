@@ -158,6 +158,28 @@ jobs:
       # database and a random password, and tears it down afterwards.
       - name: Run the browser suite
         run: python scripts/test_browser.py
+      # The console log is not always reachable from a phone, so the failing test name
+      # and message are also raised as annotations on the run.
+      - name: Name the browser test that failed
+        if: always()
+        run: |
+          python - <<'PY'
+          import pathlib, xml.etree.ElementTree as ET
+
+          path = pathlib.Path("docs/browser-test-results.xml")
+          if not path.exists():
+              print("::error title=Browser results::No XML report was written")
+              raise SystemExit(0)
+          failed = 0
+          for case in ET.parse(path).getroot().iter("testcase"):
+              for failure in case.findall("failure"):
+                  failed += 1
+                  name = f"{case.get('classname', '')} :: {case.get('name', '')}".strip()
+                  text = " ".join((failure.text or failure.get("message") or "").split())
+                  print(f"::error title=Browser test failed::{name} - {text[:900]}")
+          print(f"{failed} browser test(s) failed" if failed else "every browser test passed")
+          PY
+
       - name: Keep the results when something fails
         if: always()
         uses: actions/upload-artifact@v4
