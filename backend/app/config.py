@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 from functools import lru_cache
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 from pydantic import field_validator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,10 +14,58 @@ ROOT = resource_root()
 DATA_ROOT = data_root()
 
 
+PSQL_INSECURE_MODES = {"disable", "allow", "prefer"}
+PSQL_SECURE_MODES = {"require", "verify-ca", "verify-full"}
+LOCAL_DB_HOSTS = {"", "localhost", "127.0.0.1", "::1"}
+
+
+def normalise_database_url(value: str) -> str:
+    """Return a SQLAlchemy URL, accepting the plain URLs hosted providers hand out.
+
+    A hosted PostgreSQL database is never reached without TLS: an explicit
+    ``sslmode`` of require/verify-ca/verify-full is mandatory unless the server is on
+    this machine (a unix socket or loopback), where there is nothing to intercept.
+    """
+    url = (value or "").strip()
+    if not url:
+        return ""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            url = "postgresql+psycopg://" + url[len(prefix) :]
+            break
+    if not url.startswith("postgresql"):
+        return url
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    query = parse_qs(parsed.query)
+    mode = (query.get("sslmode") or [""])[0].lower()
+    if host in LOCAL_DB_HOSTS:
+        return url
+    if mode not in PSQL_SECURE_MODES:
+        raise ValueError(
+            "A hosted PostgreSQL database requires sslmode=require (or verify-ca/verify-full) "
+            f"in DATABASE_URL; got sslmode={mode or 'missing'!r} for host {host!r}"
+        )
+    return url
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=DATA_ROOT / ".env", extra="ignore")
     # Filled in below so a moved data folder is honoured without re-importing.
     database_url: str = ""
+    # Hosted PostgreSQL only: the exact browser origin of a separately deployed
+    # interface. Never "*": a wildcard would let any page on the internet drive an
+    # authenticated session. Comma-separated when more than one origin is needed.
+    cors_origins: str = ""
+    # Shared secret for the external cron trigger of the daily cadence runner.
+    cron_secret: str = ""
+    # Long-lived in-process scheduler for sync/backup/cadence. On a host whose
+    # process is suspended (serverless, free tiers) turn this off and use the cron
+    # endpoint instead.
+    scheduler_enabled: bool = True
+    # Hosted filesystems are ephemeral. When set, backups are still written but are
+    # reported as non-durable so the interface asks for a download instead.
+    ephemeral_filesystem: bool = False
     app_timezone: str = "America/New_York"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
@@ -67,7 +116,15 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def default_database(cls, value):
-        return value or f"sqlite:///{DATA_ROOT / 'data/acquisitions.db'}"
+        return normalise_database_url(value) or f"sqlite:///{DATA_ROOT / 'data/acquisitions.db'}"
+
+    @property
+    def is_postgres(self) -> bool:
+        return self.database_url.startswith("postgresql")
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        return [item.strip().rstrip("/") for item in self.cors_origins.split(",") if item.strip()]
 
     @field_validator("app_timezone")
     @classmethod
