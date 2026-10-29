@@ -112,6 +112,39 @@ jobs:
       - name: Tests
         run: python -m pytest -q
 
+  postgres:
+    name: PostgreSQL migrations, backups and a copied workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # A disposable PostgreSQL, because these tests drop and recreate the public schema.
+    # The SQLite tests keep running in the backend job; nothing here replaces them.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: acq_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/acq_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-lock.txt
+      - name: Install locked dependencies
+        run: python -m pip install --disable-pip-version-check -r backend/requirements-lock.txt
+      - name: Migrations, logical backups and the SQLite migration script
+        run: python -m pytest backend/tests/test_postgres.py -q
+
   interface:
     name: Interface build and unit tests
     runs-on: ubuntu-latest

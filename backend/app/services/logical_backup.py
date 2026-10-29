@@ -146,7 +146,8 @@ def read_manifest(path: Path) -> dict:
     try:
         with gzip.open(path, "rt", encoding="utf-8") as handle:
             first = handle.readline()
-    except OSError as error:
+    except (OSError, EOFError) as error:
+        # A truncated file raises EOFError from gzip; both mean "not usable as a backup".
         raise ValueError(f"Backup is not a readable gzip file: {error}") from None
     try:
         document = json.loads(first)

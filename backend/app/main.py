@@ -200,21 +200,28 @@ app = FastAPI(
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
 )
+def cors_options(settings) -> dict:
+    """The one place the browser-origin policy is defined.
+
+    Credentials stay off on purpose: the session travels in an Authorization header,
+    not a cookie, so no cookie is ever sent cross-site. An empty CORS_ORIGINS produces
+    an empty allowlist, never a wildcard.
+    """
+    return {
+        "allow_origins": settings.allowed_origins,
+        "allow_credentials": False,
+        "allow_methods": ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Authorization", "Content-Type", "X-Cron-Secret"],
+        "expose_headers": ["Content-Disposition"],
+        "max_age": 600,
+    }
+
+
 app.add_middleware(AccessMiddleware)
 # Registered after AccessMiddleware so it runs first: the browser must be able to see
-# the CORS headers on the 401 that the access middleware produces, and its preflight
-# OPTIONS must be answered before the bearer-token check. Only explicit origins are
-# ever echoed back; "" (the default) means the interface is served from this app.
-if get_settings().allowed_origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=get_settings().allowed_origins,
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Cron-Secret"],
-        expose_headers=["Content-Disposition"],
-        max_age=600,
-    )
+# the CORS headers on the 401 the access middleware produces, and its preflight OPTIONS
+# must be answered before the bearer-token check.
+app.add_middleware(CORSMiddleware, **cors_options(get_settings()))
 DB = Annotated[Session, Depends(get_db)]
 
 
