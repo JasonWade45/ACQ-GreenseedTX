@@ -72,6 +72,17 @@ class RestrictionIn(StrictModel):
     confirm: bool
 
 
+class BulkRestrictionIn(StrictModel):
+    """A batch review is still a review: one evidence sentence, one confirmation,
+    and one audit row per lead."""
+
+    lead_ids: list[int] = Field(min_length=1, max_length=500)
+    restricted: bool = False
+    evidence: str = Field(min_length=10, max_length=3000)
+    confirm: bool
+    confirmation: str = Field(default="", max_length=60)
+
+
 class AppointmentIn(StrictModel):
     lead_id: int
     starts_at: datetime

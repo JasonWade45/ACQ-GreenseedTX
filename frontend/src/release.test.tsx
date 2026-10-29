@@ -131,6 +131,7 @@ beforeEach(() => {
       scheduler: { enabled: false, interval_minutes: 30 },
       conflicts: { open: 0, resolved: 0 },
     },
+    "/leads/restrictions/pending": { total: 53, items: [] },
     "/sequences/summary": {
       active: 3,
       due_today: 2,
@@ -172,6 +173,15 @@ it("blocks approval of a draft that failed the validator", async () => {
   expect(screen.getByText(/Why this template: senior owner/)).toBeInTheDocument();
   // There is no bulk copy or send control anywhere on the queue.
   expect(screen.queryByRole("button", { name: /copy all|send/i })).toBeNull();
+});
+
+it("shows the unreviewed-restriction backlog next to the drafts it blocks", async () => {
+  mount(<DraftsPage />);
+  await screen.findByText("53");
+  expect(
+    screen.getByText(/Blocked by an unreviewed contact restriction/),
+  ).toBeInTheDocument();
+  expect(screen.getByText(/Review contact restrictions/)).toBeInTheDocument();
 });
 
 it("shows the cadence work waiting and never offers a send", async () => {

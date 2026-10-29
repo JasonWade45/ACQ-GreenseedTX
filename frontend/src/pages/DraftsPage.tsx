@@ -35,6 +35,13 @@ export default function DraftsPage() {
     results: { lead_id: number; ok: boolean; reason?: string }[];
   } | null>(null);
   const [editing, setEditing] = useState<Record<number, string>>({});
+  const pending = useQuery({
+    queryKey: ["restriction-pending"],
+    queryFn: () =>
+      api<{ total: number; items: { id: number; full_name: string | null }[] }>(
+        "/leads/restrictions/pending?limit=5",
+      ),
+  });
   const cadence = useQuery({
     queryKey: ["sequences"],
     queryFn: () => api<SequenceSummary>("/sequences/summary"),
@@ -203,6 +210,34 @@ export default function DraftsPage() {
         </Button>
         {!cadence.data?.due_today && (
           <p className="muted">Nothing is due right now.</p>
+        )}
+      </Panel>
+
+      <Panel
+        title="Blocked by an unreviewed contact restriction"
+        subtitle="A draft cannot exist for a lead whose contact permission nobody has reviewed. Review them from the seller list, in batches."
+        action={
+          <Link className="text-link" to="/leads">
+            Open seller leads
+          </Link>
+        }
+      >
+        <div className="settings-facts">
+          <div>
+            <span>Waiting for a review</span>
+            <strong>{pending.data?.total ?? "—"}</strong>
+          </div>
+        </div>
+        {(pending.data?.total ?? 0) === 0 ? (
+          <p className="muted">
+            Every lead has a recorded contact-permission review.
+          </p>
+        ) : (
+          <p className="muted">
+            Select leads on the seller list and choose “Review contact restrictions”.
+            Each lead still keeps its own audit row and the skip-trace, suppression and
+            licence checks stay in force.
+          </p>
         )}
       </Panel>
 

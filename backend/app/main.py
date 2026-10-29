@@ -60,6 +60,7 @@ from .schemas import (
     LeadFieldEdit,
     MessageEdit,
     BulkDraftIn,
+    BulkRestrictionIn,
     TemplateIn,
     OUTCOMES,
     PipelineCreate,
@@ -611,6 +612,114 @@ def change_restriction(lead_id: int, body: RestrictionIn, db: DB):
     )
     db.commit()
     return lead_dict(lead_record)
+
+
+RESTRICTION_BATCH_PHRASE = "REVIEW RESTRICTIONS"
+
+
+def _restriction_candidate(lead) -> bool:
+    """A lead whose contact permission has never been reviewed by a person."""
+    return not lead.restriction_reviewed
+
+
+@app.get("/api/leads/restrictions/pending")
+def pending_restriction_reviews(db: DB, limit: int = 100):
+    """Leads that still block drafting because nobody has reviewed contact permission.
+
+    This is a read-only list: it explains the queue behind the draft blockers instead
+    of leaving Jason to open 50 profiles one by one.
+    """
+    query = (
+        select(Lead)
+        .where(Lead.restriction_reviewed.is_(False), Lead.source_do_not_contact.isnot(True))
+        .order_by(Lead.priority_rank.desc().nullslast(), Lead.id)
+    )
+    total = count_query(db, query)
+    rows = db.scalars(query.limit(min(limit, 500))).all()
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": lead.id,
+                "full_name": lead.full_name,
+                "address": lead.properties[0].street_address if lead.properties else None,
+                "county": lead.county,
+                "heat": lead.heat,
+                "score": lead.score,
+                "needs_skip_trace": lead.needs_skip_trace,
+                "restriction_status": lead.restriction_status,
+            }
+            for lead in rows
+        ],
+        "confirmation_phrase": RESTRICTION_BATCH_PHRASE,
+        "never_sent": True,
+    }
+
+
+@app.post("/api/leads/restrictions/bulk")
+def bulk_review_restrictions(body: BulkRestrictionIn, db: DB):
+    """Record the same evidence-based review on a reviewed set of leads.
+
+    Guard rails, because this is the one bulk action that can open outreach:
+
+    * the caller must type RESTRICTION_BATCH_PHRASE, not just tick a box;
+    * a lead whose source says Do Not Contact can never be cleared here;
+    * every lead gets its own audit row carrying the shared evidence;
+    * leads that were already reviewed are reported, not silently rewritten.
+    """
+    if not body.confirm or body.confirmation.strip().upper() != RESTRICTION_BATCH_PHRASE:
+        raise ValueError(f"Type {RESTRICTION_BATCH_PHRASE} to confirm a batch review")
+    leads = db.scalars(select(Lead).where(Lead.id.in_(body.lead_ids))).all()
+    found_ids = {lead.id for lead in leads}
+    missing = sorted(set(body.lead_ids) - found_ids)
+    reviewed, already, blocked = 0, 0, []
+    for lead in leads:
+        if lead.source_do_not_contact is True and not body.restricted:
+            # A verified source restriction is evidence, not a checkbox to overwrite.
+            blocked.append({"id": lead.id, "reason": "source_do_not_contact"})
+            continue
+        if lead.restriction_reviewed and lead.local_do_not_contact == body.restricted:
+            already += 1
+            continue
+        lead.local_do_not_contact = body.restricted
+        lead.restriction_reviewed = True
+        lead.restriction_evidence = body.evidence
+        db.add(
+            AuditLog(
+                lead_id=lead.id,
+                action="restriction_reviewed",
+                details={
+                    "restricted": body.restricted,
+                    "evidence": body.evidence,
+                    "batch": True,
+                    "batch_size": len(body.lead_ids),
+                },
+            )
+        )
+        reviewed += 1
+    db.add(
+        AuditLog(
+            action="restriction_batch_reviewed",
+            details={
+                "requested": len(body.lead_ids),
+                "reviewed": reviewed,
+                "already_reviewed": already,
+                "blocked": len(blocked),
+                "restricted": body.restricted,
+                "evidence": body.evidence,
+            },
+        )
+    )
+    db.commit()
+    return {
+        "reviewed": reviewed,
+        "already_reviewed": already,
+        "blocked": blocked,
+        "missing": missing,
+        "restricted": body.restricted,
+        "evidence": body.evidence,
+        "never_sent": True,
+    }
 
 
 @app.post("/api/leads/{lead_id}/activities")
