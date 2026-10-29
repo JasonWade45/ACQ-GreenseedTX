@@ -742,7 +742,7 @@ test("bulk restriction review unlocks a tier of drafts without sending anything"
   // that this scenario is not about. Without a score the lead lands in tier P3.
   const csv =
     "Full Name,Phone,Property Address,City,State,ZIP,County,DNC\n" +
-    "Nadia Tier,2025550188,4200 Tier Two Lane,Arlington,TX,76015,Tarrant,no\n";
+    "Nadia Tier,2025550742,4200 Tier Two Lane,Arlington,TX,76015,Tarrant,no\n";
   await page.getByLabel("Upload lead file").setInputFiles({
     name: "e2e-tier-p1.csv",
     mimeType: "text/csv",
