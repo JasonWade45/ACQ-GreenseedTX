@@ -24,7 +24,7 @@ def upgrade():
         sa.Column("priority_tier", sa.String(4), nullable=True),
         sa.Column("priority_rank", sa.Integer(), nullable=True),
         sa.Column("dedupe_key", sa.String(700), nullable=True),
-        sa.Column("needs_skip_trace", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("needs_skip_trace", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("user_edited_fields", sa.JSON(), nullable=True),
         sa.Column("import_batch_id", sa.String(64), nullable=True),
     ]:

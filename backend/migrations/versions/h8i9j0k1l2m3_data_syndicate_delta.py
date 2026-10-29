@@ -42,7 +42,7 @@ def upgrade():
         sa.Column("evidence", sa.Text(), nullable=True),
         sa.Column("payload", sa.JSON(), nullable=True),
         sa.Column("status", sa.String(20), nullable=False, server_default=sa.text("'pending'"), index=True),
-        sa.Column("requires_confirmation", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("requires_confirmation", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("resolved_at", sa.DateTime(), nullable=True),
         sa.CheckConstraint("status IN ('pending','confirmed','dismissed')"),
