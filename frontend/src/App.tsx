@@ -6,6 +6,7 @@ import {
   Activity,
   ArrowUpRight,
   CalendarDays,
+  Bot,
   ChartNoAxesCombined,
   CheckCheck,
   ChevronsUpDown,
@@ -32,6 +33,7 @@ import { Button, ErrorState, Loading, WorkspaceContext } from "./components";
 import type { Meta, SyncState } from "./types";
 import SearchPalette from "./SearchPalette";
 import Dashboard from "./pages/Dashboard";
+import { CrmQueuePage } from "./crm";
 import Leads from "./pages/Leads";
 import LeadDetail from "./pages/LeadDetail";
 import QueuePage from "./pages/QueuePage";
@@ -61,6 +63,7 @@ const navigation = [
   { label: "Reports", path: "/reports", icon: ChartNoAxesCombined },
   { label: "AI Insights", path: "/insights", icon: Sparkles },
   { label: "Sync Status", path: "/sync", icon: CloudDownload },
+  { label: "CRM & AI", path: "/crm", icon: Bot },
   { label: "Settings", path: "/settings", icon: Settings2 },
   { label: "Draft Queue", path: "/drafts", icon: MessageSquareText },
   { label: "Templates", path: "/templates", icon: FileText },
@@ -454,6 +457,7 @@ function Workspace({ onLogout }: { onLogout?: () => void }) {
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/insights" element={<InsightsPage />} />
               <Route path="/sync" element={<SyncPage />} />
+              <Route path="/crm" element={<CrmQueuePage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/drafts" element={<DraftsPage />} />
               <Route path="/templates" element={<TemplatesPage />} />

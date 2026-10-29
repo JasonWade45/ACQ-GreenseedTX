@@ -31,6 +31,7 @@ import {
   useWorkspace,
 } from "../components";
 import { dateTime, download, post } from "../api";
+import { IntegrationWidgets } from "../crm";
 import type {
   DashboardData,
   Queue,
@@ -479,6 +480,13 @@ export default function Dashboard() {
 
       <SectionLabel
         index="03"
+        title="CRM and AI"
+        hint="Push queue, failed syncs, checklists and advisor notes"
+      />
+      <IntegrationWidgets />
+
+      <SectionLabel
+        index="04"
         title="Pipeline"
         hint="Stage by stage, from new lead to closed deal"
       />
@@ -518,7 +526,7 @@ export default function Dashboard() {
       </Panel>
 
       <SectionLabel
-        index="04"
+        index="05"
         title="Insights"
         hint="Where leads come from and what’s happening"
       />

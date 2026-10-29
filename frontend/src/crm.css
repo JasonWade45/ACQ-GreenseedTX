@@ -1,0 +1,415 @@
+/* CRM, checklist and AI cards.
+ *
+ * Direction: logical properties only (inline-start/end, padding-inline, margin-inline).
+ * Nothing here is pinned to the left or the right, so the whole block mirrors when the
+ * document direction is rtl -- which is the one thing this application can honestly
+ * promise about Arabic today, since it has no translation layer.
+ *
+ * Contrast: every status colour is a dark ink on a pale tint, all at or above the 4.5:1
+ * needed for AA body text. The dot is decorative; the label always carries the meaning, so
+ * colour is never the only signal.
+ */
+
+:root {
+  --crm-ok-ink: #11633c;
+  --crm-ok-bg: #e7f6ee;
+  --crm-warn-ink: #7a4a05;
+  --crm-warn-bg: #fdf3e2;
+  --crm-danger-ink: #9b1c1c;
+  --crm-danger-bg: #fdeceb;
+  --crm-info-ink: #1c4e9c;
+  --crm-info-bg: #e9f0fb;
+  --crm-neutral-ink: #3f3f46;
+  --crm-neutral-bg: #f4f4f5;
+  --crm-ring-track: #e4e4e7;
+  --crm-ring-value: #1c4e9c;
+}
+
+.crm-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-block: 0.15rem;
+  padding-inline: 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.crm-status-dot {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.crm-status-ok {
+  color: var(--crm-ok-ink);
+  background: var(--crm-ok-bg);
+}
+
+.crm-status-warning {
+  color: var(--crm-warn-ink);
+  background: var(--crm-warn-bg);
+}
+
+.crm-status-danger {
+  color: var(--crm-danger-ink);
+  background: var(--crm-danger-bg);
+}
+
+.crm-status-info {
+  color: var(--crm-info-ink);
+  background: var(--crm-info-bg);
+}
+
+.crm-status-neutral {
+  color: var(--crm-neutral-ink);
+  background: var(--crm-neutral-bg);
+}
+
+.crm-cards {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+}
+
+.crm-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-block: 0.35rem;
+}
+
+.crm-card-body h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.crm-muted {
+  color: #52525b;
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+.crm-checklist-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding-block-end: 0.75rem;
+}
+
+.crm-ring {
+  position: relative;
+  inline-size: 72px;
+  block-size: 72px;
+  flex: 0 0 auto;
+}
+
+.crm-ring-track {
+  stroke: var(--crm-ring-track);
+}
+
+.crm-ring-value {
+  stroke: var(--crm-ring-value);
+  transition: stroke-dashoffset 240ms ease;
+}
+
+.crm-ring-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  color: #3f3f46;
+}
+
+.crm-ring-label strong {
+  font-size: 0.95rem;
+}
+
+.crm-checklist-group {
+  border-block-start: 1px solid #e4e4e7;
+  padding-block-start: 0.6rem;
+  margin-block-start: 0.6rem;
+}
+
+.crm-checklist-group header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.crm-checklist-group h3 {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.crm-checklist-group ul {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+}
+
+.crm-checklist-group li {
+  padding-block: 0.3rem;
+}
+
+.crm-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.crm-check input {
+  margin-block-start: 0.2rem;
+  inline-size: 1rem;
+  block-size: 1rem;
+}
+
+.crm-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.crm-notes header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.crm-note-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #fafafa;
+  border: 1px solid #e4e4e7;
+  border-radius: 0.5rem;
+  padding: 0.6rem;
+  font-family: inherit;
+  font-size: 0.82rem;
+  margin: 0.35rem 0;
+  color: #27272a;
+}
+
+.crm-json {
+  max-block-size: 16rem;
+  overflow: auto;
+  direction: ltr;
+  text-align: start;
+}
+
+.crm-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.crm-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.75rem;
+  padding-block: 0.5rem;
+}
+
+.crm-metrics div {
+  background: #fafafa;
+  border: 1px solid #e4e4e7;
+  border-radius: 0.6rem;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.crm-metrics strong {
+  font-size: 1.2rem;
+}
+
+.crm-metrics span {
+  color: #52525b;
+  font-size: 0.78rem;
+}
+
+.crm-table-wrap {
+  overflow-x: auto;
+}
+
+.crm-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.crm-table caption {
+  text-align: start;
+  padding-block-end: 0.5rem;
+}
+
+.crm-table th,
+.crm-table td {
+  text-align: start;
+  padding-block: 0.5rem;
+  padding-inline: 0.4rem;
+  border-block-end: 1px solid #e4e4e7;
+  vertical-align: top;
+}
+
+.crm-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border: 1px solid #d4d4d8;
+  border-radius: 0.6rem;
+  padding: 0.75rem;
+}
+
+.crm-confirm input {
+  font-family: monospace;
+  padding: 0.45rem;
+  border: 1px solid #a1a1aa;
+  border-radius: 0.4rem;
+  max-inline-size: 24rem;
+}
+
+.crm-form {
+  display: grid;
+  gap: 0.7rem;
+  max-inline-size: 40rem;
+}
+
+.crm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.crm-field span {
+  font-size: 0.8rem;
+  color: #3f3f46;
+}
+
+.crm-field input,
+.crm-field select {
+  padding: 0.45rem;
+  border: 1px solid #a1a1aa;
+  border-radius: 0.4rem;
+  font: inherit;
+}
+
+.crm-account {
+  margin-block-start: 0.8rem;
+}
+
+.crm-account details {
+  margin-block-start: 0.4rem;
+}
+
+.crm-account summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.crm-facts {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.crm-facts li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.crm-widgets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+}
+
+.crm-widget {
+  border: 1px solid #e4e4e7;
+  border-radius: 0.6rem;
+  padding: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  border-inline-start-width: 4px;
+  border-inline-start-style: solid;
+}
+
+.crm-widget-ok {
+  border-inline-start-color: var(--crm-ok-ink);
+}
+
+.crm-widget-warning {
+  border-inline-start-color: var(--crm-warn-ink);
+}
+
+.crm-widget-danger {
+  border-inline-start-color: var(--crm-danger-ink);
+}
+
+.crm-widget-info {
+  border-inline-start-color: var(--crm-info-ink);
+}
+
+.crm-widget-neutral {
+  border-inline-start-color: var(--crm-neutral-ink);
+}
+
+.crm-widget-label {
+  font-size: 0.78rem;
+  color: #3f3f46;
+  font-weight: 600;
+}
+
+.crm-widget strong {
+  font-size: 1.4rem;
+}
+
+.crm-widget-link {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.crm-page-head {
+  margin-block-end: 1rem;
+}
+
+.crm-page-head h1 {
+  margin: 0 0 0.25rem;
+}
+
+@media (max-width: 640px) {
+  .crm-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .crm-checklist-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crm-ring-value {
+    transition: none;
+  }
+}
