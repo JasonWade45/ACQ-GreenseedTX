@@ -327,3 +327,55 @@ def test_new_read_routes_are_behind_the_access_middleware(path, client, monkeypa
 
     middleware = [item.cls.__name__ for item in real_app.user_middleware]
     assert "AccessMiddleware" in middleware
+
+
+# --- the AI settings actually save --------------------------------------------------
+
+
+def test_the_ai_settings_save_the_field_list_the_cap_and_the_surface(client, db, monkeypatch):
+    """The per-field list, the daily cap and the API surface are real settings, not labels."""
+    from app.services import private_settings
+
+    captured = {}
+    monkeypatch.setattr(private_settings, "write_private", lambda values: captured.update(values))
+
+    response = client.patch(
+        "/api/integrations/grok/settings",
+        json={"fields": ["property_address", "priority"], "daily_limit": 5, "api": "chat_completions"},
+    )
+    assert response.status_code == 200, response.text
+    assert captured == {
+        "GROK_AI_FIELDS": "property_address,priority",
+        "GROK_DAILY_REQUEST_LIMIT": 5,
+        "GROK_API": "chat_completions",
+    }
+    body = response.json()
+    assert body["saved"] == ["GROK_AI_FIELDS", "GROK_API", "GROK_DAILY_REQUEST_LIMIT"]
+    assert body["enabled_fields"] == ["property_address", "priority"]
+    assert body["key_logged"] is False
+    assert "GROK_API_KEY" not in str(body)
+
+
+def test_the_ai_settings_refuse_an_unknown_field_and_an_empty_list(client, db, monkeypatch):
+    from app.services import private_settings
+
+    written = []
+    monkeypatch.setattr(private_settings, "write_private", lambda values: written.append(values))
+
+    unknown = client.patch("/api/integrations/grok/settings", json={"fields": ["phone_number"]})
+    assert unknown.status_code == 400
+    assert "phone_number" in unknown.json()["detail"]
+
+    empty = client.patch("/api/integrations/grok/settings", json={"fields": []})
+    assert empty.status_code == 400
+
+    nothing = client.patch("/api/integrations/grok/settings", json={})
+    assert nothing.status_code == 400
+    assert written == [], "a rejected change must not touch the private settings file"
+
+
+def test_the_field_list_can_be_saved_because_the_allow_list_permits_it():
+    """write_private refuses any key outside ALLOWED; GROK_AI_FIELDS used to be missing."""
+    from app.services import private_settings
+
+    assert "GROK_AI_FIELDS" in private_settings.ALLOWED

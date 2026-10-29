@@ -46,6 +46,7 @@ DECLARED = frozenset(
         ("POST", "/api/leads/{lead_id}/checklists/items"),
         # AI: status and preview are local; the three POST routes call xAI.
         ("GET", "/api/integrations/grok/status"),
+        ("PATCH", "/api/integrations/grok/settings"),
         ("POST", "/api/leads/{lead_id}/grok/preview"),
         ("POST", "/api/leads/{lead_id}/grok/followup"),
         ("POST", "/api/leads/{lead_id}/grok/checklist"),

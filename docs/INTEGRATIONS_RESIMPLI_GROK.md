@@ -35,7 +35,7 @@ push creates a CRM record for a person to work from. The two ideas are not conne
 | `backend/app/services/ai_grok.py` | 428 | `GrokClient`, `ADAPTERS`, `record_run`, `strip_pii`, `sanitize`, `cap_status`, `monthly_estimate`, `model_for`, `AI_FIELDS` |
 | `backend/app/services/ai_features.py` | 510 | `draft_followup`, `suggest_checklist`, `advise`, `prompt_for`, `preview_for`, `latest_advice` |
 | `backend/app/services/checklists.py` | 277 | Two templates, `apply_to_lead`, `progress`, `set_item`, `add_item`, `open_items` |
-| `backend/app/routes_crm.py` | 539 | 25 routes, all behind the existing auth |
+| `backend/app/routes_crm.py` | ~600 | 26 routes, all behind the existing auth |
 | `backend/app/route_allowlist.py` | 104 | Every route that may leave this machine, in one place |
 
 Tests: 134 new backend tests across seven files (`test_crm_write` 27, `test_crm_push` 16,
@@ -43,7 +43,7 @@ Tests: 134 new backend tests across seven files (`test_crm_write` 27, `test_crm_
 `test_routes_crm` 22), plus 10 in `test_routes` guarding the audit and the allowlist, plus
 14 frontend tests in `frontend/src/crm.test.tsx`. All mocked: `httpx.MockTransport` for
 REsimpli, `httpx.MockTransport` for xAI, a temporary SQLite file for the database. Full
-backend suite at this revision: **526 passed, 15 skipped**; frontend: **41 passed**.
+backend suite at this revision: **532 passed, 15 skipped**; frontend: **43 passed**.
 
 ---
 
@@ -328,6 +328,9 @@ compliance reminder. It is presented as an opinion with stated confidence, not a
 | List prices per million tokens | `docs.x.ai/developers/pricing` |
 | 429 means back off; per-model rate limits exist | `docs.x.ai/developers/rate-limits` |
 | Every write, every read and every AI call in this build is mocked in tests | The suite |
+| An imported APN survives the import and reaches the payload | `test_an_imported_apn_reaches_the_crm_payload` |
+| A typed APN is stored once and never overwritten | `test_a_typed_apn_is_recorded_once_and_never_overwritten` |
+| The AI field list, the cap and the surface really save, and a bad value writes nothing | `test_the_ai_settings_save_*`, `test_the_ai_settings_refuse_*` |
 | The route audit sees inside included routers and fails on send-shaped routes | `test_routes.py` |
 | No route outside the allowlist can reach the network | `route_allowlist.undeclared()` |
 
@@ -356,11 +359,13 @@ compliance reminder. It is presented as an opinion with stated confidence, not a
    endpoints (`addContact`, `addContactDetails`, `removeContact`, `changePrimaryContact`,
    `statusUpdate`, `addTag`, `removeTag`) and omits the `max: 10` bounds. The live catalogue
    is the source of truth; the checked-in copy should be refreshed with a new capture.
-8. **The APN never reaches the CRM, because it is never stored.** `property_facts.EXTRA_FACTS`
-   has no `apn` key, so an imported APN is dropped and every land lead blocks as
-   `land_without_apn` until someone types one. This is a gap, not a bug in the push: adding
-   `"apn"` to `EXTRA_FACTS` is a one-line change plus a test, and it has been deliberately
-   left for a decision rather than slipped in.
+8. ~~The APN never reaches the CRM, because it is never stored.~~ **Fixed.** `"apn"` is now
+   in `property_facts.EXTRA_FACTS`, so an imported parcel number survives the import and
+   `lead_apn()` reads it; the property-research panel has an APN field for the case where the
+   source has none. Tests: `test_an_imported_apn_reaches_the_crm_payload`,
+   `test_a_typed_apn_is_recorded_once_and_never_overwritten`. What remains unverified is
+   whether a real account accepts the APN format you type -- the field is a plain string of
+   up to 64 characters, because the catalogue does not specify a format.
 
 ---
 
@@ -384,12 +389,14 @@ Environment and private settings:
 | `GROK_API` | `responses` | `responses` or `chat_completions` |
 | `GROK_FOLLOWUP_MODEL` / `GROK_CHECKLIST_MODEL` / `GROK_ADVISOR_MODEL` | `grok-4.3` | Model per purpose |
 | `GROK_DAILY_REQUEST_LIMIT` | `20` | The cap, counted per UTC day |
-| `GROK_AI_FIELDS` | seven of eight | Which fields may be sent |
+| `GROK_AI_FIELDS` | seven of eight | Which fields may be sent (edited in the CRM & AI page) |
 
-`GROK_AI_FIELDS` is a configuration value: the CRM & AI page shows the current subset, and it
-is changed in the environment or the private settings file. There is no checkbox editor for it
-in the interface yet; the read-only list is deliberate until someone asks for the editor,
-because a per-field switch that silently fails to save is worse than no switch.
+`GROK_AI_FIELDS` is changed from the CRM & AI page: the Grok panel ticks the fields that may
+leave the machine, sets the daily cap, and picks the API surface. Saving calls
+`PATCH /api/integrations/grok/settings`, which is a **local** route -- it writes the private
+settings file, clears the settings cache, records an audit row naming the keys but never the
+values, and returns what it saved. An unknown field name or an empty list is a 400 and writes
+nothing. The key itself is not part of that route and is never returned by it.
 
 ### A safe first live test
 
@@ -409,6 +416,7 @@ because a per-field switch that silently fails to save is worse than no switch.
 - No CRM update, stage change, tag change, task or appointment write, and no delete.
 - No fabricated data: no invented first names, no invented APNs, no invented ObjectIds.
 - No third-party bridge for notes.
+- No AI call without a ticked field list: the panel refuses to save an empty one.
 - No secrets in code, logs or responses.
 - No live keys, no live calls, and `data/acquisitions.db` is never touched by the tests.
 

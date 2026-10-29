@@ -16,6 +16,7 @@ from app.services.resimpli_write import (
     build_lead_payload,
     candidate_lead_ids,
     lead_address,
+    lead_apn,
     payload_hash,
     ten_digit_phone,
 )
@@ -300,3 +301,28 @@ def test_an_unrecognised_response_still_counts_as_created(live_settings):
 )
 def test_phone_conversion_is_explicit(value, expected):
     assert ten_digit_phone(value) == expected
+
+
+def test_an_imported_apn_reaches_the_crm_payload(db, make_lead):
+    """End to end for the gap this build found: an imported parcel number used to vanish."""
+    from app.services.imports import attach_property
+
+    lead = make_lead("Dana Reyes", phone="+12025550199", address="12 Example St", state="TX")
+    attach_property(
+        db,
+        lead,
+        {
+            "street_address": "12 Example St",
+            "city": "Austin",
+            "state": "TX",
+            "property_type": "land",
+            "apn": "123-456-789",
+        },
+    )
+    db.commit()
+    db.refresh(lead)
+
+    assert lead_apn(lead) == "123-456-789"
+    payload = build_lead_payload(lead, DEFAULTS)
+    assert payload["body"]["propertyType"] == "land"
+    assert payload["body"]["apn"] == "123-456-789"

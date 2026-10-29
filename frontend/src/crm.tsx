@@ -943,6 +943,89 @@ type GrokStatus = {
   compliance: string;
 };
 
+export function GrokSettingsForm({ data }: { data: GrokStatus }) {
+  const action = useAction();
+  const [fields, setFields] = useState<string[]>(data.enabled_fields);
+  const [limit, setLimit] = useState(String(data.limit));
+  const [api, setApi] = useState(data.api);
+  const changed =
+    fields.join(",") !== data.enabled_fields.join(",") ||
+    limit !== String(data.limit) ||
+    api !== data.api;
+
+  const toggle = (key: string) =>
+    setFields((current) =>
+      current.includes(key)
+        ? current.filter((item) => item !== key)
+        : [...current, key],
+    );
+
+  return (
+    <div className="crm-form">
+      <fieldset className="crm-fieldset">
+        <legend>What may go to the AI</legend>
+        <p className="crm-muted">
+          Only the ticked fields leave this machine, and every one is stripped
+          of phone numbers, email addresses and anything shaped like a key
+          before it is sent. Names and contact details are not on this list at
+          all.
+        </p>
+        {data.fields.map((field) => (
+          <label className="crm-check" key={field.key}>
+            <input
+              type="checkbox"
+              checked={fields.includes(field.key)}
+              onChange={() => toggle(field.key)}
+            />
+            <span>{field.label}</span>
+          </label>
+        ))}
+      </fieldset>
+      <label className="crm-field">
+        <span>Daily call cap (counted per UTC day)</span>
+        <input
+          type="number"
+          min={1}
+          max={500}
+          value={limit}
+          onChange={(event) => setLimit(event.target.value)}
+        />
+      </label>
+      <label className="crm-field">
+        <span>API surface</span>
+        <select value={api} onChange={(event) => setApi(event.target.value)}>
+          <option value="responses">/v1/responses (default)</option>
+          <option value="chat_completions">/v1/chat/completions</option>
+        </select>
+      </label>
+      <Button
+        busy={action.busy}
+        disabled={!changed || fields.length === 0}
+        onClick={() =>
+          action.run(
+            () =>
+              patch("/integrations/grok/settings", {
+                fields,
+                daily_limit: Number(limit),
+                api,
+              }),
+            "AI settings saved",
+          )
+        }
+      >
+        <Check size={16} />
+        Save AI settings
+      </Button>
+      {fields.length === 0 && (
+        <p className="crm-muted">
+          Keep at least one field; with none, the AI has nothing to reason
+          about.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function GrokStatusPanel() {
   const status = useData<GrokStatus>(
     "grok-status",
@@ -1011,6 +1094,7 @@ export function GrokStatusPanel() {
       {data.monthly_estimate.note && (
         <p className="crm-muted">{data.monthly_estimate.note}</p>
       )}
+      <GrokSettingsForm data={data} />
     </Panel>
   );
 }

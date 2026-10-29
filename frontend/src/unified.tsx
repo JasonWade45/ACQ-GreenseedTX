@@ -411,6 +411,7 @@ function CompsWorksheet({
 }) {
   const action = useAction();
   const [subjectArea, setSubjectArea] = useState("");
+  const [apn, setApn] = useState("");
   const [form, setForm] = useState<CompForm>(EMPTY_COMP);
   const [showForm, setShowForm] = useState(false);
   const set = (key: keyof CompForm, value: string) =>
@@ -551,6 +552,39 @@ function CompsWorksheet({
               {action.error ? <Notice>{action.error}</Notice> : null}
             </div>
           ) : null}
+
+          <details className="stack crm-apn">
+            <summary>Assessor&apos;s parcel number (APN)</summary>
+            <p className="muted">
+              REsimpli requires an APN for a land lead, so a land lead without one is
+              held back from the CRM. Type it from the county record or the deed; it is
+              saved once and a value from the source always wins.
+            </p>
+            <div className="row wrap">
+              <Field label="APN">
+                <input
+                  value={apn}
+                  dir="ltr"
+                  onChange={(e) => setApn(e.target.value)}
+                  placeholder="123-456-789"
+                />
+              </Field>
+              <Button
+                disabled={!apn.trim() || action.busy}
+                onClick={() =>
+                  action.run(async () => {
+                    await patch(
+                      `/leads/${lead.id}/properties/${propertyId}`,
+                      { apn: apn.trim() },
+                    );
+                    setApn("");
+                  }, "APN saved")
+                }
+              >
+                Save APN
+              </Button>
+            </div>
+          </details>
 
           {subjectSqft === null ? (
             <div className="stack">

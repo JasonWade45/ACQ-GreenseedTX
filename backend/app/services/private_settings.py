@@ -28,6 +28,7 @@ ALLOWED = {
     "GROK_CHECKLIST_MODEL",
     "GROK_ADVISOR_MODEL",
     "GROK_DAILY_REQUEST_LIMIT",
+    "GROK_AI_FIELDS",
     # Opener identity for every draft path (not a secret, but it is process config).
     "SENDER_NAME",
     "COMPANY_NAME",

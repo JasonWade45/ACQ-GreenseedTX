@@ -663,3 +663,41 @@ def test_subject_facts_reject_a_property_that_is_not_this_seller(client, db, mak
         f"/api/leads/{lead.id}/properties/{other.properties[0].id}", json={"square_feet": 2000}
     )
     assert response.status_code == 404
+
+
+def test_a_typed_apn_is_recorded_once_and_never_overwritten(client, db, make_lead):
+    """A land lead needs an APN to reach the CRM, and only a person may supply one."""
+    from app.models import Property
+    from app.services.resimpli_write import lead_apn
+
+    lead = make_lead()
+    prop = lead.properties[0]
+    path = f"/api/leads/{lead.id}/properties/{prop.id}"
+    assert lead_apn(lead) is None
+
+    saved = client.patch(path, json={"apn": "123-456-789"})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["filled"] == {"apn": "123-456-789"}
+    db.expire_all()
+    assert db.get(Property, prop.id).property_metadata["facts"]["apn"] == "123-456-789"
+    assert lead_apn(db.get(type(lead), lead.id)) == "123-456-789"
+
+    # A different value never replaces what is already recorded; the same value is a no-op.
+    other = client.patch(path, json={"apn": "999-999-999"})
+    assert other.status_code == 200
+    assert other.json()["filled"] == {}
+    assert other.json()["kept_from_source"] == {"apn": "123-456-789"}
+
+    same = client.patch(path, json={"apn": "123 456 789"})
+    assert same.status_code == 200
+    assert same.json()["filled"] == {}
+    assert same.json()["kept_from_source"] == {}
+    db.expire_all()
+    assert db.get(Property, prop.id).property_metadata["facts"]["apn"] == "123-456-789"
+
+
+def test_the_apn_is_part_of_the_property_facts_a_source_may_fill():
+    """It used to be dropped on import, which blocked every land lead at the CRM gate."""
+    from app.services.property_facts import EXTRA_FACTS
+
+    assert "apn" in EXTRA_FACTS

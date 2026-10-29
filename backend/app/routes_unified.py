@@ -49,6 +49,9 @@ class SubjectFacts(StrictModel):
     square_feet: int | None = Field(default=None, ge=100, le=100_000)
     bedrooms: int | None = Field(default=None, ge=0, le=30)
     bathrooms: float | None = Field(default=None, ge=0, le=30)
+    # The assessor's parcel number. It lives with the property facts, not in a column,
+    # because that is where the importer and the research fill already put it.
+    apn: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class LocalRefresh(StrictModel):
@@ -98,8 +101,10 @@ def fill_subject_facts(lead_id: int, property_id: int, body: SubjectFacts, db: D
     prop = next((item for item in lead.properties if item.id == property_id), None)
     if not prop:
         raise HTTPException(404, "That property is not attached to this seller")
-    incoming = {key: value for key, value in body.model_dump().items() if value is not None}
-    if not incoming:
+    payload = body.model_dump()
+    apn = (payload.pop("apn", None) or "").strip()
+    incoming = {key: value for key, value in payload.items() if value is not None}
+    if not incoming and not apn:
         raise ValueError("Enter at least one fact")
     filled, kept = {}, {}
     for field, value in incoming.items():
@@ -108,6 +113,15 @@ def fill_subject_facts(lead_id: int, property_id: int, body: SubjectFacts, db: D
         else:
             setattr(prop, field, value)
             filled[field] = value
+    if apn:
+        facts = {**(prop.property_metadata or {}).get("facts", {})}
+        existing = str(facts.get("apn") or "").strip()
+        if existing and existing.replace("-", "").replace(" ", "") != apn.replace("-", "").replace(" ", ""):
+            kept["apn"] = existing
+        elif not existing:
+            facts["apn"] = apn
+            prop.property_metadata = {**(prop.property_metadata or {}), "facts": facts}
+            filled["apn"] = apn
     if filled:
         db.add(
             AuditLog(

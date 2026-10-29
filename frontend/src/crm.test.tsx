@@ -185,7 +185,14 @@ const grokStatus = {
     advisor: "grok-4.7",
   },
   monthly_estimate: { basis: "planned_volume", monthly_usd: 1.23 },
-  fields: [{ key: "property_address", label: "Property address" }],
+  fields: [
+    { key: "property_address", label: "Property address" },
+    { key: "priority", label: "Priority tier, score and heat" },
+    {
+      key: "conversation",
+      label: "Recent conversation text from synced activity",
+    },
+  ],
   enabled_fields: ["property_address", "priority"],
   disclaimer: "Decision support only. This is not legal advice.",
   compliance: "Compliance reminder.",
@@ -421,6 +428,53 @@ describe("grok status", () => {
     expect(screen.getByText("$1.23")).toBeInTheDocument();
     expect(screen.getByText("grok-4.7")).toBeInTheDocument();
     expect(screen.getByText(/Drafts are copy-only/)).toBeInTheDocument();
+  });
+});
+
+describe("ai settings", () => {
+  it("saves the ticked fields, the cap and the surface", async () => {
+    mount(<GrokStatusPanel />);
+    const conversation = await screen.findByLabelText(
+      /Recent conversation text from synced activity/,
+    );
+    await userEvent.click(conversation);
+    const cap = screen.getByLabelText(/Daily call cap/);
+    await userEvent.clear(cap);
+    await userEvent.type(cap, "8");
+    await userEvent.selectOptions(
+      screen.getByLabelText(/API surface/),
+      "chat_completions",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Save AI settings/ }),
+    );
+    await waitFor(() =>
+      expect(requestMock).toHaveBeenCalledWith(
+        "/api/integrations/grok/settings",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({
+            fields: ["property_address", "priority", "conversation"],
+            daily_limit: 8,
+            api: "chat_completions",
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("will not save an empty field list, and says why", async () => {
+    mount(<GrokStatusPanel />);
+    await userEvent.click(await screen.findByLabelText(/Property address/));
+    await userEvent.click(
+      screen.getByLabelText(/Priority tier, score and heat/),
+    );
+    expect(
+      screen.getByText(/Keep at least one field; with none/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Save AI settings/ }),
+    ).toBeDisabled();
   });
 });
 

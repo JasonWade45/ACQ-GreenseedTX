@@ -5,6 +5,9 @@ import re
 from decimal import Decimal, InvalidOperation
 
 EXTRA_FACTS = {
+    # REsimpli demands an APN for a land lead, so an imported one has to survive the
+    # import. Without this key the value was dropped and every land lead blocked.
+    "apn",
     "county",
     "lot_acres",
     "latitude",

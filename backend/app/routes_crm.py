@@ -19,9 +19,9 @@ from sqlalchemy.orm import Session
 
 from . import config
 from .db import get_db
-from .models import Activity, CrmNoteOutbox, Followup, GrokRun, Lead, Task
+from .models import Activity, AuditLog, CrmNoteOutbox, Followup, GrokRun, Lead, Task
 from .schemas import StrictModel
-from .services import checklists, crm_notes, crm_push
+from .services import checklists, crm_notes, crm_push, private_settings
 from .services.ai_features import (
     ADVISOR_DISCLAIMER,
     COMPLIANCE_REMINDER,
@@ -92,6 +92,19 @@ class SuggestionIn(StrictModel):
 
 class GrokPromptIn(StrictModel):
     purpose: Literal["followup_draft", "checklist_suggest", "advisor"]
+
+
+class GrokSettingsIn(StrictModel):
+    """What may be sent to the AI, and how much of it -- changed from the CRM & AI page.
+
+    Every key is optional so a screen can change one thing without restating the rest.
+    The key itself is never part of this: it is written once, through the credential
+    route, and never read back.
+    """
+
+    fields: Optional[list[str]] = Field(default=None, max_length=len(AI_FIELDS))
+    daily_limit: Optional[int] = Field(default=None, ge=1, le=500)
+    api: Optional[Literal["responses", "chat_completions"]] = None
 
 
 def _lead(db: Session, lead_id):
@@ -405,6 +418,54 @@ def grok_status(db: DB):
         "disclaimer": ADVISOR_DISCLAIMER,
         "compliance": COMPLIANCE_REMINDER,
         "drafts_are_copy_only": True,
+    }
+
+
+@router.patch("/integrations/grok/settings")
+def grok_settings_save(body: GrokSettingsIn, db: DB):
+    """Change the per-field sharing list, the daily cap and the API surface.
+
+    Local only: the values land in the private settings file the app already reads at
+    startup, and the settings cache is cleared so the next call uses them.
+    """
+    updates = {}
+    fields = None
+    if body.fields is not None:
+        chosen = [name.strip() for name in body.fields if name and name.strip()]
+        unknown = sorted(set(chosen) - set(AI_FIELDS))
+        if unknown:
+            raise HTTPException(400, "Unknown AI field: " + ", ".join(unknown))
+        if not chosen:
+            raise HTTPException(400, "Keep at least one field, or the AI cannot answer anything useful")
+        fields = list(dict.fromkeys(chosen))
+        updates["GROK_AI_FIELDS"] = ",".join(fields)
+    if body.daily_limit is not None:
+        updates["GROK_DAILY_REQUEST_LIMIT"] = body.daily_limit
+    if body.api is not None:
+        updates["GROK_API"] = body.api
+    if not updates:
+        raise HTTPException(400, "Nothing to change")
+    private_settings.write_private(updates)
+    db.add(
+        AuditLog(
+            action="grok_settings_changed",
+            details={"keys": sorted(updates), "values_logged": False},
+        )
+    )
+    db.commit()
+    # Echo what was just saved, not what the previous settings object happened to hold.
+    settings = _settings()
+    return {
+        "saved": sorted(updates),
+        "enabled_fields": (
+            fields
+            if fields is not None
+            else [item.strip() for item in (settings.grok_ai_fields or "").split(",") if item.strip()]
+        ),
+        "daily_limit": body.daily_limit if body.daily_limit is not None else settings.grok_daily_request_limit,
+        "api": body.api or settings.grok_api,
+        "key_logged": False,
+        "key_returned": False,
     }
 
 
