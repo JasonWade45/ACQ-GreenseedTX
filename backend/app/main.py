@@ -48,7 +48,7 @@ from .schemas import (
     AppointmentResult,
     MappingIn,
     ImportApproval,
-    DraftIn,
+    DraftRequest,
     DraftEdit,
     BulkIn,
     SettingsIn,
@@ -922,13 +922,59 @@ def list_insights(db: DB):
     return result
 
 
+def draft_dict_for_cold(view):
+    """Keep the legacy draft keys so an existing client does not break.
+
+    ``context``/``model_id`` describe the local template render; ``id`` here is the
+    message id, so the review endpoints for message drafts are used instead of
+    PATCH /api/drafts/{id}.
+    """
+    return {
+        "id": view.get("id"),
+        "message_id": view.get("id"),
+        "lead_id": view.get("lead_id"),
+        "body": view.get("body"),
+        "context": "",
+        "model_id": view.get("model_id"),
+        "created_at": view.get("created_at"),
+        "updated_at": view.get("updated_at"),
+    }
+
+
 def draft_dict(d):
     return {k: getattr(d, k) for k in ["id", "lead_id", "body", "context", "model_id", "created_at", "updated_at"]}
 
 
 @app.post("/api/leads/{lead_id}/draft")
-def draft(lead_id: int, body: DraftIn, db: DB):
-    return draft_dict(generate_draft(db, found(db, Lead, lead_id), body.regenerate))
+def draft(lead_id: int, body: DraftRequest, db: DB):
+    """The single draft endpoint.
+
+    ``relationship`` keeps the original reviewed-context behavior. ``cold`` uses the
+    template library for leads that have no documented relationship yet. ``auto``
+    follows the lead's own ``outreach_mode`` so existing callers keep working.
+
+    Both paths return a copy-only draft; nothing is ever sent.
+    """
+    from .services import templates as T
+
+    lead = found(db, Lead, lead_id)
+    mode = body.mode
+    if mode == "auto":
+        mode = "cold" if (lead.outreach_mode or "relationship") == "cold" else "relationship"
+    if mode == "cold" or body.template_id is not None or body.body is not None:
+        view = T.draft_view(
+            T.draft_cold(
+                db,
+                lead,
+                get_settings(),
+                template_id=body.template_id,
+                variant=body.variant,
+                body=body.body,
+                regenerate=body.regenerate,
+            )
+        )
+        return {**draft_dict_for_cold(view), "kind": "cold", **view}
+    return {"kind": "relationship", **draft_dict(generate_draft(db, lead, body.regenerate))}
 
 
 @app.patch("/api/drafts/{draft_id}")
@@ -1083,6 +1129,37 @@ def create_backup_now(db: DB):
     )
 
 
+# Static paths must be registered before the ``{name}`` parameter route, otherwise
+# Starlette serves the parameter route and ``/api/backups/config`` is unreachable.
+# The scripts check in backend/app/route_audit.py fails the test suite if that returns.
+@app.get("/api/backups/config")
+def backup_config(db: DB):
+    row = db.get(AppSetting, "backup_second_folder")
+    status = (row.value.get("status") if row and isinstance(row.value, dict) else None) or {}
+    return {
+        "second_folder": (row.value.get("path") if row and isinstance(row.value, dict) else None),
+        "status": status,
+    }
+
+
+@app.patch("/api/backups/config")
+def backup_config_update(body: dict, db: DB):
+    from .services import backups as backup_service
+
+    path = (body or {}).get("second_folder")
+    path = (path or "").strip() or None
+    validated = backup_service.validate_second_folder(path) if path else None
+    row = db.get(AppSetting, "backup_second_folder")
+    value = {"path": validated, "status": {"ok": True, "checked_at": utcnow().isoformat()} if validated else {}}
+    if row is None:
+        db.add(AppSetting(key="backup_second_folder", value=value))
+    else:
+        row.value = value
+    db.add(AuditLog(action="backup_config_changed", details={"second_folder": validated}))
+    db.commit()
+    return {"second_folder": validated}
+
+
 @app.get("/api/backups/{name}")
 def download_backup(name: str):
     settings = get_settings()
@@ -1106,25 +1183,6 @@ def delete_backup(name: str, db: DB, confirm: str = Query(default="")):
     db.add(AuditLog(action="backup_deleted", details={"file": name}))
     db.commit()
     return {"deleted": name}
-
-
-@app.get("/api/backups/config")
-def backup_config(db: DB):
-    row = db.get(AppSetting, "backup_second_folder")
-    return {"second_folder": (row.value.get("path") if row and isinstance(row.value, dict) else None)}
-
-
-@app.patch("/api/backups/config")
-def backup_config_update(body: dict, db: DB):
-    path = (body or {}).get("second_folder")
-    row = db.get(AppSetting, "backup_second_folder")
-    if row is None:
-        db.add(AppSetting(key="backup_second_folder", value={"path": path}))
-    else:
-        row.value = {"path": path}
-    db.add(AuditLog(action="backup_config_changed", details={"second_folder": path}))
-    db.commit()
-    return {"second_folder": path}
 
 
 @app.post("/api/backups/restore")
@@ -1336,20 +1394,6 @@ def seed_templates(db: DB):
 
     n = T.seed_templates(db)
     return {"created": n}
-
-
-@app.post("/api/leads/{lead_id}/draft")
-def create_draft(lead_id: int, db: DB, body: dict | None = None):
-    from .services import templates as T
-
-    lead = db.get(Lead, lead_id)
-    if not lead:
-        raise HTTPException(404, "Lead not found")
-    template_id = (body or {}).get("template_id")
-    variant = (body or {}).get("variant", "A")
-    custom_body = (body or {}).get("body")
-    m = T.create_draft(db, lead, template_id=template_id, variant=variant, body=custom_body)
-    return {"id": m.id, "lead_id": m.lead_id, "body": m.body, "status": m.status, "template_id": m.template_id, "variant": m.variant, "validator_result": m.validator_result}
 
 
 @app.post("/api/messages/{message_id}/approve")

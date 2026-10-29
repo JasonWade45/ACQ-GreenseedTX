@@ -66,6 +66,13 @@ class Lead(Base):
     needs_skip_trace: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     user_edited_fields: Mapped[list] = mapped_column(JSON, default=list)
     import_batch_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    # Data Syndicate context. Internal only: it must never appear in outgoing text.
+    ds_flags: Mapped[dict] = mapped_column(JSON, default=dict)
+    ds_flags_raw: Mapped[Optional[str]] = mapped_column(Text)
+    ds_extra_flags: Mapped[list] = mapped_column(JSON, default=list)
+    ds_compatible_offers: Mapped[list] = mapped_column(JSON, default=list)
+    # relationship = documented context required (original behavior); cold = template library.
+    outreach_mode: Mapped[str] = mapped_column(String(20), default="relationship", index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
     synced_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
@@ -222,6 +229,9 @@ class ImportBatch(Base):
     counts: Mapped[dict] = mapped_column(JSON, default=dict)
     errors: Mapped[list] = mapped_column(JSON, default=list)
     mapping_config: Mapped[dict] = mapped_column(JSON, default=dict)
+    # "standard" or "address_only" (Data Syndicate). The profile only changes
+    # acceptance rules; it never weakens the standard profile.
+    profile: Mapped[str] = mapped_column(String(40), default="standard")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     finished_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
@@ -322,6 +332,8 @@ class Message(Base):
     sent_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     classification: Mapped[Optional[str]] = mapped_column(String(30))
     confidence: Mapped[Optional[float]] = mapped_column(Float)
+    # Why this template was chosen (internal context, never printed in the message).
+    reason_tags: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
 
 
@@ -460,3 +472,26 @@ class WorkspaceMerge(Base):
     counts: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+
+
+class SuggestedAction(Base):
+    """A reply-derived suggestion that only Jason can confirm.
+
+    The classifier never changes a stage or adds a suppression by itself; it writes
+    one of these rows and the briefing shows it with a confirm button.
+    """
+
+    __tablename__ = "suggested_actions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    message_id: Mapped[Optional[int]] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    classification: Mapped[Optional[str]] = mapped_column(String(30), index=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float)
+    evidence: Mapped[Optional[str]] = mapped_column(Text)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    requires_confirmation: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    __table_args__ = (CheckConstraint("status IN ('pending','confirmed','dismissed')"),)

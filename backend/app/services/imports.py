@@ -24,7 +24,7 @@ from ..models import (
 )
 from ..db import utcnow
 from ..seed import record_source_status, stage_mapping
-from .normalization import normalize_record, guess_mapping, FIELDS, normalize_phone
+from .normalization import normalize_record, guess_mapping, detect_profile, FIELDS, normalize_phone
 from .property_facts import EXTRA_FACTS
 from .leads import CONTACTED, ATTEMPTED, source_date_is_connection
 
@@ -111,12 +111,18 @@ def inspect_file(content, filename, max_rows):
     return sheets
 
 
-def upload_batch(db, content, filename, settings):
+def upload_batch(db, content, filename, settings, profile: str = "auto"):
     checksum = hashlib.sha256(content).hexdigest()
     existing = db.scalar(select(ImportBatch).where(ImportBatch.checksum == checksum))
     if existing:
         return existing, True
     sheets = inspect_file(content, filename, settings.max_import_rows)
+    if profile not in {"auto", "standard", "address_only"}:
+        raise ValueError("Choose the standard or Data Syndicate (address-only) profile")
+    detected = ""
+    if profile == "auto":
+        detected = detect_profile(next(iter(sheets.values()))[0]) if sheets else "standard"
+        profile = detected
     metadata = {
         name: {"headers": headers, "record_count": len(rows), "suggested_mapping": guess_mapping(headers)}
         for name, (headers, rows) in sheets.items()
@@ -126,6 +132,7 @@ def upload_batch(db, content, filename, settings):
         checksum=checksum,
         sheets=metadata,
         row_count=sum(len(rows) for _, rows in sheets.values()),
+        profile=profile,
     )
     db.add(batch)
     db.flush()
@@ -218,7 +225,11 @@ def preview_batch(db, batch, request, settings):
             row.state = "excluded"
             continue
         data, errors, warnings = normalize_record(
-            row.original, request.mapping, settings.app_timezone, request.date_order
+            row.original,
+            request.mapping,
+            settings.app_timezone,
+            request.date_order,
+            profile=batch.profile or "standard",
         )
         kind, candidates = index.match(data)
         row.normalized, row.errors, row.warnings = data, errors, warnings
@@ -376,8 +387,6 @@ def create_local_lead(db, data, original, batch_id=None, source_kind="import"):
         "priority_rank",
         "dedupe_key",
         "needs_skip_trace",
-        "user_edited_fields",
-        "import_batch_id",
     ]
     lead = Lead(
         **{k: (data.get(k) or "") if k == "full_name" else data.get(k) for k in keys},
@@ -390,6 +399,12 @@ def create_local_lead(db, data, original, batch_id=None, source_kind="import"):
         contact_outcome=data.get("contact_outcome"),
         source_data={"original": original, "normalized": data, "batch_id": batch_id},
         recorded_date=_dt(data.get("recorded_date")),
+        ds_flags=data.get("flags") or {},
+        ds_flags_raw=data.get("flags_raw"),
+        ds_extra_flags=data.get("extra_flags") or [],
+        ds_compatible_offers=data.get("compatible_offers") or [],
+        outreach_mode=data.get("outreach_mode") or "relationship",
+        import_batch_id=str(batch_id) if batch_id is not None else None,
     )
     try:
         from .compliance import is_in_license, _settings

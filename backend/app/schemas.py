@@ -103,6 +103,36 @@ class DraftIn(StrictModel):
     regenerate: bool = False
 
 
+class DraftRequest(StrictModel):
+    """One endpoint, two drafting modes.
+
+    ``mode="auto"`` follows the lead's stored ``outreach_mode``, so an existing caller
+    that posts ``{}`` or ``{"regenerate": true}`` keeps the original behavior.
+    """
+
+    regenerate: bool = False
+    mode: Literal["auto", "relationship", "cold"] = "auto"
+    template_id: int | None = None
+    variant: str | None = Field(default=None, max_length=4)
+    body: str | None = Field(default=None, max_length=8000)
+
+
+class MessageEdit(StrictModel):
+    body: str = Field(min_length=1, max_length=8000)
+
+
+class BulkDraftIn(StrictModel):
+    lead_ids: list[int] = Field(default_factory=list, max_length=500)
+    tier: Literal["P1", "P2", "P3", "P4"] | None = None
+    variant: str | None = Field(default=None, max_length=4)
+    confirm: bool
+
+
+class TemplateIn(StrictModel):
+    body: str | None = Field(default=None, max_length=2000)
+    active: bool | None = None
+
+
 class DraftEdit(StrictModel):
     body: str = Field(min_length=1, max_length=8000)
 
@@ -116,6 +146,9 @@ class BulkIn(StrictModel):
 class SettingsIn(StrictModel):
     stage_mapping: dict[str, str] | None = None
     priority_rules: dict[str, int] | None = None
+    sender_name: str | None = Field(default=None, max_length=120)
+    company_name: str | None = Field(default=None, max_length=120)
+    cadence: list[int] | None = None
 
 
 class SchedulerIn(StrictModel):

@@ -5,6 +5,10 @@ Phase 1.3 of the 1.4.0 plan. Keys are never returned in full by any endpoint.
 
 from __future__ import annotations
 
+import re
+
+SECRET_NAME = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
+
 
 SERVICE_NAME = "AcquisitionsAssistant"
 
@@ -30,12 +34,12 @@ def get_secret(key: str) -> str | None:
         except Exception:
             pass
     # Fallback: .env.secrets (private_settings)
-    from . import private_settings
+    from .. import config
 
     try:
         from dotenv import dotenv_values
 
-        path = private_settings.private_settings_path()
+        path = config.private_settings_path()
         if path.exists():
             return dotenv_values(path).get(key)
     except Exception:
@@ -56,7 +60,7 @@ def set_secret(key: str, value: str | None) -> None:
     # Fallback
     from . import private_settings
 
-    private_settings.write_private({key: value})
+    private_settings.write_secret({key: value})
 
 
 def migrate_env_to_secrets() -> dict:
