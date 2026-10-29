@@ -4,6 +4,7 @@ One test per promise in the release notes, driven only through HTTP routes so th
 interface cannot pass while the API behind it is broken.
 """
 
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -166,7 +167,27 @@ def test_templates_render_without_vendor_language():
                 assert banned not in rendered.lower(), (category, banned)
 
 
-def test_backups_support_a_verified_second_folder(client, db, tmp_path):
+def test_backups_support_a_verified_second_folder(client, db, tmp_path, monkeypatch):
+    # A backup copies a real database file, so point the app at a scratch one instead
+    # of any developer database that happens to exist in this checkout.
+    import os
+
+    from app.config import get_settings
+
+    scratch = tmp_path / "acquisitions.db"
+    with sqlite3.connect(scratch) as connection:
+        connection.execute("CREATE TABLE leads (id INTEGER PRIMARY KEY, full_name TEXT)")
+        connection.execute("INSERT INTO leads (full_name) VALUES ('Keep Me')")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{scratch}")
+    get_settings.cache_clear()
+    try:
+        _assert_second_folder_backup(client, tmp_path)
+    finally:
+        os.environ.pop("DATABASE_URL", None)
+        get_settings.cache_clear()
+
+
+def _assert_second_folder_backup(client, tmp_path):
     folder = tmp_path / "second-drive"
     folder.mkdir()
     assert client.patch("/api/backups/config", json={"second_folder": str(folder)}).status_code == 200
