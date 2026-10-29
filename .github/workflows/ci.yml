@@ -182,7 +182,7 @@ jobs:
                   failed += 1
                   name = f"{case.get('classname', '')} :: {case.get('name', '')}".strip()
                   text = " ".join((failure.text or failure.get("message") or "").split())
-                  print(f"::error title=Browser test failed::{name} - {text[:900]}")
+                  print(f"::error title=Browser test failed::{name} - {text[:6000]}")
           root = ET.parse(path).getroot()
           for suite in root.iter("testsuite"):
               print(
