@@ -36,6 +36,11 @@ services:
         value: Africa/Cairo
       # Lives inside the container's writable layer: valid for the lifetime of the
       # instance and lost when Render replaces it. This is expected on the free plan.
+      #
+      # For data that SURVIVES a restart, replace this value in the Render dashboard
+      # (Environment -> DATABASE_URL) with a free Neon PostgreSQL URL ending in
+      # ?sslmode=require. See "Render Free + Neon" in docs/FREE_HOSTING_AR.md.
+      # /api/health reports "database": "postgresql" when the swap worked.
       - key: DATABASE_URL
         value: sqlite:////app/data/acquisitions.db
       # Guarded features stay off until you enable and configure them deliberately.
