@@ -1,6 +1,19 @@
-# Acquisitions Assistant AI · 1.3.1
+# Acquisitions Assistant AI · 1.5.0
 
 A working **local-first US residential seller-acquisitions workspace**: React/TypeScript, FastAPI and SQLite. REsimpli is the intended primary CRM. This is an actual database-backed app, not a frontend mockup.
+
+**New in 1.5.0 — a Data Syndicate list becomes work you can do.** Import the vendor's
+address-only export (heat, sale likelihood, equity, flags, compatible offers, recorded
+date), work the leads that still need a contact through a reviewed **skip-trace loop**
+(export addresses → run them through your provider → import → review → apply `IMPORT
+LOCAL`), and let the queue explain every point of priority. Cold outreach drafts come
+from a 13-category template library with two variants each and a hard content validator;
+replies are classified with a confidence and a quoted reason, pause the cadence and stay
+suggestions until you confirm them. A daily briefing collects opt-outs first, then
+replies, drafts, skip traces, stalled leads, sync conflicts and the last backup — and the
+backup can now be mirrored to a second, verified folder. **No send control, no dialer,
+no automated seller contact and no CRM write exists**, and the route table is tested for
+it. See [the 1.5.0 release notes](docs/RELEASE_1_5.md).
 
 **Retained from 1.1:** optional Groq analysis/organized notes/drafts with **redaction + your explicit approval before each request**, private backend key settings, a refreshed responsive interface, Ctrl+K search, page/card/modal/loading animation, reduced-motion support and easier native Windows start/update helpers.
 
@@ -16,7 +29,7 @@ A working **local-first US residential seller-acquisitions workspace**: React/Ty
 
 **Private database backups (1.2.1, archived helpers):** `legacy/windows/UPLOAD-DATABASES.cmd` and `legacy/windows/RESTORE-DATABASES.cmd` prepare encrypted, integrity-checked backups of both original company DBs and push only ciphertext to a separate PRIVATE repository. Everyday protection is now built in: a verified nightly copy in `data/backups/` plus list/create/download/delete from **Settings → Runtime & backups**. The password is never uploaded. Raw DBs, WAL files, `.env` files and keys must never be attached to the public repo or a chat. [Instructions](docs/PRIVATE_DATABASE_BACKUP.md).
 
-Current release verification: **274 backend passed + 2 explicit skips; 21 frontend unit passed**; `ruff`, `tsc -b` and the production build clean. The Docker image is built and smoke-tested in GitHub Actions on every push (it must refuse a weak password, answer 401 without a token and 200 after sign-in), and the release archive is rebuilt with its checksum. The 17 browser workflows and the 1.1 migration evidence remain recorded in [docs/VERIFICATION.md](docs/VERIFICATION.md) as a 1.2 log; they were not re-run for this release. These are synthetic/local checks, not verification of your real databases, vendor accounts or a native Windows runtime.
+Current release verification: **369 backend passed + 2 explicit skips; 24 frontend unit passed**; `ruff`, `tsc -b` and the production build clean. The Docker image is built and smoke-tested in GitHub Actions on every push (it must refuse a weak password, answer 401 without a token and 200 after sign-in), and the release archive is rebuilt with its checksum. The 17 browser workflows and the 1.1 migration evidence remain recorded in [docs/VERIFICATION.md](docs/VERIFICATION.md) as a 1.2 log; they were not re-run for this release. These are synthetic/local checks, not verification of your real databases, vendor accounts or a native Windows runtime.
 
 > **ABSOLUTELY NO SELLER COMMUNICATION.** No SMS, email, calls, dialer, send controls, hidden outreach jobs or automated seller contact exists. Drafts are review/edit/copy only. CRM sync is strictly read-only. External lead creation, record edits/deletes, notes/status writes and public-form automation remain disabled.
 

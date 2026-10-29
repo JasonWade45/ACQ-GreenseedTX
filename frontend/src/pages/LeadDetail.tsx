@@ -51,6 +51,8 @@ import {
   useData,
   useWorkspace,
 } from "../components";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "../api";
 import { currency, dateTime, human, isoFromLocal, patch, post } from "../api";
 import type {
   Appointment,
@@ -58,6 +60,7 @@ import type {
   Followup,
   Insight,
   LeadProfile,
+  SuggestedAction,
 } from "../types";
 
 export default function LeadDetail() {
@@ -180,6 +183,7 @@ export default function LeadDetail() {
       {tab === "overview" && (
         <div className="profile-grid">
           <div className="stack">
+            <VendorContextPanel lead={lead} />
             <Panel
               title="Seller details"
               action={<Badge tone="neutral">Source + local review</Badge>}
@@ -524,10 +528,12 @@ export default function LeadDetail() {
       {tab === "intelligence" && (
         <>
           <CloudWorkbench lead={lead} />
+          <ReplyCapture lead={lead} />
           <div className="profile-grid">
             <AnalysisPanel lead={lead} />
             <DraftPanel lead={lead} />
           </div>
+          <LeadMessages lead={lead} />
         </>
       )}
       {tab === "audit" && (
@@ -1278,6 +1284,283 @@ function DraftPanel({ lead }: { lead: LeadProfile }) {
           No send controls or automated outreach jobs exist.
         </div>
       </div>
+    </Panel>
+  );
+}
+
+function ReplyCapture({ lead }: { lead: LeadProfile }) {
+  const action = useAction();
+  const client = useQueryClient();
+  const [text, setText] = useState("");
+  const [result, setResult] = useState<{
+    classification: string;
+    confidence: number;
+    evidence: string;
+    suggestion_id: number | null;
+    needs_review: boolean;
+    note: string | null;
+  } | null>(null);
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const response = await action.run(
+      () => post<any>(`/leads/${lead.id}/reply`, { text }),
+      "Reply recorded. Nothing was sent.",
+    );
+    if (response) {
+      setResult(response);
+      setText("");
+      client.invalidateQueries({ queryKey: ["briefing"] });
+      client.invalidateQueries({ queryKey: ["messages"] });
+    }
+  }
+  return (
+    <Panel
+      title="Record a seller reply"
+      subtitle="Paste what the seller said. Rules classify it; a person still decides what happens next."
+      action={<MessageSquareText size={18} className="text-green" />}
+    >
+      <form className="settings-form" onSubmit={submit}>
+        <Field label="Seller reply text">
+          <textarea
+            rows={3}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Paste the reply exactly as received."
+          />
+        </Field>
+        <Button busy={action.busy} type="submit" disabled={!text.trim()}>
+          <Plus size={15} /> Record reply
+        </Button>
+      </form>
+      {result && (
+        <Notice tone={result.classification === "STOP" ? "warning" : "info"}>
+          <strong>{result.classification}</strong> · confidence{" "}
+          {Math.round((result.confidence || 0) * 100)}%
+          {result.evidence ? <blockquote>“{result.evidence}”</blockquote> : null}
+          {result.needs_review && (
+            <p>Low confidence: read the message before taking any action.</p>
+          )}
+          <p className="muted">
+            The cadence for this lead is paused. Suppression, stage changes and
+            replies are suggestions until you confirm them.
+          </p>
+        </Notice>
+      )}
+      {action.error && <Notice tone="warning">{action.error}</Notice>}
+    </Panel>
+  );
+}
+
+function LeadMessages({ lead }: { lead: LeadProfile }) {
+  const action = useAction();
+  const client = useQueryClient();
+  const messages = useQuery({
+    queryKey: ["messages", lead.id],
+    queryFn: () => api<any[]>(`/messages?lead_id=${lead.id}`),
+  });
+  const suggestions = useQuery({
+    queryKey: ["suggested-actions", lead.id],
+    queryFn: () => api<SuggestedAction[]>("/suggested-actions"),
+  });
+  const pending = (Array.isArray(suggestions.data) ? suggestions.data : []).filter(
+    (a) => a.lead_id === lead.id,
+  );
+  const rows = Array.isArray(messages.data) ? messages.data : [];
+  async function decide(id: number, decision: "confirm" | "dismiss") {
+    await action.run(
+      () => post(`/suggested-actions/${id}/${decision}`),
+      decision === "confirm"
+        ? "Suggestion applied. Nothing was sent."
+        : "Suggestion dismissed",
+    );
+    client.invalidateQueries({ queryKey: ["suggested-actions", lead.id] });
+    client.invalidateQueries({ queryKey: ["messages", lead.id] });
+    client.invalidateQueries({ queryKey: ["briefing"] });
+  }
+  if (messages.isPending) return <Panel title="Recorded messages"><Loading /></Panel>;
+  if (messages.isError)
+    return (
+      <Panel title="Recorded messages">
+        <ErrorState error={messages.error} retry={() => messages.refetch()} />
+      </Panel>
+    );
+  return (
+    <Panel
+      title="Recorded messages & suggestions"
+      subtitle="Inbound replies and copy-only drafts for this lead."
+    >
+      {pending.length > 0 && (
+        <div className="stack">
+          <h3>Suggested next actions</h3>
+          <ul className="task-list">
+            {pending.map((a) => (
+              <li key={a.id}>
+                <div>
+                  <strong>
+                    <Badge tone="amber">{a.classification}</Badge>{" "}
+                    {human(a.kind)}
+                  </strong>
+                  <p>
+                    confidence {Math.round((a.confidence || 0) * 100)}%
+                    {a.evidence ? ` · “${a.evidence}”` : ""}
+                  </p>
+                </div>
+                <div className="row wrap">
+                  <Button busy={action.busy} onClick={() => decide(a.id, "confirm")}>
+                    <Check size={15} /> Confirm
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    busy={action.busy}
+                    onClick={() => decide(a.id, "dismiss")}
+                  >
+                    <X size={15} /> Dismiss
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {rows.length === 0 ? (
+        <Empty
+          title="No messages recorded"
+          description="Recorded replies and prepared drafts appear here. Nothing is ever sent."
+        />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Direction</th>
+                <th>Status</th>
+                <th>Text</th>
+                <th>Recorded</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((m) => (
+                <tr key={m.id}>
+                  <td>{human(m.direction)}</td>
+                  <td>
+                    {m.status}
+                    {m.classification ? (
+                      <>
+                        {" "}
+                        <Badge tone="amber">{m.classification}</Badge>
+                      </>
+                    ) : null}
+                  </td>
+                  <td>
+                    <small>{m.body}</small>
+                  </td>
+                  <td>
+                    <Timestamp value={m.created_at} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function VendorContextPanel({ lead }: { lead: LeadProfile }) {
+  const flags = Object.entries(lead.ds_flags || {}).filter(([, v]) => v);
+  const priority = (lead as any).priority as
+    | { score: number; factors: string[] }
+    | undefined;
+  const hasContext =
+    lead.score !== null ||
+    lead.heat ||
+    lead.equity_pct !== null ||
+    flags.length > 0 ||
+    Boolean(lead.priority_tier);
+  if (!hasContext && !lead.needs_skip_trace) return null;
+  return (
+    <Panel
+      title="Vendor context — internal only"
+      subtitle="Distress signals from the imported list. None of this text appears in a draft."
+      action={<Badge tone="neutral">Data Syndicate</Badge>}
+    >
+      <div className="info-grid info-grid-four">
+        <Info label="Sale likelihood">{lead.score ?? "Not recorded"}</Info>
+        <Info label="Heat">
+          {lead.heat && lead.heat !== "NONE" ? (
+            <Badge tone={lead.heat === "VERY_HOT" ? "red" : "amber"}>
+              {lead.heat === "VERY_HOT" ? "Very hot" : "Hot"}
+            </Badge>
+          ) : (
+            "No signal"
+          )}
+        </Info>
+        <Info label="Estimated equity">
+          {typeof lead.equity_pct === "number" ? `${lead.equity_pct}%` : "Not recorded"}
+        </Info>
+        <Info label="Priority tier">
+          {lead.priority_tier || "Not ranked"}
+          {typeof lead.priority_rank === "number"
+            ? ` · rank ${lead.priority_rank}`
+            : ""}
+        </Info>
+        <Info label="Lead type">{lead.lead_type || "Not recorded"}</Info>
+        <Info label="County">{lead.county || "Not recorded"}</Info>
+        <Info label="Vendor recorded date">
+          <Timestamp value={lead.recorded_date || null} dateOnly />
+        </Info>
+        <Info label="Outreach context">
+          {lead.outreach_mode === "cold"
+            ? "Cold — no prior relationship"
+            : "Relationship — warm history available"}
+        </Info>
+      </div>
+      {flags.length > 0 && (
+        <>
+          <span className="mini-label">RECORDED FLAGS</span>
+          <div className="row wrap">
+            {flags.map(([key]) => (
+              <Badge key={key}>{human(key)}</Badge>
+            ))}
+            {(lead.ds_extra_flags || []).map((flag) => (
+              <Badge key={flag} tone="neutral">
+                {flag}
+              </Badge>
+            ))}
+          </div>
+        </>
+      )}
+      {(lead.ds_compatible_offers || []).length > 0 && (
+        <p className="muted">
+          Compatible offer types: {(lead.ds_compatible_offers || []).join(", ")}
+        </p>
+      )}
+      {lead.needs_skip_trace && (
+        <Notice tone="warning">
+          No verified owner name or phone yet. This lead is worked from the
+          skip-trace loop and never appears as a “call this seller” task.
+        </Notice>
+      )}
+      <details>
+        <summary>Why this priority?</summary>
+        <p>
+          Deterministic score {priority?.score ?? "not calculated"} from task
+          priority, overdue days, explicit callback, negotiation and
+          appointment stage, heat, sale likelihood and negative equity — capped
+          at 100.
+        </p>
+        {(priority?.factors || []).map((factor) => (
+          <p key={factor}>· {factor}</p>
+        ))}
+        {!priority?.factors?.length && <p>No factor adds to the base score.</p>}
+      </details>
+      {(lead.user_edited_fields || []).length > 0 && (
+        <p className="muted">
+          Manually corrected fields (a later vendor import will not overwrite
+          them): {(lead.user_edited_fields || []).map(human).join(", ")}
+        </p>
+      )}
     </Panel>
   );
 }

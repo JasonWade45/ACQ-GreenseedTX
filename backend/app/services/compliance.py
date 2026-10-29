@@ -364,10 +364,12 @@ def is_in_license(lead: Lead, licensed_counties: list[str] | None = None) -> boo
             pass
     except Exception:
         pass
+    # The Data Syndicate county column is the authoritative local value when present.
+    county = getattr(lead, "county", None) or None
     sd = getattr(lead, "source_data", None) or {}
     if isinstance(sd, dict):
         nested = sd.get("normalized") if isinstance(sd.get("normalized"), dict) else {}
-        county = (
+        county = county or (
             sd.get("county")
             or sd.get("County")
             or sd.get("property_county")

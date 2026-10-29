@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -182,3 +183,67 @@ def resolve_backup(url: str, name: str) -> Path:
     if not path.is_file():
         raise ValueError("Backup not found")
     return path
+
+def validate_second_folder(path: str) -> str:
+    """Validate an optional second backup folder (e.g. a synced Google Drive folder).
+
+    The folder must already exist and be writable; the app never creates it, so a
+    typo cannot silently scatter backups somewhere unexpected. Nothing outside the
+    files this app writes is ever read or deleted there.
+    """
+    target = Path(str(path)).expanduser()
+    if not target.is_absolute():
+        raise ValueError("Use an absolute path for the second backup folder")
+    if not target.exists() or not target.is_dir():
+        raise ValueError("The second backup folder does not exist")
+    probe = target / ".acq-write-probe"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as error:
+        raise ValueError(f"The second backup folder is not writable: {error}") from None
+    return str(target.resolve())
+
+
+def copy_to_second_folder(url: str, created: Path, second: str | None) -> dict:
+    """Copy one completed backup into the second folder and report the outcome.
+
+    Copy failures never delete or damage the primary backup; they are reported so the
+    Backups panel and the briefing can show them instead of swallowing them.
+    """
+    if not second:
+        return {"configured": False, "ok": True, "detail": "No second folder configured"}
+    try:
+        folder = Path(second).expanduser()
+        if not folder.is_dir():
+            raise ValueError("The second backup folder is not available")
+        destination = folder / created.name
+        shutil.copy2(created, destination)
+        with sqlite3.connect(destination) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("The copy failed its integrity check and was removed")
+        return {
+            "configured": True,
+            "ok": True,
+            "folder": str(folder),
+            "name": destination.name,
+            "copied_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as error:  # reported, never fatal
+        return {
+            "configured": True,
+            "ok": False,
+            "folder": str(second),
+            "detail": str(error),
+            "copied_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+def verify_backup(path: Path) -> None:
+    """Raise ValueError unless this file is a readable, self-consistent SQLite database."""
+    try:
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("Backup failed integrity check")
+    except sqlite3.DatabaseError as error:
+        raise ValueError(f"Backup is not a usable SQLite database: {error}") from None

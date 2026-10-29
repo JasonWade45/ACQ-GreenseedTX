@@ -2,7 +2,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from .config import get_settings
 from .db import SessionLocal
 from .models import AppSetting
-from .services.backups import create_backup, prune
+from .services.backups import copy_to_second_folder, create_backup, prune
 from .services.sync import begin_sync, sync_run
 
 scheduler = BackgroundScheduler(daemon=True, timezone="UTC")
@@ -27,10 +27,20 @@ def scheduled_backup():
         with SessionLocal() as db:
             from .models import AuditLog
 
+            row = db.get(AppSetting, "backup_second_folder")
+            second = (row.value or {}).get("path") if row and isinstance(row.value, dict) else None
+            mirror = copy_to_second_folder(settings.database_url, created, second)
+            if row is not None and mirror.get("configured"):
+                row.value = {"path": second, "status": mirror}
             db.add(
                 AuditLog(
                     action="backup_created",
-                    details={"file": created.name, "reason": "scheduled", "bytes": created.stat().st_size},
+                    details={
+                        "file": created.name,
+                        "reason": "scheduled",
+                        "bytes": created.stat().st_size,
+                        "second_folder": mirror,
+                    },
                 )
             )
             db.commit()

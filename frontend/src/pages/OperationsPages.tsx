@@ -907,9 +907,10 @@ function SettingsForm({ settings: s }: { settings: SettingsData }) {
           className="stack"
           style={{ display: section !== "operations" ? "none" : undefined }}
         >
+          <IdentityCadencePanel settings={s} />
           <Panel
             title="Business priorities"
-            subtitle="Transparent deterministic weights for the daily work queue."
+            subtitle="Transparent deterministic weights for the daily work queue. Heat, sale-likelihood and negative-equity weights are added to the task score, then capped at 100."
             action={<SlidersIcon />}
           >
             <form
@@ -1231,6 +1232,13 @@ type BackupOverview = {
   keep: number;
   hour_utc: number;
   folder: string;
+  second_folder: string | null;
+  status: {
+    ok?: boolean;
+    detail?: string;
+    copied_at?: string;
+    file?: string;
+  };
   backups: BackupItem[];
 };
 function fileSize(bytes: number) {
@@ -1290,6 +1298,11 @@ export function BackupsPanel() {
           <strong>{overview.folder}</strong>
         </div>
       </div>
+      <SecondFolderForm
+        current={overview.second_folder}
+        status={overview.status}
+        onSaved={() => data.refetch()}
+      />
       <div className="toolbar">
         <Button
           busy={action.busy}
@@ -1367,5 +1380,140 @@ export function BackupsPanel() {
         </p>
       </div>
     </Panel>
+  );
+}
+
+function SecondFolderForm({
+  current,
+  status,
+  onSaved,
+}: {
+  current: string | null;
+  status: BackupOverview["status"];
+  onSaved: () => void;
+}) {
+  const action = useAction();
+  const [folder, setFolder] = useState(current || "");
+  return (
+    <form
+      className="settings-form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const saved = await action.run(
+          () =>
+            patch<{ second_folder: string | null }>("/backups/config", {
+              second_folder: folder.trim() || null,
+            }),
+          "Second backup folder saved",
+        );
+        if (saved) onSaved();
+      }}
+    >
+      <Field
+        label="Second backup folder (absolute path)"
+        hint="An existing folder on another drive, or a folder your sync tool watches. The database copy is still verified after it is written."
+      >
+        <input
+          value={folder}
+          onChange={(e) => setFolder(e.target.value)}
+          placeholder="/Volumes/Backup/acquisitions"
+        />
+      </Field>
+      <div className="row wrap">
+        <Button type="submit" variant="secondary" busy={action.busy}>
+          <Save size={15} /> Save folder
+        </Button>
+        {current ? (
+          <Badge tone={status?.ok ? "green" : status?.ok === false ? "amber" : "neutral"}>
+            {status?.ok === true
+              ? "Last mirrored copy verified"
+              : status?.ok === false
+                ? "Last mirrored copy failed"
+                : "No mirrored copy yet"}
+          </Badge>
+        ) : (
+          <Badge>No second folder configured</Badge>
+        )}
+      </div>
+      {status?.detail && <p className="muted">{status.detail}</p>}
+      {action.error && <p className="muted">{action.error}</p>}
+    </form>
+  );
+}
+
+function IdentityCadencePanel({ settings }: { settings: SettingsData }) {
+  const action = useAction();
+  const [sender, setSender] = useState(settings.sender_name || "");
+  const [company, setCompany] = useState(settings.company_name || "");
+  const [cadence, setCadence] = useState((settings.cadence || []).join(", "));
+  return (
+    <>
+      <Panel
+        title="Sender identity"
+        subtitle="The only name and company the draft validator accepts."
+      >
+        <form
+          className="settings-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            await action.run(
+              () =>
+                patch("/settings", {
+                  sender_name: sender.trim(),
+                  company_name: company.trim(),
+                }),
+              "Sender identity saved",
+            );
+          }}
+        >
+          <div className="info-grid">
+            <Field label="Sender name">
+              <input value={sender} onChange={(e) => setSender(e.target.value)} />
+            </Field>
+            <Field label="Company">
+              <input value={company} onChange={(e) => setCompany(e.target.value)} />
+            </Field>
+          </div>
+          <p className="muted">
+            Checks run in code and reject a draft that does not include this
+            identity, the street address and the opt-out sentence.
+          </p>
+          <Button type="submit" busy={action.busy}>
+            <Save size={15} /> Save identity
+          </Button>
+        </form>
+      </Panel>
+      <Panel
+        title="Follow-up cadence"
+        subtitle="Days after the first message. Drafts are prepared; nothing is ever sent."
+      >
+        <form
+          className="settings-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const days = cadence
+              .split(",")
+              .map((part) => Number(part.trim()))
+              .filter((n) => Number.isFinite(n));
+            const result = await action.run(
+              () => patch("/settings", { cadence: days }),
+              "Cadence saved",
+            );
+            if (result) setCadence(days.join(", "));
+          }}
+        >
+          <Field
+            label="Sequence days"
+            hint="Whole days after the first outreach, ascending, at most 12 steps (e.g. 0, 3, 7, 14, 30, 60)."
+          >
+            <input value={cadence} onChange={(e) => setCadence(e.target.value)} />
+          </Field>
+          <Button type="submit" busy={action.busy}>
+            <Save size={15} /> Save cadence
+          </Button>
+          {action.error && <p className="muted">{action.error}</p>}
+        </form>
+      </Panel>
+    </>
   );
 }

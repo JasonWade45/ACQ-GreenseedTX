@@ -5,16 +5,20 @@ from datetime import datetime, timezone
 from app.models import AuditLog
 from app.services import compliance, backups, secrets_store
 
+# A fixed instant inside the documented contact window (Thursday 10:00 America/Chicago).
+# Using the real clock made these tests pass or fail depending on when CI ran.
+BUSINESS_HOURS = datetime(2026, 10, 29, 15, 0, tzinfo=timezone.utc)
+
 
 def test_suppression_blocks_send(db, make_lead):
     lead = make_lead(phone="+12025550199", state="TX", county="Tarrant")
     assert not compliance.is_suppressed(db, lead.primary_phone)
-    ok, reason = compliance.can_send(db, lead)
+    ok, reason = compliance.can_send(db, lead, BUSINESS_HOURS)
     assert ok is True and reason == "ok"
 
     compliance.add_suppression(db, lead.primary_phone, "manual", "test")
     assert compliance.is_suppressed(db, lead.primary_phone)
-    ok, reason = compliance.can_send(db, lead)
+    ok, reason = compliance.can_send(db, lead, BUSINESS_HOURS)
     assert ok is False and reason == "suppressed"
 
 
@@ -59,7 +63,7 @@ def test_license_filter(db, make_lead):
     out_lic = make_lead(phone="+12025550196", state="GA", county="DeKalb")
     assert compliance.is_in_license(in_lic, ["Tarrant, TX"]) is True
     assert compliance.is_in_license(out_lic, ["Tarrant, TX"]) is False
-    ok, reason = compliance.can_send(db, out_lic)
+    ok, reason = compliance.can_send(db, out_lic, BUSINESS_HOURS)
     assert ok is False and reason == "out_of_license"
 
 
@@ -101,9 +105,9 @@ def test_backup_create_list_restore_roundtrip(tmp_path):
 def test_can_send_respects_cap(db, make_lead):
     lead = make_lead(phone="+12025550194", state="TX", county="Tarrant")
     # under cap initially
-    assert compliance.under_daily_cap(db) is True
-    assert compliance.under_hourly_cap(db) is True
-    ok, reason = compliance.can_send(db, lead)
+    assert compliance.under_daily_cap(db, BUSINESS_HOURS) is True
+    assert compliance.under_hourly_cap(db, BUSINESS_HOURS) is True
+    ok, reason = compliance.can_send(db, lead, BUSINESS_HOURS)
     assert ok is True
 
 

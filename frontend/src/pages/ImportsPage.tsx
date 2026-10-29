@@ -42,12 +42,17 @@ export default function ImportsPage() {
   const action = useAction();
   const input = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
+  const [profile, setProfile] = useState("auto");
   async function upload(file: File | undefined) {
     if (!file) return;
     const form = new FormData();
     form.append("file", file);
     const b = await action.run(
-      () => api<ImportBatch>("/imports/upload", { method: "POST", body: form }),
+      () =>
+        api<ImportBatch>(
+          "/imports/upload?profile=" + encodeURIComponent(profile),
+          { method: "POST", body: form },
+        ),
       "File inspected locally",
     );
     if (b) {
@@ -134,6 +139,24 @@ export default function ImportsPage() {
               <span className="upload-spec">
                 CSV / XLSX · 25 MB default limit · up to 50,000 rows
               </span>
+              <label className="upload-profile">
+                <span>Import profile</span>
+                <select
+                  aria-label="Import profile"
+                  value={profile}
+                  onChange={(e) => setProfile(e.target.value)}
+                >
+                  <option value="auto">Detect automatically</option>
+                  <option value="standard">Standard seller list (name + contact)</option>
+                  <option value="address_only">
+                    Data Syndicate address-only (internal flags)
+                  </option>
+                </select>
+                <small>
+                  Address-only rows need a valid property address; name and
+                  phone stay blank until a skip trace is applied.
+                </small>
+              </label>
             </div>
             <Panel
               title="A safe path into your pipeline"

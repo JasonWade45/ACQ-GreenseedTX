@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import re
 from zoneinfo import ZoneInfo
-from sqlalchemy import select, or_, and_, exists, func
+from sqlalchemy import select, or_, and_, exists, func, cast, String
 from ..models import Lead, Property, LeadProperty, Followup, Activity, Appointment, AuditLog, StageHistory
 from ..db import utcnow
 
@@ -197,6 +197,41 @@ def lead_query(params, zone):
             if key == "to_date":
                 day += timedelta(days=1)
             query = query.where(getattr(Lead.original_created_at, operator)(day.astimezone(timezone.utc)))
+    # ── Data Syndicate filters (internal context only) ──────────────────────
+    if params.get("lead_type"):
+        query = query.where(Lead.lead_type == params["lead_type"])
+    if params.get("heat"):
+        query = query.where(Lead.heat == params["heat"])
+    if params.get("county"):
+        query = query.where(Lead.county == params["county"])
+    if params.get("tier"):
+        query = query.where(Lead.priority_tier == params["tier"])
+    if params.get("outreach_mode"):
+        query = query.where(Lead.outreach_mode == params["outreach_mode"])
+    if str(params.get("needs_skip_trace", "")).lower() in {"1", "true", "yes"}:
+        query = query.where(Lead.needs_skip_trace.is_(True))
+    for key, comparison in (("min_equity", Lead.equity_pct.__ge__), ("max_equity", Lead.equity_pct.__le__),
+                            ("min_score", Lead.score.__ge__)):
+        if params.get(key) not in (None, ""):
+            try:
+                value = float(params[key])
+            except (TypeError, ValueError):
+                raise ValueError(f"{key} must be a number") from None
+            query = query.where(comparison(value))
+    if params.get("flags"):
+        wanted = [f.strip() for f in str(params["flags"]).split(",") if f.strip()]
+        for name in wanted:
+            if not re.fullmatch(r"[a-z0-9_]{2,40}", name):
+                raise ValueError("Unknown flag filter; use lower_snake_case flag names")
+            # Match the JSON key only, so "owner_occupied" cannot match "senior_owner_occupied".
+            query = query.where(
+                or_(
+                    cast(Lead.ds_flags, String).like(f'%"{name}": true%'),
+                    cast(Lead.ds_flags, String).like(f'%"{name}":true%'),
+                )
+            )
+    if params.get("offer"):
+        query = query.where(cast(Lead.ds_compatible_offers, String).like("%" + params["offer"] + "%"))
     if params.get("metric"):
         query = query.where(metric_clause(params["metric"], zone))
     if params.get("followup"):
@@ -298,9 +333,15 @@ def lead_dict(lead):
         "needs_skip_trace",
         "user_edited_fields",
         "import_batch_id",
+        "ds_flags",
+        "ds_flags_raw",
+        "ds_extra_flags",
+        "ds_compatible_offers",
+        "outreach_mode",
     ]
     return {
         **{k: getattr(lead, k) for k in keys},
+        "outreach_status": "NEEDS_SKIP_TRACE" if lead.needs_skip_trace else lead.contact_status,
         "do_not_contact": lead.do_not_contact,
         "restriction_status": lead.restriction_status,
         "properties": [property_dict(p) for p in lead.properties],

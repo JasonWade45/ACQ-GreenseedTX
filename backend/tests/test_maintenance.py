@@ -16,6 +16,10 @@ def test_migrations_online_backup_and_integrity(tmp_path):
     with sqlite3.connect(database) as db:
         assert db.execute("SELECT count(*) FROM leads").fetchone()[0] == 0
         assert db.execute("SELECT count(*) FROM pipeline_stages").fetchone()[0] == 15
+        # The startup path seeds the reviewed template library, so migrate must leave
+        # the database complete: a later first start may not write anything at all.
+        assert db.execute("SELECT count(*) FROM templates").fetchone()[0] == 26
+        assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == 1
         assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0]
     backup = tmp_path / "backup.db"
     result = subprocess.run(

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { NavLink, Link, Route, Routes, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,6 +14,9 @@ import {
   House,
   LayoutDashboard,
   LockKeyhole,
+  MessageSquareText,
+  FileText,
+  ScanSearch,
   LogOut,
   Menu,
   Search,
@@ -41,6 +44,9 @@ import {
   SettingsPage,
 } from "./pages/OperationsPages";
 import { BriefingPage } from "./pages/BriefingPage";
+const DraftsPage = lazy(() => import("./pages/DraftsPage"));
+const TemplatesPage = lazy(() => import("./pages/TemplatesPage"));
+const SkipTracePage = lazy(() => import("./pages/SkipTracePage"));
 import { SafetyPage } from "./SafetyPage";
 
 /* The version comes from package.json at build time, so it can never drift again. */
@@ -56,6 +62,9 @@ const navigation = [
   { label: "AI Insights", path: "/insights", icon: Sparkles },
   { label: "Sync Status", path: "/sync", icon: CloudDownload },
   { label: "Settings", path: "/settings", icon: Settings2 },
+  { label: "Draft Queue", path: "/drafts", icon: MessageSquareText },
+  { label: "Templates", path: "/templates", icon: FileText },
+  { label: "Skip Trace", path: "/skip-trace", icon: ScanSearch },
   { label: "Briefing", path: "/briefing", icon: ClipboardList },
   { label: "Safety", path: "/safety", icon: ShieldCheck },
 ];
@@ -434,6 +443,7 @@ function Workspace({ onLogout }: { onLogout?: () => void }) {
             className="page-enter"
             key={location.pathname}
           >
+            <Suspense fallback={<Loading />}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/leads" element={<Leads />} />
@@ -445,6 +455,9 @@ function Workspace({ onLogout }: { onLogout?: () => void }) {
               <Route path="/insights" element={<InsightsPage />} />
               <Route path="/sync" element={<SyncPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/drafts" element={<DraftsPage />} />
+              <Route path="/templates" element={<TemplatesPage />} />
+              <Route path="/skip-trace" element={<SkipTracePage />} />
               <Route path="/briefing" element={<BriefingPage />} />
               <Route path="/safety" element={<SafetyPage />} />
               <Route
@@ -457,6 +470,7 @@ function Workspace({ onLogout }: { onLogout?: () => void }) {
                 }
               />
             </Routes>
+            </Suspense>
           </main>
           <footer className="app-footer">
             <span>

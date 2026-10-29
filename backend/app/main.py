@@ -37,6 +37,7 @@ from .models import (
     Message,
     SyncConflict,
     Task,
+    SuggestedAction,
 )
 from .schemas import (
     NoteIn,
@@ -48,12 +49,16 @@ from .schemas import (
     AppointmentResult,
     MappingIn,
     ImportApproval,
-    DraftIn,
+    DraftRequest,
     DraftEdit,
     BulkIn,
     SettingsIn,
     SchedulerIn,
     LoginIn,
+    LeadFieldEdit,
+    MessageEdit,
+    BulkDraftIn,
+    TemplateIn,
     OUTCOMES,
     PipelineCreate,
     PipelineRename,
@@ -78,7 +83,8 @@ from .services.leads import (
     apply_contact_outcome,
     update_next_followup,
 )
-from .services.operations import daily_queue, complete_followup
+from .services.operations import daily_queue, complete_followup, priority_for
+from .services.operations import day_bounds as _day_bounds
 from .services.reporting import dashboard, reports, count_query
 from .services.normalization import FIELDS, csv_bytes
 from .services.imports import upload_batch, preview_batch, approve_batch
@@ -219,6 +225,18 @@ def filter_params(request):
         "followup",
         "from_date",
         "to_date",
+        # Data Syndicate context filters (internal only).
+        "lead_type",
+        "heat",
+        "county",
+        "min_equity",
+        "max_equity",
+        "min_score",
+        "flags",
+        "offer",
+        "tier",
+        "needs_skip_trace",
+        "outreach_mode",
     }
     return {k: v for k, v in request.query_params.items() if k in allowed and v}
 
@@ -365,6 +383,15 @@ def list_leads(
         "stage_code",
         "lead_source",
         "last_contact_at",
+        # Data Syndicate columns Jason sorts by when working a list.
+        "score",
+        "heat",
+        "equity_pct",
+        "lead_type",
+        "county",
+        "recorded_date",
+        "priority_rank",
+        "priority_tier",
     }
     if sort not in fields or direction not in {"asc", "desc"}:
         raise ValueError("Invalid sort field or direction")
@@ -479,9 +506,77 @@ def lead_profile(lead_id: int, db: DB):
         ),
         "draft": draft_dict(draft) if draft and lead_record.restriction_status == "reviewed_clear" else None,
         "draft_stale": bool(draft and draft.context != context_for(db, lead_record)),
+        "priority": _lead_priority(db, lead_record),
         "external_url": None,
         "source_notice": "Activity summaries are not full conversation transcripts. Local changes are not written back to REsimpli.",
     }
+
+
+def _lead_priority(db, lead) -> dict:
+    """The same deterministic score the queue uses, with every reason spelled out."""
+    settings = get_settings()
+    rules_row = db.get(AppSetting, "priority_rules")
+    rules = rules_row.value if rules_row else {}
+    followup = db.scalar(
+        select(Followup)
+        .where(Followup.lead_id == lead.id, Followup.status == "pending")
+        .order_by(Followup.due_at.asc().nullslast())
+    )
+    start, _ = _day_bounds(settings.app_timezone)
+    score, factors = priority_for(lead, followup, rules, start, settings.app_timezone)
+    return {"score": score, "factors": factors, "followup_id": followup.id if followup else None}
+
+
+LEAD_EDITABLE_FIELDS = {
+    "full_name",
+    "first_name",
+    "last_name",
+    "email",
+    "primary_phone",
+    "lead_type",
+    "county",
+    "equity_pct",
+    "score",
+    "heat",
+    "ds_flags",
+    "ds_compatible_offers",
+}
+
+
+@app.patch("/api/leads/{lead_id}/fields")
+def edit_lead_fields(lead_id: int, body: LeadFieldEdit, db: DB):
+    """Correct a local field by hand. The change is audit-logged and remembered.
+
+    A remembered field name is what stops a later Data Syndicate re-import from
+    overwriting Jason's correction.
+    """
+    if not body.confirm:
+        raise ValueError("Confirm this local-only correction")
+    lead = found(db, Lead, lead_id)
+    unknown = sorted(set(body.fields) - LEAD_EDITABLE_FIELDS)
+    if unknown:
+        raise ValueError("These fields cannot be edited here: " + ", ".join(unknown))
+    edited = list(dict.fromkeys(list(lead.user_edited_fields or [])))
+    changed = {}
+    for field, value in body.fields.items():
+        if field == "primary_phone" and value:
+            from .services.normalization import normalize_phone
+
+            value = normalize_phone(str(value))
+        if field in {"ds_flags", "ds_compatible_offers"}:
+            if not isinstance(value, (dict, list)):
+                raise ValueError(f"{field} must be a structured value")
+        if getattr(lead, field) != value:
+            setattr(lead, field, value)
+            changed[field] = value
+        if field not in edited:
+            edited.append(field)
+    if not changed:
+        return {"updated": 0, "user_edited_fields": edited}
+    lead.user_edited_fields = edited
+    db.add(AuditLog(lead_id=lead.id, action="lead_field_edited", details={"fields": list(changed)}))
+    db.commit()
+    return {"updated": len(changed), "user_edited_fields": edited, "lead": lead_dict(lead)}
 
 
 @app.patch("/api/leads/{lead_id}/stage")
@@ -635,6 +730,7 @@ def batch_dict(b):
             "counts",
             "errors",
             "mapping_config",
+            "profile",
             "created_at",
             "finished_at",
         ]
@@ -647,13 +743,15 @@ def list_imports(db: DB):
 
 
 @app.post("/api/imports/upload")
-async def upload_import(db: DB, file: UploadFile = File(...)):
+async def upload_import(db: DB, file: UploadFile = File(...), profile: str = Query("auto")):
     settings = get_settings()
     content = await file.read(settings.max_upload_mb * 1024 * 1024 + 1)
     await file.close()
     if len(content) > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(413, "File exceeds the configured upload limit")
-    batch, repeated = await asyncio.to_thread(upload_batch, db, content, file.filename or "upload", settings)
+    batch, repeated = await asyncio.to_thread(
+        upload_batch, db, content, file.filename or "upload", settings, profile
+    )
     return {**batch_dict(batch), "repeated_file": repeated}
 
 
@@ -710,14 +808,12 @@ def get_batch(
 @app.get("/api/imports/{batch_id}/eligible-ids")
 def eligible_import_ids(batch_id: int, db: DB):
     found(db, ImportBatch, batch_id)
-    ids = db.scalars(
-        select(ImportRow.id).where(
-            ImportRow.batch_id == batch_id,
-            ImportRow.state.in_(["ready", "failed"]),
-            ImportRow.duplicate_kind == "new_record",
-        )
+    base = (ImportRow.batch_id == batch_id, ImportRow.state.in_(["ready", "failed"]))
+    ids = db.scalars(select(ImportRow.id).where(*base, ImportRow.duplicate_kind == "new_record"))
+    refresh = db.scalars(
+        select(ImportRow.id).where(*base, ImportRow.duplicate_kind == "data_syndicate_refresh")
     )
-    return {"row_ids": list(ids)}
+    return {"row_ids": list(ids), "update_row_ids": list(refresh)}
 
 
 @app.post("/api/imports/{batch_id}/preview")
@@ -830,6 +926,83 @@ def export_import(batch_id: int, db: DB, kind: str = "report"):
     return download(csv_bytes(rows, headers), f"import-{batch_id}-{kind}.csv")
 
 
+# ── Skip-trace loop (address-only Data Syndicate leads) ──────────────────────
+@app.get("/api/skip-trace/export")
+def skip_trace_export(db: DB):
+    from .services import skip_trace
+
+    return download(skip_trace.export_csv(db), "skip-trace-export.csv")
+
+
+@app.get("/api/skip-trace/summary")
+def skip_trace_summary(db: DB):
+    from .services import skip_trace
+
+    rows = skip_trace.export_rows(db)
+    return {
+        "needs_skip_trace": len(rows),
+        "columns": skip_trace.EXPORT_HEADERS,
+        "accepts": skip_trace.RESULT_HEADERS,
+    }
+
+
+@app.post("/api/skip-trace/upload")
+async def skip_trace_upload(db: DB, file: UploadFile = File(...)):
+    settings = get_settings()
+    content = await file.read(settings.max_upload_mb * 1024 * 1024 + 1)
+    await file.close()
+    if len(content) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(413, "File exceeds the configured upload limit")
+    batch, repeated = await asyncio.to_thread(
+        upload_batch, db, content, file.filename or "skip-trace.csv", settings, "skip_trace_results"
+    )
+    from .services import skip_trace
+
+    # Matching is read-only, so the upload can show the review immediately.
+    return {**skip_trace.prepare_preview(db, batch), "repeated_file": repeated}
+
+
+@app.post("/api/skip-trace/{batch_id}/preview")
+def skip_trace_preview(batch_id: int, db: DB):
+    from .services import skip_trace
+
+    batch = found(db, ImportBatch, batch_id)
+    if batch.profile != skip_trace.SKIP_TRACE_PROFILE:
+        raise HTTPException(400, "This batch is not a skip-trace result file")
+    return skip_trace.prepare_preview(db, batch)
+
+
+@app.post("/api/skip-trace/{batch_id}/apply")
+def skip_trace_apply(batch_id: int, body: dict, db: DB):
+    from .services import skip_trace
+
+    batch = found(db, ImportBatch, batch_id)
+    if batch.profile != skip_trace.SKIP_TRACE_PROFILE:
+        raise HTTPException(400, "This batch is not a skip-trace result file")
+    return skip_trace.apply_results(
+        db,
+        batch,
+        confirmation=(body or {}).get("confirmation", ""),
+        resolutions=(body or {}).get("resolutions") or {},
+    )
+
+
+@app.get("/api/skip-trace/{batch_id}/rejected")
+def skip_trace_rejected(batch_id: int, db: DB):
+    batch = found(db, ImportBatch, batch_id)
+    rows = db.scalars(select(ImportRow).where(ImportRow.batch_id == batch.id)).all()
+    rejected = [
+        {
+            "row_number": row.row_number,
+            "errors": "; ".join(row.errors or []),
+            "original": row.original,
+        }
+        for row in rows
+        if row.state == "invalid"
+    ]
+    return download(csv_bytes(rejected, ["row_number", "errors", "original"]), "skip-trace-rejected.csv")
+
+
 def sync_dict(r):
     return {
         k: getattr(r, k)
@@ -922,13 +1095,59 @@ def list_insights(db: DB):
     return result
 
 
+def draft_dict_for_cold(view):
+    """Keep the legacy draft keys so an existing client does not break.
+
+    ``context``/``model_id`` describe the local template render; ``id`` here is the
+    message id, so the review endpoints for message drafts are used instead of
+    PATCH /api/drafts/{id}.
+    """
+    return {
+        "id": view.get("id"),
+        "message_id": view.get("id"),
+        "lead_id": view.get("lead_id"),
+        "body": view.get("body"),
+        "context": "",
+        "model_id": view.get("model_id"),
+        "created_at": view.get("created_at"),
+        "updated_at": view.get("updated_at"),
+    }
+
+
 def draft_dict(d):
     return {k: getattr(d, k) for k in ["id", "lead_id", "body", "context", "model_id", "created_at", "updated_at"]}
 
 
 @app.post("/api/leads/{lead_id}/draft")
-def draft(lead_id: int, body: DraftIn, db: DB):
-    return draft_dict(generate_draft(db, found(db, Lead, lead_id), body.regenerate))
+def draft(lead_id: int, body: DraftRequest, db: DB):
+    """The single draft endpoint.
+
+    ``relationship`` keeps the original reviewed-context behavior. ``cold`` uses the
+    template library for leads that have no documented relationship yet. ``auto``
+    follows the lead's own ``outreach_mode`` so existing callers keep working.
+
+    Both paths return a copy-only draft; nothing is ever sent.
+    """
+    from .services import templates as T
+
+    lead = found(db, Lead, lead_id)
+    mode = body.mode
+    if mode == "auto":
+        mode = "cold" if (lead.outreach_mode or "relationship") == "cold" else "relationship"
+    if mode == "cold" or body.template_id is not None or body.body is not None:
+        view = T.draft_view(
+            T.draft_cold(
+                db,
+                lead,
+                get_settings(),
+                template_id=body.template_id,
+                variant=body.variant,
+                body=body.body,
+                regenerate=body.regenerate,
+            )
+        )
+        return {**draft_dict_for_cold(view), "kind": "cold", **view}
+    return {"kind": "relationship", **draft_dict(generate_draft(db, lead, body.regenerate))}
 
 
 @app.patch("/api/drafts/{draft_id}")
@@ -957,6 +1176,12 @@ def export_reports(request: Request, db: DB):
     )
 
 
+def _cadence_days(db):
+    from .services import sequences
+
+    return sequences.cadence_days(db)
+
+
 @app.get("/api/settings")
 def settings_view(db: DB):
     settings = get_settings()
@@ -977,6 +1202,9 @@ def settings_view(db: DB):
             for title, count in sorted(observed.items(), key=lambda item: (-item[1], item[0]))
         ],
         "priority_rules": db.get(AppSetting, "priority_rules").value,
+        "sender_name": settings.sender_name,
+        "company_name": settings.company_name,
+        "cadence": _cadence_days(db),
         "local_only": settings.app_host in {"127.0.0.1", "localhost", "::1"},
         "authentication_enabled": bool(settings.app_access_password),
         "max_upload_mb": settings.max_upload_mb,
@@ -999,45 +1227,64 @@ def settings_update(body: SettingsIn, db: DB):
         db.get(AppSetting, "stage_mapping").value = {k.strip().lower(): v for k, v in body.stage_mapping.items()}
     if body.priority_rules is not None:
         current = db.get(AppSetting, "priority_rules")
-        if set(body.priority_rules) != set(current.value) or any(
-            not 0 <= v <= 365 for v in body.priority_rules.values()
-        ):
-            raise ValueError("Use the existing priority-rule keys and values between 0 and 365")
+        if set(body.priority_rules) != set(current.value):
+            raise ValueError("Use the existing priority-rule keys; add new defaults by restarting the app")
+        for key, value in body.priority_rules.items():
+            floor = -365 if key == "negative_equity_penalty" else 0
+            if not floor <= value <= 365:
+                raise ValueError(f"{key} must be between {floor} and 365")
         current.value = body.priority_rules
+    if body.sender_name is not None or body.company_name is not None:
+        # The opener identity is process configuration, so it is stored in the private
+        # settings file the app already reads at startup (never in the database).
+        from .services import private_settings
+
+        updates = {}
+        if body.sender_name is not None:
+            updates["SENDER_NAME"] = body.sender_name.strip()
+        if body.company_name is not None:
+            updates["COMPANY_NAME"] = body.company_name.strip()
+        private_settings.write_private(updates)
+    if body.cadence is not None:
+        from .services import sequences
+
+        sequences.save_cadence(db, body.cadence)
     db.add(AuditLog(action="settings_changed", details={"keys": list(body.model_fields_set)}))
     db.commit()
     return settings_view(db)
 
 
 def backup_view(item: dict) -> dict:
-    return {**item, "created_at": item["created_at"].isoformat()}
+    view = {**item, "created_at": item["created_at"].isoformat()}
+    view.pop("second_folder", None)
+    if "second_folder" in item:
+        view["second_folder"] = item["second_folder"]
+    return view
 
 
-def backup_overview():
+def backup_overview(db):
     settings = get_settings()
     source = backup_service.database_path(settings.database_url)
-    row = None
-    try:
-        from .db import SessionLocal
-
-        with SessionLocal() as db:
-            row = db.get(AppSetting, "backup_second_folder")
-    except Exception:
-        pass
-    second = row.value.get("path") if row and isinstance(row.value, dict) else None
+    row = db.get(AppSetting, "backup_second_folder")
+    value = row.value if row and isinstance(row.value, dict) else {}
+    second = value.get("path")
     return {
         "enabled": settings.backup_enabled,
         "keep": settings.backup_keep,
         "hour_utc": settings.backup_hour_utc,
         "folder": str(backup_service.backup_directory(source)),
         "second_folder": second,
+        "status": value.get("status") or {},
     }
 
 
 @app.get("/api/backups")
-def list_backups():
+def list_backups(db: DB):
     settings = get_settings()
-    return {**backup_overview(), "backups": [backup_view(b) for b in backup_service.list_backups(settings.database_url)]}
+    return {
+        **backup_overview(db),
+        "backups": [backup_view(b) for b in backup_service.list_backups(settings.database_url)],
+    }
 
 
 @app.post("/api/backups")
@@ -1047,18 +1294,13 @@ def create_backup_now(db: DB):
         created = backup_service.create_backup(settings.database_url, reason="manual")
     except ValueError as error:
         raise HTTPException(409, str(error)) from error
-    # Optional second backup folder (e.g. Google Drive sync folder).
-    try:
-        row = db.get(AppSetting, "backup_second_folder")
-        second = row.value.get("path") if row and isinstance(row.value, dict) else None
-        if second:
-            import shutil as _sh
-
-            dest = Path(second) / created.name
-            Path(second).mkdir(parents=True, exist_ok=True)
-            _sh.copy2(created, dest)
-    except Exception:
-        pass
+    # Optional second backup folder (e.g. a Google Drive sync folder). A failure is
+    # reported in the Backups panel and the briefing instead of being swallowed.
+    row = db.get(AppSetting, "backup_second_folder")
+    second = row.value.get("path") if row and isinstance(row.value, dict) else None
+    mirror = backup_service.copy_to_second_folder(settings.database_url, created, second)
+    if row is not None and mirror.get("configured"):
+        row.value = {"path": second, "status": mirror}
     backup_service.prune(settings.database_url, settings.backup_keep)
     try:
         backup_service.prune_policy(settings.database_url)
@@ -1067,7 +1309,12 @@ def create_backup_now(db: DB):
     db.add(
         AuditLog(
             action="backup_created",
-            details={"file": created.name, "reason": "manual", "bytes": created.stat().st_size},
+            details={
+                "file": created.name,
+                "reason": "manual",
+                "bytes": created.stat().st_size,
+                "second_folder": mirror,
+            },
         )
     )
     db.commit()
@@ -1079,8 +1326,40 @@ def create_backup_now(db: DB):
             "size_bytes": created.stat().st_size,
             "created_at": datetime.fromtimestamp(created.stat().st_mtime, timezone.utc),
             "reason": "manual",
+            "second_folder": mirror,
         }
     )
+
+
+# Static paths must be registered before the ``{name}`` parameter route, otherwise
+# Starlette serves the parameter route and ``/api/backups/config`` is unreachable.
+# The scripts check in backend/app/route_audit.py fails the test suite if that returns.
+@app.get("/api/backups/config")
+def backup_config(db: DB):
+    row = db.get(AppSetting, "backup_second_folder")
+    status = (row.value.get("status") if row and isinstance(row.value, dict) else None) or {}
+    return {
+        "second_folder": (row.value.get("path") if row and isinstance(row.value, dict) else None),
+        "status": status,
+    }
+
+
+@app.patch("/api/backups/config")
+def backup_config_update(body: dict, db: DB):
+    from .services import backups as backup_service
+
+    path = (body or {}).get("second_folder")
+    path = (path or "").strip() or None
+    validated = backup_service.validate_second_folder(path) if path else None
+    row = db.get(AppSetting, "backup_second_folder")
+    value = {"path": validated, "status": {"ok": True, "checked_at": utcnow().isoformat()} if validated else {}}
+    if row is None:
+        db.add(AppSetting(key="backup_second_folder", value=value))
+    else:
+        row.value = value
+    db.add(AuditLog(action="backup_config_changed", details={"second_folder": validated}))
+    db.commit()
+    return {"second_folder": validated}
 
 
 @app.get("/api/backups/{name}")
@@ -1108,25 +1387,6 @@ def delete_backup(name: str, db: DB, confirm: str = Query(default="")):
     return {"deleted": name}
 
 
-@app.get("/api/backups/config")
-def backup_config(db: DB):
-    row = db.get(AppSetting, "backup_second_folder")
-    return {"second_folder": (row.value.get("path") if row and isinstance(row.value, dict) else None)}
-
-
-@app.patch("/api/backups/config")
-def backup_config_update(body: dict, db: DB):
-    path = (body or {}).get("second_folder")
-    row = db.get(AppSetting, "backup_second_folder")
-    if row is None:
-        db.add(AppSetting(key="backup_second_folder", value={"path": path}))
-    else:
-        row.value = {"path": path}
-    db.add(AuditLog(action="backup_config_changed", details={"second_folder": path}))
-    db.commit()
-    return {"second_folder": path}
-
-
 @app.post("/api/backups/restore")
 def restore_backup(body: dict, db: DB):
     name = (body or {}).get("name")
@@ -1137,10 +1397,8 @@ def restore_backup(body: dict, db: DB):
         raise HTTPException(404, str(error)) from error
     # Validate the chosen backup before touching the live database.
     try:
-        with sqlite3.connect(path) as conn:
-            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                raise ValueError("Backup failed integrity check")
-    except Exception as error:
+        backup_service.verify_backup(path)
+    except ValueError as error:
         raise HTTPException(400, f"Backup is not usable: {error}") from error
     source = backup_service.database_path(settings.database_url)
     # Safety copy of the current database first.
@@ -1148,13 +1406,23 @@ def restore_backup(body: dict, db: DB):
         safety = backup_service.create_backup(settings.database_url, reason="manual")
     except Exception as error:
         raise HTTPException(500, f"Could not create safety copy: {error}") from error
-    # Replace the live file. The app should be restarted afterwards.
+    # Replace the live file, then verify the restored copy. If the restored database
+    # fails its own integrity check, the safety copy is put straight back.
     try:
         for suffix in ("", "-wal", "-shm", "-journal"):
             Path(str(source) + suffix).unlink(missing_ok=True)
         shutil.copy2(path, source)
+        with sqlite3.connect(source) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("The restored database failed its integrity check")
     except Exception as error:
-        raise HTTPException(500, f"Restore failed: {error}") from error
+        try:
+            for suffix in ("", "-wal", "-shm", "-journal"):
+                Path(str(source) + suffix).unlink(missing_ok=True)
+            shutil.copy2(safety, source)
+        except Exception:
+            pass
+        raise HTTPException(500, f"Restore failed and the safety copy was restored: {error}") from error
     db.add(AuditLog(action="backup_restored", details={"from": name, "safety_copy": safety.name}))
     db.commit()
     return {"restored_from": name, "safety_copy": safety.name, "restart_required": True}
@@ -1322,34 +1590,170 @@ def audit_list(db: DB, limit: int = 200, action: str | None = None):
     ]
 
 
-# ── Phase 3: templates & messages ────────────────────────────────────────────
+# ── Templates and message drafts (cold outreach) ─────────────────────────────
 @app.get("/api/message-templates")
 def list_message_templates(db: DB):
+    from .services import templates as T
 
     rows = db.query(Template).order_by(Template.category, Template.variant).all()
-    return [{"id": t.id, "category": t.category, "variant": t.variant, "body": t.body, "active": t.active, "stats": t.stats or {}} for t in rows]
+    return [
+        {
+            "id": t.id,
+            "category": T.canonical_category(t.category),
+            "raw_category": t.category,
+            "variant": t.variant,
+            "body": t.body,
+            "active": t.active,
+            "version": t.version,
+            "stats": t.stats or {},
+            "banned_words": T.validate_message(
+                T.render_template(t.body, type("L", (), {"properties": [], "first_name": "Test", "full_name": "Test"})())[0],
+                True,
+                sender_name="Jason Wade",
+                company="GreenSeedTX LLC",
+            )[1],
+        }
+        for t in rows
+    ]
 
 
 @app.post("/api/templates/seed")
 def seed_templates(db: DB):
     from .services import templates as T
 
-    n = T.seed_templates(db)
-    return {"created": n}
+    return {"created": T.seed_templates(db)}
 
 
-@app.post("/api/leads/{lead_id}/draft")
-def create_draft(lead_id: int, db: DB, body: dict | None = None):
+@app.post("/api/message-templates/reset")
+def reset_message_templates(db: DB):
+    """Restore the reviewed default wording. Explicit action, never automatic."""
     from .services import templates as T
 
-    lead = db.get(Lead, lead_id)
-    if not lead:
-        raise HTTPException(404, "Lead not found")
-    template_id = (body or {}).get("template_id")
-    variant = (body or {}).get("variant", "A")
-    custom_body = (body or {}).get("body")
-    m = T.create_draft(db, lead, template_id=template_id, variant=variant, body=custom_body)
-    return {"id": m.id, "lead_id": m.lead_id, "body": m.body, "status": m.status, "template_id": m.template_id, "variant": m.variant, "validator_result": m.validator_result}
+    return T.reset_templates(db)
+
+
+@app.patch("/api/message-templates/{template_id}")
+def edit_message_template(template_id: int, body: TemplateIn, db: DB):
+    from .services import templates as T
+
+    row = found(db, Template, template_id)
+    if body.body is not None:
+        sample = type(
+            "SampleLead",
+            (),
+            {
+                "first_name": "Dana",
+                "full_name": "Dana Seller",
+                "properties": [
+                    type("P", (), {"street_address": "1 Test St", "city": "Fort Worth"})()
+                ],
+            },
+        )()
+        rendered = T.render_template(body.body, sample, "Jason Wade", "GreenSeedTX LLC")
+        ok, reasons = T.validate_message(
+            rendered, True, sender_name="Jason Wade", company="GreenSeedTX LLC"
+        )
+        if not ok:
+            raise ValueError("Template cannot be saved: " + ", ".join(reasons))
+        row.body = body.body
+        row.version += 1
+    if body.active is not None:
+        row.active = body.active
+    db.add(AuditLog(action="template_edited", details={"template_id": row.id, "active": row.active}))
+    db.commit()
+    return {"id": row.id, "category": row.category, "variant": row.variant, "body": row.body, "active": row.active}
+
+
+@app.get("/api/drafts")
+def draft_review_queue(db: DB, status: str = "DRAFT", limit: int = 100):
+    """The copy-only review queue. There is no bulk copy and no send anywhere."""
+    rows = (
+        db.query(Message)
+        .filter(Message.direction == "outbound", Message.status == status)
+        .order_by(Message.id.desc())
+        .limit(min(limit, 300))
+        .all()
+    )
+    items = []
+    for row in rows:
+        lead = db.get(Lead, row.lead_id)
+        items.append(
+            {
+                **templates_message_dict(row),
+                "lead_name": lead.full_name if lead else None,
+                "lead_external_id": lead.external_id if lead else None,
+                "heat": lead.heat if lead else None,
+                "score": lead.score if lead else None,
+                "outreach_mode": lead.outreach_mode if lead else None,
+            }
+        )
+    return {"items": items, "total": db.query(Message).filter(Message.status == status, Message.direction == "outbound").count()}
+
+
+def templates_message_dict(row):
+    return {
+        "id": row.id,
+        "lead_id": row.lead_id,
+        "body": row.body,
+        "status": row.status,
+        "template_id": row.template_id,
+        "variant": row.variant,
+        "validator_result": row.validator_result or {},
+        "why_this_template": row.reason_tags or [],
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@app.patch("/api/messages/{message_id}")
+def edit_message(message_id: int, body: MessageEdit, db: DB):
+    from .services import templates as T
+
+    row = found(db, Message, message_id)
+    if row.direction != "outbound" or row.status not in {"DRAFT", "APPROVED"}:
+        raise ValueError("Only an outgoing draft can be edited")
+    lead = db.get(Lead, row.lead_id)
+    if lead is not None and lead.do_not_contact:
+        raise ValueError("Draft editing is blocked by the lead's current contact restriction")
+    sender_name, company = T.sender_identity()
+    ok, reasons = T.validate_message(body.body, True, sender_name=sender_name, company=company)
+    if not ok:
+        raise ValueError("Draft cannot be saved: " + ", ".join(reasons))
+    row.body = body.body
+    row.validator_result = {"ok": ok, "reasons": reasons}
+    db.add(AuditLog(lead_id=row.lead_id, action="draft_edited", details={"message_id": row.id, "never_sent": True}))
+    db.commit()
+    return templates_message_dict(row)
+
+
+@app.post("/api/drafts/bulk")
+def bulk_generate_drafts(body: BulkDraftIn, db: DB):
+    """Generate drafts for a reviewed selection; they land in the review queue.
+
+    No bulk copy and no bulk send exists by design.
+    """
+    from .services import templates as T
+
+    if not body.confirm:
+        raise ValueError("Confirm generating drafts for this selection")
+    query = select(Lead).where(Lead.needs_skip_trace.is_(False), Lead.local_do_not_contact.is_(False))
+    if body.lead_ids:
+        query = query.where(Lead.id.in_(body.lead_ids))
+    if body.tier:
+        query = query.where(Lead.priority_tier == body.tier)
+    if not body.lead_ids and not body.tier:
+        raise ValueError("Select leads or a priority tier")
+    leads = db.scalars(query).all()
+    if not leads:
+        raise ValueError("No lead in this selection can receive a draft")
+    results = T.bulk_drafts(db, leads, get_settings(), variant=body.variant)
+    return {
+        "requested": len(leads),
+        "generated": sum(1 for r in results if r["ok"]),
+        "blocked": sum(1 for r in results if not r["ok"]),
+        "results": results,
+        "bulk_copy": False,
+        "bulk_send": False,
+    }
 
 
 @app.post("/api/messages/{message_id}/approve")
@@ -1433,6 +1837,67 @@ def handle_reply(lead_id: int, body: dict, db: DB):
     db.add(AuditLog(lead_id=lead.id, action="reply_classified", details={"classification": result["classification"], "confidence": result["confidence"]}))
     db.commit()
     return result
+
+
+@app.get("/api/suggested-actions")
+def list_suggested_actions(db: DB, status: str = "pending", limit: int = 100):
+    rows = (
+        db.query(SuggestedAction)
+        .filter(SuggestedAction.status == status)
+        .order_by(SuggestedAction.id.desc())
+        .limit(min(limit, 300))
+        .all()
+    )
+    result = []
+    for row in rows:
+        lead = db.get(Lead, row.lead_id)
+        result.append(
+            {
+                "id": row.id,
+                "lead_id": row.lead_id,
+                "lead_name": lead.full_name if lead else None,
+                "kind": row.kind,
+                "classification": row.classification,
+                "confidence": row.confidence,
+                "evidence": row.evidence,
+                "payload": row.payload or {},
+                "status": row.status,
+                "requires_confirmation": row.requires_confirmation,
+                "created_at": row.created_at,
+            }
+        )
+    return result
+
+
+@app.post("/api/suggested-actions/{action_id}/confirm")
+def confirm_suggested_action(action_id: int, db: DB):
+    from .services import replies as R
+
+    action = found(db, SuggestedAction, action_id)
+    result = R.confirm_action(db, action, decision="confirm")
+    db.add(AuditLog(lead_id=action.lead_id, action="suggested_action_confirmed", details=result))
+    db.commit()
+    return result
+
+
+@app.post("/api/suggested-actions/{action_id}/dismiss")
+def dismiss_suggested_action(action_id: int, db: DB):
+    from .services import replies as R
+
+    action = found(db, SuggestedAction, action_id)
+    result = R.confirm_action(db, action, decision="dismiss")
+    db.add(AuditLog(lead_id=action.lead_id, action="suggested_action_dismissed", details=result))
+    db.commit()
+    return result
+
+
+@app.post("/api/replies/scan")
+def scan_inbound_activities(db: DB):
+    """Classify inbound activity text the read-only sync already stored."""
+    from .services import replies as R
+
+    result = R.classify_inbound_activities(db)
+    return {"classified": len(result), "items": result}
 
 
 @app.post("/api/replies/classify")

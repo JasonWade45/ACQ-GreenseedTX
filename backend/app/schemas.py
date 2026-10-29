@@ -94,7 +94,7 @@ class MappingIn(StrictModel):
 class ImportApproval(StrictModel):
     fill_missing: bool = False
     row_ids: list[int] = Field(max_length=50000)
-    resolutions: dict[str, Literal["skip", "separate", "link"]] = Field(default_factory=dict)
+    resolutions: dict[str, Literal["skip", "separate", "link", "update"]] = Field(default_factory=dict)
     confirmation: str
     destination: Literal["local"] = "local"
 
@@ -103,8 +103,46 @@ class DraftIn(StrictModel):
     regenerate: bool = False
 
 
+class DraftRequest(StrictModel):
+    """One endpoint, two drafting modes.
+
+    ``mode="auto"`` follows the lead's stored ``outreach_mode``, so an existing caller
+    that posts ``{}`` or ``{"regenerate": true}`` keeps the original behavior.
+    """
+
+    regenerate: bool = False
+    mode: Literal["auto", "relationship", "cold"] = "auto"
+    template_id: int | None = None
+    variant: str | None = Field(default=None, max_length=4)
+    body: str | None = Field(default=None, max_length=8000)
+
+
+class MessageEdit(StrictModel):
+    body: str = Field(min_length=1, max_length=8000)
+
+
+class BulkDraftIn(StrictModel):
+    lead_ids: list[int] = Field(default_factory=list, max_length=500)
+    tier: Literal["P1", "P2", "P3", "P4"] | None = None
+    variant: str | None = Field(default=None, max_length=4)
+    confirm: bool
+
+
+class TemplateIn(StrictModel):
+    body: str | None = Field(default=None, max_length=2000)
+    active: bool | None = None
+
+
 class DraftEdit(StrictModel):
     body: str = Field(min_length=1, max_length=8000)
+
+
+class LeadFieldEdit(StrictModel):
+    """A manual local correction. Every edited field is remembered by name so a
+    later vendor re-import can never overwrite it."""
+
+    fields: dict[str, str | float | None | list[str]]
+    confirm: bool
 
 
 class BulkIn(StrictModel):
@@ -116,6 +154,9 @@ class BulkIn(StrictModel):
 class SettingsIn(StrictModel):
     stage_mapping: dict[str, str] | None = None
     priority_rules: dict[str, int] | None = None
+    sender_name: str | None = Field(default=None, max_length=120)
+    company_name: str | None = Field(default=None, max_length=120)
+    cadence: list[int] | None = None
 
 
 class SchedulerIn(StrictModel):

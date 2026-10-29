@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 import threading
@@ -19,12 +20,34 @@ ALLOWED = {
     "RESIMPLI_MODE",
     "RESIMPLI_ADAPTER_PATH",
     "RESIMPLI_ADAPTER_VERIFIED",
+    # Opener identity for every draft path (not a secret, but it is process config).
+    "SENDER_NAME",
+    "COMPANY_NAME",
 }
 
 
+SECRET_KEY = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
+
+
 def write_private(values):
+    """Change one of the allow-listed connector settings from the Settings screen."""
     if not set(values).issubset(ALLOWED):
         raise ValueError("This private setting cannot be changed here")
+    _write(values)
+
+
+def write_secret(values):
+    """Store a named secret (the secret store's own namespace, never the Settings keys).
+
+    Only the secret store uses this. The allow-list above still governs anything the
+    HTTP Settings screen can change.
+    """
+    if not all(SECRET_KEY.match(str(key)) for key in values):
+        raise ValueError("Secret names must be upper snake case")
+    _write(values)
+
+
+def _write(values):
     path = config.private_settings_path()
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with LOCK:

@@ -72,7 +72,44 @@ FIELDS = {
     "mortgage_balance": "Recorded mortgage balance",
     "occupancy_status": "Recorded occupancy status",
     "property_condition": "Recorded property condition",
+    "ds_flags": "Data Syndicate flags",
+    "ds_compatible_offers": "Compatible offers",
 }
+
+# Data Syndicate flag text -> structured boolean. Anything unknown is kept verbatim.
+DS_FLAGS = {
+    "free & clear": "free_and_clear",
+    "free and clear": "free_and_clear",
+    "high equity": "high_equity",
+    "low equity": "low_equity",
+    "owner occupied": "owner_occupied",
+    "absentee in state": "absentee_in_state",
+    "absentee out of state": "absentee_out_of_state",
+    "senior owner": "senior_owner",
+    "corporate owned": "corporate_owned",
+    "trust owned": "trust_owned",
+    "cash buyer": "cash_buyer",
+    "failed listing": "failed_listing",
+    "expired listing": "expired_listing",
+    "below market listing": "below_market_listing",
+    "recently sold": "recently_sold",
+    "for sale by owner": "for_sale_by_owner",
+    "involuntary lien": "involuntary_lien",
+    "hoa fees": "hoa_fees",
+    "sleeper": "sleeper",
+    "deep prospect needed": "deep_prospect_needed",
+}
+DS_OFFER_TYPES = [
+    "Seller Finance",
+    "Cash",
+    "Subject-To",
+    "Novation",
+    "Fix and flip",
+]
+# Columns a vendor export adds that carry no lead data.
+IGNORED_HEADERS = {"expand details", "expanddetails", "details"}
+# Headers that mark a Data Syndicate (address-only) export.
+DS_SIGNATURE_HEADERS = {"sale likelihood", "estimated equity (%)", "compatible offers", "lead type", "flags"}
 STATES = dict(
     zip(
         [
@@ -149,6 +186,8 @@ ALIASES = {
     "propertystreet": "street_address",
     "zip": "zip_code",
     "zipcode": "zip_code",
+    "flags": "ds_flags",
+    "compatibleoffers": "ds_compatible_offers",
     "status": "source_status",
     "leadstatus": "source_status",
     "source": "lead_source",
@@ -228,6 +267,46 @@ ALIASES = {
     "mailingzip": "zip_code",
     "mailingzipcode": "zip_code",
 }
+
+
+def parse_ds_flags(value):
+    """Split a Data Syndicate flag cell into typed booleans plus the unknown remainder.
+
+    Unknown flags are never dropped: they are kept verbatim in ``extra_flags`` so a
+    new vendor flag cannot silently disappear.
+    """
+    text = str(value or "").strip()
+    parts = [p.strip() for p in re.split(r"[,;|/]", text) if p.strip()]
+    flags, extra = {}, []
+    for part in parts:
+        key = re.sub(r"\s+", " ", part.lower())
+        mapped = DS_FLAGS.get(key)
+        if mapped:
+            flags[mapped] = True
+        else:
+            extra.append(part)
+    return {"flags": flags, "raw": text, "extra_flags": extra}
+
+
+def parse_compatible_offers(value):
+    text = str(value or "").strip()
+    parts = [re.sub(r"\s+", " ", p.strip()) for p in re.split(r"[,;|/]", text) if p.strip()]
+    canonical = {o.lower(): o for o in DS_OFFER_TYPES}
+    result = []
+    for part in parts:
+        name = canonical.get(part.lower(), part)
+        if name not in result:
+            result.append(name)
+    return result
+
+
+def detect_profile(headers) -> str:
+    """Recognise a Data Syndicate address-only export from its headers."""
+    keys = {re.sub(r"[^a-z0-9]", "", str(h).lower()) for h in headers}
+    signature = {re.sub(r"[^a-z0-9]", "", h) for h in DS_SIGNATURE_HEADERS}
+    has_address = bool(keys & {"address", "propertyaddress", "compositeaddress"})
+    has_owner = bool(keys & {"ownername", "ownerfirstname", "sellername", "fullname", "bestreachablephone", "ownerphone1"})
+    return "address_only" if has_address and len(keys & signature) >= 2 and not has_owner else "standard"
 
 
 def clean(value):
@@ -348,6 +427,8 @@ def guess_mapping(headers):
     phone_slots = ["primary_phone", "phone2", "phone3", "phone4", "phone5"]
     phone_slot_idx = 0
     for h in headers:
+        if h.strip().lower() in IGNORED_HEADERS:
+            continue
         key = re.sub("[^a-z0-9]", "", h.lower())
         target = aliases.get(key)
         # Generic phone-column detection for any sheet: a header that looks
@@ -368,7 +449,7 @@ def guess_mapping(headers):
     return result
 
 
-def normalize_record(original, mapping, zone, date_order):
+def normalize_record(original, mapping, zone, date_order, profile="standard"):
     data, errors, warnings = {}, [], []
     derived = {}
     for source, target in mapping.items():
@@ -443,7 +524,12 @@ def normalize_record(original, mapping, zone, date_order):
                 if not (0 <= num <= 100):
                     raise ValueError("Score must be between 0 and 100")
                 data[target] = num
-                if num >= 85:
+                # A Data Syndicate cell reads like "87.1 Score HOT"; the label wins when present,
+                # otherwise the documented numeric thresholds apply.
+                label = re.search(r"very\s*hot|hot", value, re.I)
+                if label:
+                    data["heat"] = "VERY_HOT" if re.fullmatch(r"very\s*hot", label.group(0), re.I) else "HOT"
+                elif num >= 85:
                     data["heat"] = "VERY_HOT"
                 elif num >= 75:
                     data["heat"] = "HOT"
@@ -453,6 +539,13 @@ def normalize_record(original, mapping, zone, date_order):
                 cleaned = value.replace("%", "").strip()
                 num = float(re.sub(r"[^0-9.\-]", "", cleaned))
                 data[target] = num
+            elif target == "ds_flags":
+                parsed = parse_ds_flags(value)
+                data["flags"] = parsed["flags"]
+                data["flags_raw"] = parsed["raw"]
+                data["extra_flags"] = parsed["extra_flags"]
+            elif target == "ds_compatible_offers":
+                data["compatible_offers"] = parse_compatible_offers(value)
             elif target in {"owner_occupied", "vacant", "hoa"}:
                 low = value.lower()
                 if low in {"true", "yes", "y", "1", "owner occupied", "vacant", "yes hoa", "hoa"}:
@@ -485,8 +578,32 @@ def normalize_record(original, mapping, zone, date_order):
         if data.get("street_address"):
             data["record_kind"] = "property_only"
             warnings.append("Owner identity unknown: property-only prospect, not cleared for drafting")
+        elif profile == "address_only":
+            errors.append("Data Syndicate row has no property address; it cannot be skip traced")
         else:
             errors.append("A seller name or property address is required")
+    if profile == "address_only":
+        # Address-only acceptance: a parseable property address is the only requirement.
+        # Nothing is guessed; a row that cannot be parsed is rejected with a reason.
+        street = (data.get("street_address") or "").strip()
+        if not street:
+            errors.append("Data Syndicate address is missing")
+        elif not data.get("state") or not data.get("zip_code"):
+            split = split_full_address(street)
+            if split:
+                for field, value in split.items():
+                    if not data.get(field):
+                        data[field] = value
+            else:
+                missing = [label for label, key in (("state", "state"), ("ZIP", "zip_code")) if not data.get(key)]
+                errors.append(
+                    "Address must include " + " and ".join(missing) + "; the address was not guessed"
+                )
+        if not data.get("city"):
+            warnings.append("City is missing; only the street, state and ZIP were verified")
+        key_source = (data.get("normalized_address") or f"{street.lower()}|{data.get('zip_code') or ''}").strip()
+        data["external_id"] = "ds:" + key_source
+        data["outreach_mode"] = "cold"
     if not any(data.get(k) for k in ["primary_phone", "email", "street_address", "external_id"]):
         errors.append("At least a phone, email, property address or external ID is required")
     for field in ["primary_phone", "street_address", "original_created_at"]:
@@ -544,6 +661,10 @@ def normalize_record(original, mapping, zone, date_order):
         data["dedupe_key"] = f"{addr}|{zc}" if zc else addr
     # Skip-trace flag.
     data["needs_skip_trace"] = not bool(data.get("full_name")) or not bool(data.get("primary_phone"))
+    data.setdefault("outreach_mode", "relationship")
+    data.setdefault("flags", {})
+    data.setdefault("extra_flags", [])
+    data.setdefault("compatible_offers", [])
     # Tiering (Phase 2.2).
     score = data.get("score")
     heat = (data.get("heat") or "NONE").upper()

@@ -239,6 +239,93 @@ export default function Leads() {
                 <option value="contacted">Verified contact</option>
               </select>
             </label>
+            <label>
+              Heat
+              <select
+                value={params.get("heat") || ""}
+                onChange={(e) => filter("heat", e.target.value)}
+              >
+                <option value="">Any heat</option>
+                <option value="VERY_HOT">Very hot</option>
+                <option value="HOT">Hot</option>
+                <option value="NONE">No heat signal</option>
+              </select>
+            </label>
+            <label>
+              Priority tier
+              <select
+                value={params.get("tier") || ""}
+                onChange={(e) => filter("tier", e.target.value)}
+              >
+                <option value="">Any tier</option>
+                {["P1", "P2", "P3", "P4"].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Lead type
+              <select
+                value={params.get("lead_type") || ""}
+                onChange={(e) => filter("lead_type", e.target.value)}
+              >
+                <option value="">Any lead type</option>
+                <option value="SENIOR_OWNER">Senior owner</option>
+                <option value="TAX_LIEN_LISPENDENS_HOA">Tax lien / lis pendens / HOA</option>
+                <option value="ABSENTEE">Absentee</option>
+                <option value="INHERITED">Inherited</option>
+              </select>
+            </label>
+            <label>
+              County
+              <input
+                value={params.get("county") || ""}
+                onChange={(e) => filter("county", e.target.value)}
+                placeholder="e.g. Dallas"
+              />
+            </label>
+            <label>
+              Minimum score
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={params.get("min_score") || ""}
+                onChange={(e) => filter("min_score", e.target.value)}
+              />
+            </label>
+            <label>
+              Minimum equity %
+              <input
+                type="number"
+                value={params.get("min_equity") || ""}
+                onChange={(e) => filter("min_equity", e.target.value)}
+              />
+            </label>
+            <label>
+              Outreach context
+              <select
+                value={params.get("outreach_mode") || ""}
+                onChange={(e) => filter("outreach_mode", e.target.value)}
+              >
+                <option value="">Any context</option>
+                <option value="relationship">Relationship (warm history)</option>
+                <option value="cold">Cold (no prior relationship)</option>
+              </select>
+            </label>
+            <label>
+              Skip trace
+              <select
+                value={params.get("needs_skip_trace") || ""}
+                onChange={(e) => filter("needs_skip_trace", e.target.value)}
+              >
+                <option value="">Any lead</option>
+                <option value="true">Needs a skip trace</option>
+                <option value="false">Has a verified contact</option>
+              </select>
+            </label>
           </div>
         )}
         <div className="filter-chips">
@@ -369,6 +456,7 @@ export default function Leads() {
                         NEXT FOLLOW-UP <ArrowDownUp size={12} />
                       </button>
                     </th>
+                    <th>DS CONTEXT</th>
                     <th>DATA HEALTH</th>
                     <th />
                   </tr>
@@ -467,6 +555,33 @@ export default function Leads() {
                           Last contact:{" "}
                           {dateTime(l.last_contact_at, meta.timezone, true)}
                         </small>
+                      </td>
+                      <td>
+                        <div className="row wrap">
+                          {l.heat && l.heat !== "NONE" ? (
+                            <Badge tone={l.heat === "VERY_HOT" ? "red" : "amber"}>
+                              {l.heat === "VERY_HOT" ? "Very hot" : "Hot"}
+                            </Badge>
+                          ) : null}
+                          {l.priority_tier ? <Badge>{l.priority_tier}</Badge> : null}
+                          {typeof l.score === "number" ? (
+                            <Badge tone="blue">Score {l.score}</Badge>
+                          ) : null}
+                        </div>
+                        <small>
+                          {[
+                            l.lead_type,
+                            l.county,
+                            typeof l.equity_pct === "number"
+                              ? `${l.equity_pct}% equity`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || "No vendor context"}
+                        </small>
+                        {l.needs_skip_trace ? (
+                          <small className="text-amber">Needs skip trace</small>
+                        ) : null}
                       </td>
                       <td>
                         {l.do_not_contact ? (

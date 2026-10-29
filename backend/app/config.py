@@ -48,6 +48,18 @@ class Settings(BaseSettings):
     draft_signature: str = "Jason Wade\nAcquisition Manager, GreenSeedTX LLC"
     draft_manager_name: str = "Jason Wade"
     draft_company: str = "GreenSeedTX LLC"
+    # Opener identity used by every draft path (relationship and cold). Configurable
+    # in Settings; a cold draft refuses to render when either value is blank.
+    sender_name: str = "Jason Wade"
+    company_name: str = "GreenSeedTX LLC"
+
+    @field_validator("sender_name", "company_name")
+    @classmethod
+    def identity_values(cls, value):
+        text = (value or "").strip()
+        if not text or len(text) > 120 or "\n" in text or "\r" in text:
+            raise ValueError("Sender name and company must be one line of at most 120 characters")
+        return text
 
     @field_validator("database_url")
     @classmethod

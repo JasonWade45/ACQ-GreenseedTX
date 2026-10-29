@@ -1,11 +1,34 @@
-# Project status — Acquisitions Assistant AI 1.3.1
+# Project status — Acquisitions Assistant AI 1.5.0
 
-**Updated 2026-10-28.** Unified local-first seller-acquisitions application. **Published
-release: `v1.3.1`** — see `docs/RELEASE_1_3_1.md`. Earlier releases (`v1.2.9`, `v1.2.8`,
+**Updated 2026-10-29.** Unified local-first seller-acquisitions application. **Release:
+`v1.5.0`** — see `docs/RELEASE_1_5.md`. Earlier releases (`v1.3.1`, `v1.2.9`, `v1.2.8`,
 `v1.2.3`, `v1.2.2`, `v1.2.1`) are retained unchanged; a published tag is never rewritten.
 
 ## What the app is now
 
+- **Data Syndicate intake, worked properly (1.5.0).** An address-only vendor export is
+  imported with heat, sale likelihood, equity, flags, compatible offers, county, lead
+  type and recorded date kept as *internal* context that never appears in a draft. A
+  lead with no verified owner name or phone is flagged `NEEDS_SKIP_TRACE`, worked from
+  its own queue section and blocked from drafting until the skip-trace loop gives it a
+  contact.
+- **A reviewed skip-trace loop (1.5.0).** Export address + lead key only, run it through
+  your own provider, import the results, review matched/rejected/conflicting rows, then
+  type `IMPORT LOCAL`. CRM-synced phone numbers are never replaced without an explicit
+  per-row decision.
+- **Cold outreach drafts (1.5.0).** `outreach_mode` cold keeps every gate except the
+  relationship requirement. 13 template categories × 2 variants, a stored reason for
+  the chosen template, and a hard validator (identity, street address, opt-out line, no
+  emoji/URLs/dollar amounts/placeholders/false urgency, ≤320 characters). Bulk
+  generation creates drafts only: `bulk_copy: false`, `bulk_send: false`.
+- **Replies and cadence (1.5.0).** Rule-first classification with a confidence and a
+  quoted evidence span; low confidence is flagged for a human read. Any reply pauses
+  the cadence immediately; suppression, stage changes and follow-ups stay suggestions
+  you confirm or dismiss. Cadence days are editable (default
+  `0, 3, 7, 14, 30, 60, 90, 120`) and the runner only ever creates drafts and tasks.
+- **Daily briefing (1.5.0).** Opt-outs first, then replies with evidence, follow-ups,
+  drafts awaiting review, drafts failing validation, skip-trace leads, stalled leads
+  (14 days), sync conflicts and the last backup — with a second verified backup folder.
 - **A program you run on your own computer.** `START-ACQ.cmd` (Windows) or `./start-acq.sh`
   (Linux/macOS) creates the private environment, generates a strong password, prints the
   local and LAN addresses plus a QR code, and opens the browser. Any phone or laptop on the
