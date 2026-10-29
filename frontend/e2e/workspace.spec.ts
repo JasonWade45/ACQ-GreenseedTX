@@ -234,37 +234,35 @@ test("appointments, reports and sync health are reachable with actual data", asy
   ).toBeVisible();
 });
 
+// Every route in the sidebar, so a new screen cannot ship unopened.
+const ROUTES = [
+  "/",
+  "/leads",
+  "/followups",
+  "/appointments",
+  "/imports",
+  "/reports",
+  "/insights",
+  "/sync",
+  "/settings",
+  "/drafts",
+  "/templates",
+  "/skip-trace",
+  "/briefing",
+  "/safety",
+];
+
 test("all application routes render without browser exceptions and mobile has no page overflow", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  for (const route of [
-    "/",
-    "/leads",
-    "/followups",
-    "/appointments",
-    "/imports",
-    "/reports",
-    "/insights",
-    "/sync",
-    "/settings",
-  ]) {
+  for (const route of ROUTES) {
     await page.goto(route);
     await expect(page.locator("main h1")).toBeVisible();
   }
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const route of [
-    "/",
-    "/leads",
-    "/followups",
-    "/appointments",
-    "/imports",
-    "/reports",
-    "/insights",
-    "/sync",
-    "/settings",
-  ]) {
+  for (const route of ROUTES) {
     await page.goto(route);
     await expect(page.locator("main h1")).toBeVisible();
     expect(
@@ -297,6 +295,18 @@ test("all application routes render without browser exceptions and mobile has no
 test("dashboard accessibility: named controls and no critical/serious WCAG violations", async ({
   page,
 }) => {
+  // Colour is measured on the settled page. An entrance animation at 95% opacity
+  // lightens every label and reports contrast failures that do not exist.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  await expect(
+    page.locator(".metric-card").filter({ hasText: "Total seller leads" }),
+  ).toBeVisible();
+  await page.evaluate(() =>
+    Promise.all(
+      document.getAnimations().map((animation) => animation.finished.catch(() => {})),
+    ),
+  );
   const result = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
     .analyze();
@@ -304,10 +314,12 @@ test("dashboard accessibility: named controls and no critical/serious WCAG viola
     ["critical", "serious"].includes(v.impact || ""),
   );
   expect(
+    // The measured colours travel with the failure: without them the report only
+    // says "contrast" and someone has to guess which two values to change.
     major.map((v) => ({
       id: v.id,
       description: v.description,
-      nodes: v.nodes.map((n) => n.target),
+      nodes: v.nodes.map((n) => `${n.target.join(" ")} :: ${n.failureSummary}`),
     })),
   ).toEqual([]);
 });
@@ -573,8 +585,10 @@ test("unified property research has known references, no fabricated sales and mo
     .first()
     .click();
   await page.getByRole("tab", { name: "Property research" }).click();
+  // There is no MLS feed, and the panel says so instead of implying sold data exists.
+  await expect(page.getByText("No MLS feed", { exact: true })).toBeVisible();
   await expect(
-    page.getByText("No verified sold comparables connected"),
+    page.getByText(/Comparables here are the ones you entered yourself/),
   ).toBeVisible();
   await expect(page.locator(".research-subject")).toContainText("88 Sample Avenue");
   await expect(page.getByText("$185,000", { exact: true })).toBeVisible();
@@ -678,4 +692,188 @@ test("unified local database migration requires decisions and preserves historic
   await page.getByLabel(/full local path/).fill(process.env.E2E_LEGACY_SOURCE!);
   await page.getByRole("button", { name: "Prepare read-only review" }).click();
   await expect(page.getByText(/Review complete. Both originals/)).toBeVisible();
+});
+
+test("a STOP reply blocks contact at once and only suppresses after a human confirms", async ({
+  page,
+}) => {
+  await page.goto("/leads?search=Jordan");
+  await page.getByRole("link", { name: /Jordan Ellis/ }).first().click();
+  await expect(
+    page.getByRole("heading", { name: "Jordan Ellis" }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Analysis & drafts" }).click();
+  await page
+    .getByLabel("Seller reply text")
+    .fill("STOP - please do not text me again");
+  await page.getByRole("button", { name: "Record reply" }).click();
+  await expect(
+    page.getByText(/The cadence for this lead is paused/),
+  ).toBeVisible();
+
+  // The block is immediate; the suppression list is still a decision.
+  await page.reload();
+  await expect(page.getByText(/Do Not Contact/).first()).toBeVisible();
+  await page.getByRole("tab", { name: "Analysis & drafts" }).click();
+  await expect(
+    page.getByText("Do Not Contact: marketing follow-up drafts are blocked."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Suggested next actions" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Confirm" }).first().click();
+  await expect(
+    page.getByText(/Suggestion applied. Nothing was sent./),
+  ).toBeVisible();
+
+  await page.goto("/safety");
+  await expect(
+    page.getByRole("cell", { name: /2025550101/ }),
+  ).toBeVisible();
+  // Nothing in the workspace can send: there is no send control to press.
+  await expect(page.getByRole("button", { name: /^send/i })).toHaveCount(0);
+});
+
+test("bulk restriction review unlocks a tier of drafts without sending anything", async ({
+  page,
+}) => {
+  await page.goto("/imports");
+  // Plain columns only: a distress-scored export asks the review screen for decisions
+  // that this scenario is not about. Without a score the lead lands in tier P3.
+  const csv =
+    "Full Name,Phone,Property Address,City,State,ZIP,County,DNC\n" +
+    "Nadia Tier,2025550742,4200 Tier Two Lane,Arlington,TX,76015,Tarrant,no\n";
+  await page.getByLabel("Upload lead file").setInputFiles({
+    name: "e2e-tier-p1.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(csv),
+  });
+  await page.getByRole("button", { name: "Normalize & preview" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Review normalized records" }),
+  ).toBeVisible();
+  await page
+    .getByRole("row")
+    .filter({ hasText: "Nadia Tier" })
+    .getByRole("checkbox")
+    .check();
+  const approve = page.getByRole("button", {
+    name: "Review & approve local import",
+  });
+  await expect(approve).toBeEnabled();
+  await approve.click();
+  await page
+    .getByRole("textbox", { name: "Type IMPORT LOCAL to confirm" })
+    .fill("IMPORT LOCAL");
+  await page.getByRole("button", { name: "Approve local writes" }).click();
+  // A dialog left open means the import was refused; say why instead of timing out.
+  const stuck = page.getByRole("dialog");
+  await stuck
+    .waitFor({ state: "detached", timeout: 10000 })
+    .catch(async () => {
+      const screen = await page.evaluate(() => document.body.innerText);
+      const at = screen.toLowerCase().indexOf("duplicat");
+      const around =
+        at < 0 ? screen.slice(0, 1200) : screen.slice(Math.max(0, at - 700), at + 700);
+      throw new Error(
+        `Import dialog still open: ${around.replace(/\s+/g, " ")}`,
+      );
+    });
+
+  // A brand-new lead cannot be drafted until a person records a contact review.
+  await page.goto("/drafts");
+  await page.getByRole("combobox", { name: "Priority tier" }).selectOption("P3");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Generate drafts" }).click();
+  await expect(
+    page.getByText(/No lead in this selection can receive a draft|Blocked by a gate/),
+  ).toBeVisible();
+
+  await page.goto("/leads?search=Nadia");
+  await page.getByRole("checkbox", { name: "Select Nadia Tier" }).check();
+  await page
+    .getByRole("button", { name: "Review contact restrictions" })
+    .click();
+  await page
+    .getByRole("textbox", { name: /What did you check/ })
+    .fill("Screened the vendor list for opt-outs before import on 2026-10-29.");
+  await page
+    .getByRole("textbox", { name: /Type REVIEW RESTRICTIONS/ })
+    .fill("REVIEW RESTRICTIONS");
+  await page.getByRole("button", { name: "Apply to 1 lead(s)" }).click();
+  await expect(page.getByText(/1 reviewed/)).toBeVisible();
+  await page.getByRole("button", { name: "Done" }).click();
+
+  await page.goto("/drafts");
+  await page.getByRole("combobox", { name: "Priority tier" }).selectOption("P3");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Generate drafts" }).click();
+  await expect(page.getByText("Requested", { exact: true })).toBeVisible();
+  await expect(page.getByText("Generated", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Nadia Tier" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^send/i })).toHaveCount(0);
+});
+
+test("skip-trace results only change the fields they matched, after the typed phrase", async ({
+  page,
+}) => {
+  await page.goto("/imports");
+  const propertyOnly =
+    'Property Address,Beds Baths and Sqft,MV\n"4300 Skip Trace Lane, Arlington, TX 76015",3 beds 2 baths 1800 sqft,250k Redfin\n';
+  await page.getByLabel("Upload lead file").setInputFiles({
+    name: "e2e-skip-trace-source.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(propertyOnly),
+  });
+  await page.getByRole("button", { name: "Normalize & preview" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Review normalized records" }),
+  ).toBeVisible();
+  await page
+    .getByRole("row")
+    .filter({ hasText: "4300 Skip Trace Lane" })
+    .getByRole("checkbox")
+    .check();
+  const approve = page.getByRole("button", {
+    name: "Review & approve local import",
+  });
+  await expect(approve).toBeEnabled();
+  await approve.click();
+  await page
+    .getByRole("textbox", { name: "Type IMPORT LOCAL to confirm" })
+    .fill("IMPORT LOCAL");
+  await page.getByRole("button", { name: "Approve local writes" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  await page.goto("/skip-trace");
+  const results =
+    "address,city,state,zip,owner_name,phone1\n" +
+    "4300 Skip Trace Lane,Arlington,TX,76015,Marcia Owner,(202) 555-0177\n" +
+    "9999 Unmatched Road,Nowhere,TX,70000,Nobody Real,(555) 555-5555\n";
+  await page.getByLabel("Skip-trace results file").setInputFiles({
+    name: "e2e-skip-trace-results.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(results),
+  });
+  await expect(page.getByText("1 matched", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 rejected", { exact: true })).toBeVisible();
+
+  const apply = page.getByRole("button", { name: "Apply matched results" });
+  await expect(apply).toBeDisabled();
+  await page
+    .getByRole("textbox", { name: /Type IMPORT LOCAL to apply/ })
+    .fill("IMPORT LOCAL");
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(page.getByText(/1 lead\(s\) updated/)).toBeVisible();
+
+  await page.goto("/leads?search=Marcia");
+  await expect(
+    page.getByRole("link", { name: /Marcia Owner/ }).first(),
+  ).toBeVisible();
+  await page.getByRole("link", { name: /Marcia Owner/ }).first().click();
+  await expect(
+    page.getByRole("heading", { name: "Marcia Owner" }),
+  ).toBeVisible();
+  await expect(page.getByText(/202/).first()).toBeVisible();
 });

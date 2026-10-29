@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     backup_enabled: bool = True
     backup_keep: int = Field(default=7, ge=1, le=90)
     backup_hour_utc: int = Field(default=2, ge=0, le=23)
+    # Daily cadence runner: prepares the follow-up drafts that are due today.
+    cadence_enabled: bool = True
+    cadence_hour_utc: int = Field(default=12, ge=0, le=23)
     # Appended verbatim to every reviewed draft. Never printed in status endpoints.
     draft_signature: str = "Jason Wade\nAcquisition Manager, GreenSeedTX LLC"
     draft_manager_name: str = "Jason Wade"

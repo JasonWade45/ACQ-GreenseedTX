@@ -259,12 +259,18 @@ def confirm_action(db: Session, action: SuggestedAction, decision: str = "confir
     return {"id": action.id, "status": action.status, "applied": applied}
 
 
-def classify_inbound_activities(db: Session, limit: int = 50) -> list[dict]:
+def scan_inbound_activities(db: Session, limit: int = 50) -> dict:
     """Classify inbound activity text that read-only sync already stored.
 
     Sync summaries are short, not transcripts, so anything that cannot be matched by
-    rule stays unclassified and visible for a human instead of being guessed.
+    rule stays unclassified and visible for a human instead of being guessed. The
+    counts are returned so the interface can say exactly what happened instead of
+    implying that every reply was read.
     """
+    scanned = 0
+    needs_human = 0
+    skipped_empty = 0
+    already_seen = 0
     classified = []
     rows = (
         db.query(Activity)
@@ -276,9 +282,14 @@ def classify_inbound_activities(db: Session, limit: int = 50) -> list[dict]:
     for activity in rows:
         text = (activity.summary or "").strip()
         if not text:
+            # An activity with no text is not a reply; it is not "unread" either.
+            skipped_empty += 1
             continue
+        scanned += 1
         cls, conf = classify_rule_based(text)
         if cls is None or conf < 0.85:
+            # Left unclassified on purpose: a guess here would look like a decision.
+            needs_human += 1
             continue
         exists = (
             db.query(SuggestedAction.id)
@@ -286,6 +297,7 @@ def classify_inbound_activities(db: Session, limit: int = 50) -> list[dict]:
             .first()
         )
         if exists:
+            already_seen += 1
             continue
         lead = db.get(Lead, activity.lead_id)
         if lead is None:
@@ -303,4 +315,17 @@ def classify_inbound_activities(db: Session, limit: int = 50) -> list[dict]:
             lead.local_do_not_contact = True
         classified.append({"lead_id": lead.id, "classification": cls, "confidence": conf})
     db.commit()
-    return classified
+    return {
+        "scanned": scanned,
+        "classified": len(classified),
+        "needs_human": needs_human,
+        "skipped_empty": skipped_empty,
+        "already_seen": already_seen,
+        "items": classified,
+        "never_sent": True,
+    }
+
+
+def classify_inbound_activities(db: Session, limit: int = 50) -> list[dict]:
+    """The classified suggestions only (kept for callers that just want the list)."""
+    return scan_inbound_activities(db, limit)["items"]

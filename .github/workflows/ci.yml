@@ -131,6 +131,90 @@ jobs:
       - name: Unit tests
         run: npm test
 
+  browser:
+    name: Browser tests on a disposable workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-lock.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r backend/requirements-lock.txt
+          npm ci --prefix frontend
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      # The suite builds the interface, starts a throwaway server with a synthetic
+      # database and a random password, and tears it down afterwards.
+      - name: Run the browser suite
+        id: browser
+        run: |
+          set -o pipefail
+          python scripts/test_browser.py 2>&1 | tee docs/browser-log.txt
+      # The console log is not always reachable from a phone, so when the suite fails
+      # the failing test and its message are raised as annotations on the run.
+      - name: Name the browser test that failed
+        if: always() && steps.browser.outcome == 'failure'
+        run: |
+          python - <<'PY'
+          import pathlib, xml.etree.ElementTree as ET
+
+          def note(title, body):
+              safe = body.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print(f"::warning title={title}::{safe[:5500]}")
+
+          path = pathlib.Path("docs/browser-test-results.xml")
+          if not path.exists():
+              print("::error title=Browser results::No XML report was written")
+              log = pathlib.Path("docs/browser-log.txt")
+              if log.exists():
+                  note("Browser console tail", log.read_text(errors="replace")[-5000:])
+              raise SystemExit(0)
+
+          root = ET.parse(path).getroot()
+          failed = 0
+          for case in root.iter("testcase"):
+              for failure in case.findall("failure"):
+                  failed += 1
+                  name = f"{case.get('classname', '')} :: {case.get('name', '')}".strip()
+                  text = " ".join((failure.text or failure.get("message") or "").split())
+                  print(f"::error title=Browser test failed::{name} - {text[:6000]}")
+          if failed:
+              print(f"{failed} browser test(s) failed")
+              raise SystemExit(0)
+          # The suite exited non-zero but the report shows no failing test: the failure
+          # is in the run itself, so show what the console said.
+          print("::warning title=Browser results::No testcase failure in the report")
+          log = pathlib.Path("docs/browser-log.txt")
+          if log.exists():
+              note("Browser console tail", log.read_text(errors="replace")[-5000:])
+          note(
+              "Browser cases",
+              " | ".join(case.get("name", "") for case in root.iter("testcase")),
+          )
+          note("Browser report head", " ".join(path.read_text(errors="replace").split())[:2500])
+          PY
+
+      - name: Keep the results when something fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-results
+          path: |
+            docs/browser-test-results.xml
+            frontend/test-results
+          retention-days: 7
+
   docker:
     name: Docker image starts with or without a password
     runs-on: ubuntu-latest

@@ -60,7 +60,9 @@ import type {
   Followup,
   Insight,
   LeadProfile,
+  LeadSequence,
   SuggestedAction,
+  TemplateSelection,
 } from "../types";
 
 export default function LeadDetail() {
@@ -410,6 +412,7 @@ export default function LeadDetail() {
           <Timeline lead={lead} />
         </Panel>
       )}
+      {tab === "followups" && <CadencePanel lead={lead} />}
       {tab === "followups" && (
         <Panel
           title="Follow-up schedule"
@@ -1266,6 +1269,7 @@ function DraftPanel({ lead }: { lead: LeadProfile }) {
             </p>
           </div>
         )}
+        <TemplatePreview lead={lead} />
         <Button
           variant="secondary"
           className="full-width"
@@ -1562,5 +1566,171 @@ function VendorContextPanel({ lead }: { lead: LeadProfile }) {
         </p>
       )}
     </Panel>
+  );
+}
+
+function CadencePanel({ lead }: { lead: LeadProfile }) {
+  const action = useAction();
+  const client = useQueryClient();
+  const { toast } = useWorkspace();
+  const sequence = useQuery({
+    queryKey: ["sequence", lead.id],
+    queryFn: () => api<LeadSequence>(`/leads/${lead.id}/sequence`),
+  });
+  async function run(endpoint: "start" | "pause") {
+    await action.run(
+      () => post(`/leads/${lead.id}/sequence/${endpoint}`),
+      endpoint === "start"
+        ? "Cadence started. Drafts are prepared for review; nothing is sent."
+        : "Cadence paused",
+    );
+    client.invalidateQueries({ queryKey: ["sequence", lead.id] });
+    client.invalidateQueries({ queryKey: ["sequences"] });
+  }
+  if (sequence.isPending) return <Panel title="Follow-up cadence"><Loading /></Panel>;
+  if (sequence.isError)
+    return (
+      <Panel title="Follow-up cadence">
+        <ErrorState error={sequence.error} retry={() => sequence.refetch()} />
+      </Panel>
+    );
+  const s = sequence.data;
+  const next = s.steps[s.current_step];
+  return (
+    <Panel
+      title="Follow-up cadence"
+      subtitle="Each step prepares a draft on its day. The runner never sends, and any reply stops it."
+      action={
+        <Badge tone={s.active ? "green" : s.status === "completed" ? "blue" : "neutral"}>
+          {human(s.status)}
+        </Badge>
+      }
+    >
+      <div className="settings-facts">
+        <div>
+          <span>Progress</span>
+          <strong>
+            {s.current_step} of {s.total_steps} steps
+          </strong>
+        </div>
+        <div>
+          <span>Next draft</span>
+          <strong>
+            {s.active && next ? (
+              <>
+                day {next.day_offset} · <Timestamp value={s.next_due_at} dateOnly />
+              </>
+            ) : s.status === "completed" ? (
+              "Cadence finished"
+            ) : (
+              "Not scheduled"
+            )}
+          </strong>
+        </div>
+        <div>
+          <span>Days</span>
+          <strong>{s.cadence_days.join(", ")}</strong>
+        </div>
+      </div>
+      {s.stop_reason && (
+        <p className="muted">
+          Stopped because: {human(s.stop_reason)}
+        </p>
+      )}
+      {!s.active && (
+        <Notice tone="info">
+          Starting the cadence only creates drafts and tasks you can review. There is no
+          send control anywhere in this application.
+        </Notice>
+      )}
+      <div className="row wrap">
+        {s.active ? (
+          <Button variant="secondary" busy={action.busy} onClick={() => run("pause")}>
+            <X size={15} /> Pause cadence
+          </Button>
+        ) : (
+          <Button
+            variant="secondary"
+            busy={action.busy}
+            disabled={lead.do_not_contact}
+            onClick={() => run("start")}
+          >
+            <Clock3 size={15} /> Start cadence
+          </Button>
+        )}
+        <button
+          className="text-link"
+          onClick={() => {
+            if (next) toast(`Next step: day ${next.day_offset} · ${human(next.category)}`);
+          }}
+        >
+          What comes next?
+        </button>
+      </div>
+      {action.error && <Notice tone="warning">{action.error}</Notice>}
+      {s.steps.length > 0 && (
+        <details>
+          <summary>All {s.total_steps} steps</summary>
+          {s.steps.map((step, index) => (
+            <p key={`${step.day_offset}-${step.category}`}>
+              Day {step.day_offset} · {human(step.category)}
+              {index < s.current_step ? " · prepared" : ""}
+            </p>
+          ))}
+        </details>
+      )}
+    </Panel>
+  );
+}
+
+function TemplatePreview({ lead }: { lead: LeadProfile }) {
+  const [open, setOpen] = useState(false);
+  const selection = useQuery({
+    queryKey: ["template-selection", lead.id],
+    queryFn: () => api<TemplateSelection>(`/leads/${lead.id}/template-selection`),
+    enabled: open,
+  });
+  return (
+    <details
+      className="template-preview"
+      onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+    >
+      <summary>Which template would be used, and why?</summary>
+      {!open ? null : selection.isPending ? (
+        <Loading />
+      ) : selection.isError ? (
+        <ErrorState error={selection.error} retry={() => selection.refetch()} />
+      ) : (
+        <>
+          <div className="row wrap">
+            <Badge tone="neutral">{selection.data.label}</Badge>
+            <Badge tone="neutral">variant {selection.data.variant}</Badge>
+            <Badge tone={selection.data.selectable ? "green" : "amber"}>
+              {selection.data.selectable ? "draftable" : "blocked"}
+            </Badge>
+          </div>
+          <p>{selection.data.reason}</p>
+          {selection.data.blockers.length > 0 && (
+            <Notice tone="warning">
+              <ul>
+                {selection.data.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            </Notice>
+          )}
+          {selection.data.preview && (
+            <>
+              <span className="mini-label">WORDING IT WOULD USE (NOT SENT)</span>
+              <blockquote>{selection.data.preview}</blockquote>
+            </>
+          )}
+          <small className="muted">
+            Distress flags stay internal: they choose the wording, they never appear
+            in it.
+          </small>
+        </>
+      )}
+    </details>
   );
 }

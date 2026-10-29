@@ -10,6 +10,7 @@ import {
   Plus,
   Search,
   ShieldAlert,
+  ShieldCheck,
   Upload,
   X,
 } from "lucide-react";
@@ -41,6 +42,7 @@ export default function Leads() {
   const [advanced, setAdvanced] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
   const [bulk, setBulk] = useState(false);
+  const [review, setReview] = useState(false);
   const action = useAction();
   const [saved, setSaved] = useState<{ name: string; query: string }[]>(() => {
     try {
@@ -379,6 +381,9 @@ export default function Leads() {
             <Button variant="secondary" onClick={() => setBulk(true)}>
               Change local stage
             </Button>
+            <Button variant="secondary" onClick={() => setReview(true)}>
+              <ShieldCheck size={15} /> Review contact restrictions
+            </Button>
             <button className="text-link" onClick={() => setSelected([])}>
               Clear selection
             </button>
@@ -653,6 +658,13 @@ export default function Leads() {
         </Modal>
       )}
       {bulk && <BulkStage ids={selected} onClose={() => setBulk(false)} />}
+      {review && (
+        <BulkRestrictionReview
+          ids={selected}
+          onClose={() => setReview(false)}
+          onDone={() => data.refetch()}
+        />
+      )}
     </>
   );
 }
@@ -711,6 +723,116 @@ function BulkStage({ ids, onClose }: { ids: number[]; onClose: () => void }) {
         </label>
         <Button busy={action.busy}>Apply local change</Button>
       </form>
+    </Modal>
+  );
+}
+
+function BulkRestrictionReview({
+  ids,
+  onClose,
+  onDone,
+}: {
+  ids: number[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const action = useAction();
+  const [evidence, setEvidence] = useState("");
+  const [phrase, setPhrase] = useState("");
+  const [restricted, setRestricted] = useState(false);
+  const [result, setResult] = useState<{
+    reviewed: number;
+    already_reviewed: number;
+    blocked: { id: number; reason: string }[];
+    missing: number[];
+  } | null>(null);
+  const PHRASE = "REVIEW RESTRICTIONS";
+  const ready = evidence.trim().length >= 10 && phrase.trim().toUpperCase() === PHRASE;
+  return (
+    <Modal
+      title={`Review contact permission for ${ids.length} lead(s)`}
+      subtitle="One sentence of evidence, recorded on each lead separately. No CRM writes."
+      onClose={onClose}
+    >
+      {result ? (
+        <div className="form-stack">
+          <Notice tone={result.blocked.length ? "warning" : "info"}>
+            <strong>{result.reviewed} reviewed</strong>, {result.already_reviewed} already
+            reviewed
+            {result.blocked.length
+              ? `, ${result.blocked.length} kept blocked by a source Do Not Contact`
+              : ""}
+            {result.missing.length ? `, ${result.missing.length} no longer exist` : ""}.
+          </Notice>
+          <p className="muted">
+            Each lead now has its own audit row with the evidence you typed. Drafting is
+            still gated by the skip trace, suppression and licence checks.
+          </p>
+          <Button
+            onClick={() => {
+              onDone();
+              onClose();
+            }}
+          >
+            Done
+          </Button>
+        </div>
+      ) : (
+        <form
+          className="form-stack"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const r = await action.run(
+              () =>
+                post<any>("/leads/restrictions/bulk", {
+                  lead_ids: ids,
+                  restricted,
+                  evidence: evidence.trim(),
+                  confirm: true,
+                  confirmation: phrase.trim(),
+                }),
+              "Contact permission reviewed for the selected leads",
+            );
+            if (r) setResult(r);
+          }}
+        >
+          <Notice tone="warning">
+            A batch review is still a review. Only use this when the same recorded check
+            genuinely applies to every selected lead — for example a vendor list that
+            carries no opt-out and was screened before import.
+          </Notice>
+          <Field
+            label="What did you check, and where?"
+            hint="At least 10 characters. Stored verbatim on every lead in this batch."
+          >
+            <textarea
+              rows={3}
+              value={evidence}
+              onChange={(e) => setEvidence(e.target.value)}
+              placeholder="Source list screened for opt-outs on 2026-10-29; no STOP/DNC entries."
+            />
+          </Field>
+          <Field label="Outcome">
+            <select
+              value={restricted ? "restricted" : "clear"}
+              onChange={(e) => setRestricted(e.target.value === "restricted")}
+            >
+              <option value="clear">Cleared for outreach (reviewed)</option>
+              <option value="restricted">Restrict: do not contact</option>
+            </select>
+          </Field>
+          <Field
+            label={`Type ${PHRASE} to confirm`}
+            hint="A lead whose source says Do Not Contact is never cleared here."
+          >
+            <input value={phrase} onChange={(e) => setPhrase(e.target.value)} />
+          </Field>
+          <Button type="submit" busy={action.busy} disabled={!ready}>
+            Apply to {ids.length} lead(s)
+          </Button>
+          {action.error && <Notice tone="warning">{action.error}</Notice>}
+        </form>
+      )}
     </Modal>
   );
 }

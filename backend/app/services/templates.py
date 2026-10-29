@@ -384,8 +384,19 @@ def render_template(body: str, lead, sender_name: str | None = None, company: st
     prop = _property(lead)
     address = (getattr(prop, "street_address", None) or "").strip()
     city = (getattr(prop, "city", None) or "").strip()
-    greeting = _first_name(lead) or "Hello"
-    out = body.replace("{first_name}", greeting)
+    out = body
+    first = _first_name(lead)
+    if not first:
+        # A lead with no verified owner name must not read "Hi Hello". Drop the
+        # greeting word instead, and keep the sentence grammatical.
+        for opener in ("Hi {first_name}, ", "Hi {first_name} — ", "Hi {first_name} ", "Hi {first_name},"):
+            if opener in out:
+                out = out.replace(opener, "Hello, ", 1)
+                break
+        else:
+            out = out.replace("{first_name}", "there")
+        first = ""
+    out = out.replace("{first_name}", first)
     out = out.replace("{address}", address or "your property")
     out = out.replace("{city}", city)
     out = out.replace("{sender_name}", sender_name)

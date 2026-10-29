@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { BriefingPage } from "./pages/BriefingPage";
 import DraftsPage from "./pages/DraftsPage";
 import SkipTracePage from "./pages/SkipTracePage";
+import { SyncPage } from "./pages/OperationsPages";
 
 const briefing = {
   generated_at: "2026-10-29T12:00:00Z",
@@ -122,6 +123,23 @@ beforeEach(() => {
     "/briefing": briefing,
     "/drafts": drafts,
     "/skip-trace/summary": skipTrace,
+    "/sync": {
+      mode: "disabled",
+      health: "never",
+      last_run: null,
+      runs: [],
+      scheduler: { enabled: false, interval_minutes: 30 },
+      conflicts: { open: 0, resolved: 0 },
+    },
+    "/leads/restrictions/pending": { total: 53, items: [] },
+    "/sequences/summary": {
+      active: 3,
+      due_today: 2,
+      cadence_days: [0, 3, 7],
+      runner_hour_utc: 12,
+      runner_enabled: true,
+      never_sent: true,
+    },
   };
   vi.stubGlobal(
     "fetch",
@@ -155,6 +173,36 @@ it("blocks approval of a draft that failed the validator", async () => {
   expect(screen.getByText(/Why this template: senior owner/)).toBeInTheDocument();
   // There is no bulk copy or send control anywhere on the queue.
   expect(screen.queryByRole("button", { name: /copy all|send/i })).toBeNull();
+});
+
+it("shows the unreviewed-restriction backlog next to the drafts it blocks", async () => {
+  mount(<DraftsPage />);
+  await screen.findByText("53");
+  expect(
+    screen.getByText(/Blocked by an unreviewed contact restriction/),
+  ).toBeInTheDocument();
+  expect(screen.getByText(/Review contact restrictions/)).toBeInTheDocument();
+});
+
+it("shows the cadence work waiting and never offers a send", async () => {
+  mount(<DraftsPage />);
+  await screen.findByText("Due follow-ups");
+  expect(screen.getByText("Daily at 12:15 UTC")).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: /Prepare due drafts/ }),
+  ).toBeEnabled();
+  expect(screen.queryByRole("button", { name: /send/i })).toBeNull();
+});
+
+it("reports exactly what the synced-reply scan read and left alone", async () => {
+  mount(<SyncPage />);
+  await screen.findByText("Replies inside synced activity");
+  expect(
+    screen.getByRole("button", { name: /Scan synced replies/ }),
+  ).toBeEnabled();
+  expect(
+    screen.getByText(/Scheduled sync never classifies or writes anything/),
+  ).toBeInTheDocument();
 });
 
 it("explains the skip-trace loop without claiming a provider call", async () => {

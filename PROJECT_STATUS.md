@@ -64,7 +64,7 @@
 - **The comparables range is never a dead end (1.2.8).** A property the CRM never gave a living
   area used to make the range impossible. `PATCH /api/leads/{id}/properties/{pid}` fills only an
   empty `square_feet`/`bedrooms`/`bathrooms`, is audited, and never replaces a source value.
-- **An installed Windows program (1.3.1).** `ACQ.exe` + `ACQ-Setup-*.exe` built by PyInstaller and
+- **An installed Windows program (since 1.3.1).** `ACQ.exe` + `ACQ-Setup-1.5.0.exe` built by PyInstaller and
   Inno Setup on a free GitHub Windows runner: no Python, no PowerShell, no console, a Desktop and
   Start Menu shortcut, one copy at a time, and a data folder (`%LOCALAPPDATA%\AcquisitionsAssistant`)
   that survives upgrade and uninstall. Running from source keeps the old layout and adopts an
@@ -80,18 +80,19 @@
 
 | Check | Result |
 |---|---|
-| Backend suite | **274 passed, 2 explicit live-account skips** |
+| Backend suite | **392 passed, 2 explicit live-account skips** |
 | Lint | `ruff check .` clean |
-| Frontend | **21 passed**, `tsc -b` + `vite build` clean |
+| Frontend | **27 passed**, `tsc -b` + `vite build` clean |
+| Browser suite | **20 passed** in GitHub Actions: every sidebar screen on desktop and mobile, plus STOP → suppression, batch restriction review → tier drafts, and skip-trace apply |
 | Docker image | **built and run in GitHub Actions**: refuses a weak password, `/api/leads` 401 then 200 after login |
-| Release archive | 206 files, checksummed, extracted and booted from a path containing a space; comps routes, signature, built version and the packaged `frontend/dist` asserted from inside the ZIP |
-| Windows program | **built on the GitHub Windows runner and run before publishing**: `dist\ACQ.exe` and `dist\ACQ-Setup-1.3.1.exe`, `/api/health` answered from the packaged executable, interface served from inside it, database and `.env` created in the data folder, second copy stood down |
+| Release archive | `acq-1.5.0.zip`: 246 files, checksummed, extracted and booted from a path containing a space; comps routes, signature, built version and the packaged `frontend/dist` asserted from inside the ZIP |
+| Windows program | **built on the GitHub Windows runner and run before publishing**: `dist\ACQ.exe` and `dist\ACQ-Setup-1.5.0.exe`, `/api/health` answered from the packaged executable, interface served from inside it, database and `.env` created in the data folder, second copy stood down |
 | Desktop program | `scripts/smoke_desktop_app.py`: first start creates password + database in the data folder, a second copy stands down, one seller imported through the API, restart reuses the password and keeps the seller |
-| Frozen layout | `scripts/test_frozen_layout.py`: bundle boots with `sys._MEIPASS`, migrations reach `0a6d91cf17b2`, interface served from the bundle, database written outside it |
+| Frozen layout | `scripts/test_frozen_layout.py`: bundle boots with `sys._MEIPASS`, migrations reach `i1j2k3l4m5n6`, interface served from the bundle, database written outside it |
 | Deploy scripts | `install.sh --help` works through a pipe, `--dry-run` complete, `--no-https` publishes the port without Caddy |
-| SQLite schema | 20 tables, head `0a6d91cf17b2`, integrity `ok` |
+| SQLite schema | 29 application tables, head `i1j2k3l4m5n6`, integrity `ok` |
 
-CI (`.github/workflows/ci.yml`) runs the four jobs above on every push and pull request;
+CI (`.github/workflows/ci.yml`) runs the five jobs above on every push and pull request;
 `scripts/check_references.py` additionally fails the build if a guide points at a file that
 no longer exists.
 

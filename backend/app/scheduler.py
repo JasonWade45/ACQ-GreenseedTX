@@ -51,6 +51,37 @@ def scheduled_backup():
         logging.getLogger("uvicorn.error").exception("Scheduled backup failed")
 
 
+def scheduled_cadence():
+    """Prepare the follow-up drafts that are due today. Never sends anything.
+
+    A failure is logged, never raised: the nightly backup and CRM sync must not be
+    taken down by one bad lead.
+    """
+    try:
+        from .services.sequences import runner_due_today
+
+        with SessionLocal() as db:
+            items = runner_due_today(db)
+            if items:
+                from .models import AuditLog
+
+                db.add(
+                    AuditLog(
+                        action="cadence_runner_ran",
+                        details={
+                            "drafted": sum(1 for item in items if item.get("status") == "drafted"),
+                            "blocked": sum(1 for item in items if item.get("status") == "blocked"),
+                            "never_sent": True,
+                        },
+                    )
+                )
+                db.commit()
+    except Exception:
+        import logging
+
+        logging.getLogger("uvicorn.error").exception("Scheduled cadence runner failed")
+
+
 def configure_scheduler(db, enabled=None, interval=None):
     settings = get_settings()
     stored = db.get(AppSetting, "scheduler")
@@ -72,6 +103,8 @@ def configure_scheduler(db, enabled=None, interval=None):
         scheduler.remove_job("crm_sync")
     if scheduler.get_job("nightly_backup"):
         scheduler.remove_job("nightly_backup")
+    if scheduler.get_job("cadence_runner"):
+        scheduler.remove_job("cadence_runner")
     if value["enabled"]:
         scheduler.add_job(
             scheduled_sync,
@@ -89,6 +122,19 @@ def configure_scheduler(db, enabled=None, interval=None):
             hour=settings.backup_hour_utc,
             minute=0,
             id="nightly_backup",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
+        )
+    # Cadence is independent of CRM sync: it reads local records only and produces
+    # drafts for review, so it runs even when sync is switched off.
+    if settings.cadence_enabled:
+        scheduler.add_job(
+            scheduled_cadence,
+            "cron",
+            hour=settings.cadence_hour_utc,
+            minute=15,
+            id="cadence_runner",
             max_instances=1,
             coalesce=True,
             misfire_grace_time=3600,

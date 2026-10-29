@@ -127,7 +127,37 @@ stays on this computer.
 (`i1j2k3l4m5n6`), so the database schema itself cannot record that a message left the
 machine. `test_release_smoke.py` asserts both the route table and the columns.
 
-### 9. Interface
+### 9. What this build adds on top of the plan
+
+These are the gaps that a walk-through of the running app found after the features above
+were written:
+
+- **The cadence actually runs.** `[0, 3, 7, 14, 30, 60, 90, 120]` was editable but nothing
+  ever advanced a sequence. A daily job (`12:15 UTC` by default, `CADENCE_ENABLED`,
+  `CADENCE_HOUR_UTC`) now prepares the drafts that are due and stops itself on a reply, a
+  suppression, an appointment, a closed stage, an out-of-licence county or a lead that
+  still needs a skip trace. `GET /api/sequences/{id}` and `POST /api/sequences/{id}/pause`
+  make the state visible, and the draft queue shows active cadences and what is due.
+- **Two routes were reachable but had no caller.** `POST /api/replies/scan` reported a
+  single number; it now returns scanned / classified / needs_human / skipped_empty /
+  already_seen, is audited, and has a panel on the sync page. `GET
+  /api/leads/{id}/template-selection` now explains the match (the flags that fired), says
+  whether the lead is draftable, lists the blockers when it is not, and previews the
+  wording — which immediately exposed a real bug: a lead with no first name rendered
+  **"Hi Hello, this is …"**. The greeting is now grammatical in both cases.
+- **Contact-permission review can be done in a batch.** Fifty imported leads used to mean
+  fifty profile visits before the first draft could exist. `GET
+  /api/leads/restrictions/pending` shows the queue, and `POST
+  /api/leads/restrictions/bulk` records the same evidence on each selected lead — but
+  demands the typed phrase `REVIEW RESTRICTIONS`, never clears a source Do Not Contact,
+  reports already-reviewed leads instead of overwriting their evidence, writes one audit
+  row per lead, and relaxes no other gate.
+- **The browser suite runs in CI.** It existed and nothing ran it. It now covers every
+  sidebar screen on desktop and mobile and three end-to-end flows, and the first run found
+  a stale assertion and a real WCAG AA contrast failure (dashboard section numbers at
+  2.6:1). Both are fixed.
+
+### 10. Interface
 
 New pages: **Draft Queue** (`/drafts`), **Templates** (`/templates`), **Skip Trace**
 (`/skip-trace`), and a rebuilt **Briefing**. The lead profile gained a vendor-context
@@ -144,9 +174,10 @@ one stylesheet.
 
 | Check | Result |
 |---|---|
-| Backend suite | **369 passed**, 2 explicit live-account skips |
-| Frontend unit suite | **24 passed** |
+| Backend suite | **392 passed**, 2 explicit live-account skips |
+| Frontend unit suite | **27 passed** |
 | `ruff check backend scripts` | clean |
+| Browser suite | **20 passed** in GitHub Actions against a throwaway database: all 14 screens on desktop and mobile, plus STOP → suppression, batch review → tier drafts, and skip-trace apply |
 | `tsc -b` | clean |
 | Production build | clean; 1 JS + 1 CSS in `index.html`, 3 lazy route chunks |
 | Upgrade test | previous release schema → head keeps leads, activities, drafts, stages; adds the new columns and merges the new priority weights without overwriting an explicit value |
