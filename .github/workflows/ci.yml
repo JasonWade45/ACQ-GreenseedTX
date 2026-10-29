@@ -167,6 +167,12 @@ jobs:
           import pathlib, xml.etree.ElementTree as ET
 
           path = pathlib.Path("docs/browser-test-results.xml")
+          results = pathlib.Path("frontend/test-results")
+          if results.exists():
+              for entry in sorted(results.rglob("*")):
+                  print(f"test-results: {entry.relative_to(results)}")
+          else:
+              print("test-results: directory missing")
           if not path.exists():
               print("::error title=Browser results::No XML report was written")
               raise SystemExit(0)
@@ -177,7 +183,29 @@ jobs:
                   name = f"{case.get('classname', '')} :: {case.get('name', '')}".strip()
                   text = " ".join((failure.text or failure.get("message") or "").split())
                   print(f"::error title=Browser test failed::{name} - {text[:900]}")
-          print(f"{failed} browser test(s) failed" if failed else "every browser test passed")
+          root = ET.parse(path).getroot()
+          for suite in root.iter("testsuite"):
+              print(
+                  "suite:",
+                  suite.get("name"),
+                  "tests=", suite.get("tests"),
+                  "failures=", suite.get("failures"),
+                  "errors=", suite.get("errors"),
+                  "skipped=", suite.get("skipped"),
+                  "time=", suite.get("time"),
+              )
+          for case in root.iter("testcase"):
+              for child in list(case):
+                  if child.tag in {"failure", "error"}:
+                      continue
+                  text = " ".join((child.text or "").split())
+                  print(f"::warning title=Browser test {child.tag}::{case.get('name', '')} - {text[:300]}")
+          if failed:
+              print(f"{failed} browser test(s) failed")
+          else:
+              print("::warning title=Browser results::No testcase failure in the report")
+              print(f"report bytes: {path.stat().st_size}")
+              print(" ".join(path.read_text(errors="replace").split())[:1500])
           PY
 
       - name: Keep the results when something fails
