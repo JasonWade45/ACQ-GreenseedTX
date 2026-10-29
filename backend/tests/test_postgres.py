@@ -96,6 +96,19 @@ def sessions():
     return sessionmaker(bind=make_engine(URL, pool_size=1), expire_on_commit=False)
 
 
+def _expected_head():
+    """The head alembic itself points at, so a new migration cannot silently skip this check."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "backend" / "migrations"))
+    script = ScriptDirectory.from_config(config)
+    heads = script.get_heads()
+    assert len(heads) == 1, f"the migration graph has more than one head: {heads}"
+    return heads[0]
+
+
 def test_migrations_reach_head_on_an_empty_database(migrated):
     engine = _engine()
     try:
@@ -107,8 +120,11 @@ def test_migrations_reach_head_on_an_empty_database(migrated):
             }
     finally:
         engine.dispose()
-    assert revision == "i1j2k3l4m5n6"
+    assert revision == _expected_head()
     assert {"leads", "properties", "messages", "suppression", "templates"} <= tables
+    # The REsimpli and Grok tables arrive with the last migration and must exist on
+    # PostgreSQL exactly as they do on SQLite: same names, same parity.
+    assert {"crm_pushes", "crm_note_outbox", "grok_runs", "checklist_templates", "lead_checklist_items"} <= tables
     # The dropped column must stay dropped, and no boolean may carry an integer default.
     engine = _engine()
     try:
