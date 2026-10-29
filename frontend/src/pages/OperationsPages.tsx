@@ -1470,18 +1470,45 @@ function IdentityCadencePanel({ settings }: { settings: SettingsData }) {
           }}
         >
           <div className="info-grid">
-            <Field label="Sender name">
-              <input value={sender} onChange={(e) => setSender(e.target.value)} />
+            <Field
+              label="Sender name"
+              hint={
+                settings.sender_name_locked
+                  ? "Set by environment (SENDER_NAME) — change it there, not here."
+                  : undefined
+              }
+            >
+              <input
+                value={sender}
+                disabled={settings.sender_name_locked}
+                onChange={(e) => setSender(e.target.value)}
+              />
             </Field>
-            <Field label="Company">
-              <input value={company} onChange={(e) => setCompany(e.target.value)} />
+            <Field
+              label="Company"
+              hint={
+                settings.company_name_locked
+                  ? "Set by environment (COMPANY_NAME) — change it there, not here."
+                  : undefined
+              }
+            >
+              <input
+                value={company}
+                disabled={settings.company_name_locked}
+                onChange={(e) => setCompany(e.target.value)}
+              />
             </Field>
           </div>
           <p className="muted">
-            Checks run in code and reject a draft that does not include this
-            identity, the street address and the opt-out sentence.
+            {settings.sender_name_locked || settings.company_name_locked
+              ? "A deployment environment variable pins this identity, and the environment wins over anything saved here."
+              : "Checks run in code and reject a draft that does not include this identity, the street address and the opt-out sentence."}
           </p>
-          <Button type="submit" busy={action.busy}>
+          <Button
+            type="submit"
+            busy={action.busy}
+            disabled={settings.sender_name_locked && settings.company_name_locked}
+          >
             <Save size={15} /> Save identity
           </Button>
         </form>

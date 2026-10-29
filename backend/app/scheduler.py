@@ -51,6 +51,38 @@ def scheduled_backup():
         logging.getLogger("uvicorn.error").exception("Scheduled backup failed")
 
 
+def run_cadence():
+    """Prepare the follow-up drafts that are due today; returns what happened.
+
+    Shared by the in-process job and the external cron endpoint, so both do exactly
+    the same work. It only writes drafts for review and never sends anything.
+    """
+    from .services.sequences import runner_due_today
+
+    with SessionLocal() as db:
+        items = runner_due_today(db)
+        if items:
+            from .models import AuditLog
+
+            db.add(
+                AuditLog(
+                    action="cadence_runner_ran",
+                    details={
+                        "drafted": sum(1 for item in items if item.get("status") == "drafted"),
+                        "blocked": sum(1 for item in items if item.get("status") == "blocked"),
+                        "never_sent": True,
+                    },
+                )
+            )
+            db.commit()
+        return {
+            "examined": len(items),
+            "drafted": sum(1 for item in items if item.get("status") == "drafted"),
+            "blocked": sum(1 for item in items if item.get("status") == "blocked"),
+            "never_sent": True,
+        }
+
+
 def scheduled_cadence():
     """Prepare the follow-up drafts that are due today. Never sends anything.
 
@@ -58,24 +90,7 @@ def scheduled_cadence():
     taken down by one bad lead.
     """
     try:
-        from .services.sequences import runner_due_today
-
-        with SessionLocal() as db:
-            items = runner_due_today(db)
-            if items:
-                from .models import AuditLog
-
-                db.add(
-                    AuditLog(
-                        action="cadence_runner_ran",
-                        details={
-                            "drafted": sum(1 for item in items if item.get("status") == "drafted"),
-                            "blocked": sum(1 for item in items if item.get("status") == "blocked"),
-                            "never_sent": True,
-                        },
-                    )
-                )
-                db.commit()
+        run_cadence()
     except Exception:
         import logging
 

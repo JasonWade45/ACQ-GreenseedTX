@@ -106,6 +106,26 @@ def check_login(client, password, settings):
     return None, 401
 
 
+def _normalise_origin(value: str) -> str:
+    parsed = urlparse((value or "").strip())
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+
+
+def _same_origin_or_allowed(origin: str, request, settings) -> bool:
+    """Same host, or the browser origin explicitly listed in CORS_ORIGINS.
+
+    A separately hosted interface sends its own Origin on every mutation. Refusing all
+    of them would make the deployment unusable, so the answer is an explicit allowlist
+    rather than a wildcard: only the exact origins named in CORS_ORIGINS are accepted.
+    """
+    if urlparse(origin).netloc.lower() == request.headers.get("host", "").lower():
+        return True
+    candidate = _normalise_origin(origin)
+    return bool(candidate) and candidate in {_normalise_origin(item) for item in settings.allowed_origins}
+
+
 class AccessMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         settings = get_settings()
@@ -113,7 +133,7 @@ class AccessMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/"):
             if request.method not in {"GET", "HEAD", "OPTIONS"}:
                 origin = request.headers.get("origin")
-                if origin and urlparse(origin).netloc.lower() != request.headers.get("host", "").lower():
+                if origin and not _same_origin_or_allowed(origin, request, settings):
                     return JSONResponse({"detail": "Cross-origin mutations are not permitted"}, status_code=403)
             # Defense in depth if someone bypasses the provided localhost launcher.
             peer = request.client.host if request.client else ""
@@ -131,7 +151,9 @@ class AccessMiddleware(BaseHTTPMiddleware):
                         },
                         status_code=403,
                     )
-            public = path in {"/api/auth/status", "/api/auth/login", "/api/health"}
+            # The cron trigger authenticates with its own shared secret, because the
+            # scheduler calling it has no browser session to sign in with.
+            public = path in {"/api/auth/status", "/api/auth/login", "/api/health", "/api/cron/run"}
             if settings.app_access_password and not public:
                 auth = request.headers.get("authorization", "")
                 if not auth.startswith("Bearer ") or not valid_session(auth[7:]):

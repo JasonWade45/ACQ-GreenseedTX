@@ -7,13 +7,19 @@ export class ApiError extends Error {
   }
 }
 export const sessionKey = "acquisitions-session";
+// Empty when the interface is served by the API itself (the desktop app and the
+// single-container deployment). Set VITE_API_URL at build time when the interface is
+// hosted separately, e.g. on Vercel; the API must then list that exact origin in
+// CORS_ORIGINS, because the session token travels in an Authorization header.
+export const apiBase = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+export const apiUrl = (path: string) => apiBase + "/api" + path;
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   const token = sessionStorage.getItem(sessionKey);
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (init.body && !(init.body instanceof FormData))
     headers.set("Content-Type", "application/json");
-  const response = await fetch("/api" + path, { ...init, headers });
+  const response = await fetch(apiUrl(path), { ...init, headers });
   if (!response.ok) {
     const data = await response
       .json()
@@ -44,7 +50,7 @@ export async function download(path: string, filename: string) {
   const headers: Record<string, string> = {};
   const token = sessionStorage.getItem(sessionKey);
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch("/api" + path, { headers });
+  const res = await fetch(apiUrl(path), { headers });
   if (!res.ok) {
     const d = await res.json();
     throw new Error(d.detail || "Export failed");

@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import logging
 import shutil
 import sqlite3
@@ -10,9 +11,10 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, BackgroundTasks, Request, Query
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.orm import Session
 from .config import get_settings, ROOT
 from .version import APP_VERSION
@@ -165,7 +167,13 @@ async def lifespan(app):
             pending.completed_at = utcnow()
         db.commit()
         configure_scheduler(db)
-    scheduler.start()
+    if settings.scheduler_enabled:
+        scheduler.start()
+    else:
+        logger.warning(
+            "APP_SCHEDULER_ENABLED is off, so nothing runs in this process. Call "
+            "POST /api/cron/run with the CRON_SECRET header from an external scheduler."
+        )
     # One-time migration of API keys from .env into the secret store (Phase 1.3).
     try:
         from .services import secrets_store
@@ -181,7 +189,8 @@ async def lifespan(app):
         backup_service.prune(settings.database_url, settings.backup_keep)
     except Exception:
         pass
-    scheduler.shutdown(wait=False)
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -192,6 +201,20 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 app.add_middleware(AccessMiddleware)
+# Registered after AccessMiddleware so it runs first: the browser must be able to see
+# the CORS headers on the 401 that the access middleware produces, and its preflight
+# OPTIONS must be answered before the bearer-token check. Only explicit origins are
+# ever echoed back; "" (the default) means the interface is served from this app.
+if get_settings().allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=get_settings().allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Cron-Secret"],
+        expose_headers=["Content-Disposition"],
+        max_age=600,
+    )
 DB = Annotated[Session, Depends(get_db)]
 
 
@@ -258,9 +281,35 @@ def download(content, filename):
     )
 
 
+def database_label(url: str) -> str:
+    """The engine name only: never a host, a user or a query string."""
+    return "postgresql" if url.startswith("postgresql") else "sqlite"
+
+
 @app.get("/api/health")
-def health():
-    return {"status": "ok", "application": "Acquisitions Assistant AI"}
+def health(db: DB):
+    """Answer only when the database answers too.
+
+    A host that keeps reporting healthy while its database is unreachable keeps
+    receiving traffic it cannot serve, so the check fails fast with the error class
+    (never the URL, which can carry a password) and the render/uptime probe sees 503.
+    """
+    settings = get_settings()
+    base = {
+        "application": "Acquisitions Assistant AI",
+        "version": APP_VERSION,
+        "database": database_label(settings.database_url),
+        "scheduler": "in-process" if settings.scheduler_enabled else "external-cron",
+    }
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as error:  # noqa: BLE001 - the class name is the useful part here
+        logger.error("Health check cannot reach the database: %s", type(error).__name__)
+        return JSONResponse(
+            status_code=503,
+            content={**base, "status": "unavailable", "detail": f"database unreachable ({type(error).__name__})"},
+        )
+    return {**base, "status": "ok"}
 
 
 def record_audit(db, action: str, details: dict):
@@ -288,6 +337,45 @@ def login(body: LoginIn, request: Request, db: DB):
         )
     record_audit(db, "auth_login", {"client": client})
     return {"token": token, "expires_in_seconds": 43200}
+
+
+def _cron_secret_matches(request) -> bool:
+    """The cron secret, from a header or a bearer token. A session token is not one.
+
+    The cron trigger comes from a scheduler with no user session, so the header wins and
+    a browser session is never mistaken for the shared secret.
+    """
+    provided = request.headers.get("x-cron-secret") or request.query_params.get("token", "")
+    if not provided:
+        authorization = request.headers.get("authorization", "")
+        if authorization.lower().startswith("bearer "):
+            provided = authorization[7:]
+    return bool(provided) and hmac.compare_digest(str(provided), str(get_settings().cron_secret))
+
+
+@app.post("/api/cron/run")
+def cron_run(request: Request, db: DB, job: str = Query(default="cadence")):
+    """The scheduler for hosts that do not keep a process alive.
+
+    A serverless or free-tier host suspends the process, so the in-process scheduler
+    never fires. An external scheduler calls this route with the shared secret instead
+    and gets the same work, with the counts to prove it ran. Nothing here sends: the
+    cadence job writes drafts for review.
+    """
+    settings = get_settings()
+    if not settings.cron_secret:
+        # Behave as if the route did not exist rather than confirm what is missing.
+        raise HTTPException(404, "Not found")
+    if not _cron_secret_matches(request):
+        raise HTTPException(401, "Invalid cron secret")
+    if job not in {"cadence"}:
+        raise ValueError("Supported job: cadence")
+    from .scheduler import run_cadence
+
+    result = run_cadence()
+    db.add(AuditLog(action="cron_job_ran", details={"job": job, **result, "trigger": "external"}))
+    db.commit()
+    return {"job": job, **result}
 
 
 @app.post("/api/auth/logout")
@@ -1295,7 +1383,10 @@ def _cadence_days(db):
 
 @app.get("/api/settings")
 def settings_view(db: DB):
+    from .services.private_settings import identity_locked
+
     settings = get_settings()
+    locked_identity = identity_locked()
     mapping = db.get(AppSetting, "stage_mapping").value
     observed = db.get(AppSetting, "source_status_counts")
     observed = observed.value if observed else {}
@@ -1315,6 +1406,11 @@ def settings_view(db: DB):
         "priority_rules": db.get(AppSetting, "priority_rules").value,
         "sender_name": settings.sender_name,
         "company_name": settings.company_name,
+        # When the environment pins the opener identity this screen cannot change it,
+        # so it says so instead of accepting an edit that would never take effect.
+        "sender_name_locked": locked_identity["sender_name"],
+        "company_name_locked": locked_identity["company_name"],
+        "identity_source": "environment" if any(locked_identity.values()) else "settings file",
         "cadence": _cadence_days(db),
         "local_only": settings.app_host in {"127.0.0.1", "localhost", "::1"},
         "authentication_enabled": bool(settings.app_access_password),
@@ -1349,6 +1445,20 @@ def settings_update(body: SettingsIn, db: DB):
         # The opener identity is process configuration, so it is stored in the private
         # settings file the app already reads at startup (never in the database).
         from .services import private_settings
+
+        locked = private_settings.identity_locked()
+        blocked = [
+            field.replace("_", " ").title()
+            for field, value in (("sender_name", body.sender_name), ("company_name", body.company_name))
+            if value is not None and locked[field]
+        ]
+        if blocked:
+            raise HTTPException(
+                400,
+                ", ".join(blocked)
+                + " is set by the environment (SENDER_NAME/COMPANY_NAME), which takes precedence over this "
+                "screen. Change it in the deployment environment.",
+            )
 
         updates = {}
         if body.sender_name is not None:

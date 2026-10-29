@@ -163,16 +163,37 @@ class MergeSource(StrictModel):
     confirmation: str
 
 
+def require_file_database(what: str):
+    """Legacy workspace features read and write a SQLite file; a hosted database has none.
+
+    Refusing here is deliberate: these paths would otherwise be handed a database URL
+    they treat as a file path, and fail in a way nobody can act on.
+    """
+    if get_settings().is_postgres:
+        raise HTTPException(
+            400,
+            f"{what} works with a local SQLite database file. This deployment uses PostgreSQL, "
+            "where the equivalent is scripts/migrate_sqlite_to_postgres.py (read-only source, "
+            "per-table counts, safe to re-run).",
+        )
+
+
 @router.get("/workspace-merges/capabilities")
 def merge_capabilities():
+    postgres = get_settings().is_postgres
     return {
-        "local_selection_available": get_settings().app_host in {"127.0.0.1", "localhost", "::1"},
+        "local_selection_available": not postgres
+        and get_settings().app_host in {"127.0.0.1", "localhost", "::1"},
         "uploads_supported": False,
+        "unavailable_reason": (
+            "PostgreSQL deployments migrate with scripts/migrate_sqlite_to_postgres.py" if postgres else None
+        ),
     }
 
 
 @router.post("/workspace-merges/prepare")
 def merge_prepare(body: MergeSource, db: DB):
+    require_file_database("Preparing a workspace merge")
     if get_settings().app_host not in {"127.0.0.1", "localhost", "::1"}:
         raise HTTPException(
             403,
@@ -209,6 +230,7 @@ def merge_detail(merge_id: str, db: DB):
 def merge_refresh(merge_id: str, db: DB):
     from .services.workspace_merge import refresh_review, merge_dict
 
+    require_file_database("Refreshing a workspace merge")
     row = db.get(WorkspaceMerge, merge_id)
     if not row:
         raise HTTPException(404, "Workspace migration not found")
@@ -231,6 +253,7 @@ class MergeApproval(StrictModel):
 def merge_commit(merge_id: str, body: MergeApproval, db: DB):
     from .services.workspace_merge import commit_merge, merge_dict
 
+    require_file_database("Committing a workspace merge")
     row = db.get(WorkspaceMerge, merge_id)
     if not row:
         raise HTTPException(404, "Workspace migration not found")

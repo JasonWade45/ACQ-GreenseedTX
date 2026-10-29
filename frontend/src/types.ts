@@ -500,6 +500,10 @@ export interface SettingsData {
   priority_rules: Record<string, number>;
   sender_name: string;
   company_name: string;
+  // The environment can pin the opener identity, in which case this screen cannot edit it.
+  sender_name_locked?: boolean;
+  company_name_locked?: boolean;
+  identity_source?: string;
   cadence: number[];
   local_only: boolean;
   authentication_enabled: boolean;

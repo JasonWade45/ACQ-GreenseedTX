@@ -62,8 +62,13 @@ def make_engine(url, *, pool_size: int = 5) -> Engine:
     if is_sqlite(url) and ":memory:" not in url:
         Path(url.replace("sqlite:///", "", 1)).resolve().parent.mkdir(parents=True, exist_ok=True)
     if is_postgres(url):
+        # A dead host must surface as a failed health check in seconds, not as a request
+        # that hangs until the platform's own timeout. application_name makes the app's
+        # connections identifiable in the provider's session list.
+        connect_args = {"connect_timeout": 10, "application_name": "acquisitions-assistant"}
         return create_engine(
             url,
+            connect_args=connect_args,
             pool_pre_ping=True,
             pool_size=pool_size,
             max_overflow=pool_size,
