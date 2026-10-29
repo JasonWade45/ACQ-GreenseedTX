@@ -20,6 +20,9 @@ ALLOWED = {
     "RESIMPLI_MODE",
     "RESIMPLI_ADAPTER_PATH",
     "RESIMPLI_ADAPTER_VERIFIED",
+    # Opener identity for every draft path (not a secret, but it is process config).
+    "SENDER_NAME",
+    "COMPANY_NAME",
 }
 
 

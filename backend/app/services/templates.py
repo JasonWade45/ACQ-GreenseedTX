@@ -480,7 +480,7 @@ def draft_gates(db: Session, lead) -> tuple[list[str], list[str]]:
     elif is_suppressed(db, lead.primary_phone):
         blocking.append("This phone number is on the suppression list")
     licensed = _settings(db).get("licensed_counties")
-    if not is_in_license(lead, licensed):
+    if getattr(lead, "in_license", True) is False or not is_in_license(lead, licensed):
         blocking.append("Out of license: this property is outside the licensed counties")
     ok, reason = can_send(db, lead)
     if not ok and reason in {"quiet_hours", "daily_cap", "hourly_cap"}:

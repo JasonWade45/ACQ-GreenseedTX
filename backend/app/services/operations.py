@@ -14,6 +14,7 @@ from .leads import (
 )
 
 SECTIONS = [
+    "needs_skip_trace",
     "overdue",
     "today",
     "new",
@@ -26,6 +27,7 @@ SECTIONS = [
     "missing",
 ]
 SECTION_LABELS = {
+    "needs_skip_trace": "Needs skip trace",
     "overdue": "Overdue",
     "today": "Due Today",
     "new": "New Leads Not Contacted",
@@ -37,6 +39,45 @@ SECTION_LABELS = {
     "unscheduled": "Unscheduled Follow-ups",
     "missing": "Missing Critical Information",
 }
+
+
+def contextual_bonus(lead, rules):
+    """Heat, sale likelihood and equity additions, each reported separately.
+
+    These only ever *add* to the existing deterministic score; the same 0-100 cap and
+    the DNC exclusion still apply. Nothing here guesses a value: a missing score or
+    equity simply contributes nothing.
+    """
+    total, reasons = 0, []
+    heat = (getattr(lead, "heat", None) or "").upper()
+    if heat == "VERY_HOT":
+        bonus = int(rules.get("heat_very_hot_bonus", 0))
+        total += bonus
+        reasons.append(f"Very hot lead (+{bonus})")
+    elif heat == "HOT":
+        bonus = int(rules.get("heat_hot_bonus", 0))
+        total += bonus
+        reasons.append(f"Hot lead (+{bonus})")
+    score = getattr(lead, "score", None)
+    weight = int(rules.get("ds_score_weight", 0))
+    if score is not None and score >= 50 and weight:
+        bonus = round((float(score) - 50) * weight / 50)
+        if bonus:
+            total += bonus
+            reasons.append(f"Sale likelihood {score:g} (+{bonus})")
+    equity = getattr(lead, "equity_pct", None)
+    if equity is not None:
+        if equity >= 40:
+            bonus = int(rules.get("equity_bonus", 0))
+            if bonus:
+                total += bonus
+                reasons.append(f"Equity {equity:g}% (+{bonus})")
+        elif equity < 20:
+            penalty = int(rules.get("negative_equity_penalty", 0))
+            if penalty:
+                total += penalty
+                reasons.append(f"Equity {equity:g}% ({penalty:+d})")
+    return total, reasons
 
 
 def priority_for(lead, followup, rules, start, zone="America/New_York"):
@@ -58,7 +99,10 @@ def priority_for(lead, followup, rules, start, zone="America/New_York"):
     if lead.stage_code == "appointment_set":
         score += rules["appointment_bonus"]
         reasons.append(f"Appointment-stage priority (+{rules['appointment_bonus']})")
-    return min(100, score), reasons
+    contextual, contextual_reasons = contextual_bonus(lead, rules)
+    score += contextual
+    reasons.extend(contextual_reasons)
+    return max(0, min(100, score)), reasons
 
 
 def daily_queue(db, zone, section=None, page=1, page_size=30):
@@ -109,6 +153,25 @@ def daily_queue(db, zone, section=None, page=1, page_size=30):
                 "draft_available": lead.restriction_status == "reviewed_clear"
                 and bool(last or lead.source_data.get("normalized", {}).get("seller_motivation")),
             }
+
+        # A lead with no verified owner name or phone can be worked on, but only in
+        # its own section: it must never appear as a "call this seller" task.
+        if lead.needs_skip_trace:
+            score, factors = priority_for(lead, None, rules, start, zone)
+            result["needs_skip_trace"].append(
+                {
+                    "lead": payload,
+                    "followup": None,
+                    "last_activity": activity_dict(last) if last else None,
+                    "reason": "No verified owner name or phone yet; export and run a skip trace first.",
+                    "suggested_action": "Export the skip-trace file, then import the results.",
+                    "priority": score,
+                    "priority_factors": factors,
+                    "evidence_quality": "Vendor record; owner identity not verified",
+                    "draft_available": False,
+                }
+            )
+            continue
 
         for f in fs:
             if not f.due_at:
@@ -173,6 +236,15 @@ def daily_queue(db, zone, section=None, page=1, page_size=30):
                 )
             )
     for key, items in result.items():
+        if key == "needs_skip_trace":
+            items.sort(
+                key=lambda x: (
+                    -(x["priority"]),
+                    -(x["lead"].get("score") or 0),
+                    x["lead"]["id"],
+                )
+            )
+            continue
         items.sort(
             key=lambda x: (
                 -(x["priority"]),
@@ -194,7 +266,7 @@ def daily_queue(db, zone, section=None, page=1, page_size=30):
         "rules": rules,
         "timezone": zone,
         "excluded_dnc": db.scalar(select(func.count()).select_from(Lead).where(~outreach_allowed_clause())),
-        "definition": "Overdue means a pending explicit due date before today’s local midnight. Today includes the entire local day. Unscheduled is never overdue.",
+        "definition": "Overdue means a pending explicit due date before today’s local midnight. Today includes the entire local day. Unscheduled is never overdue. Leads with no verified owner name or phone appear only under Needs skip trace.",
     }
 
 

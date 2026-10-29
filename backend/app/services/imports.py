@@ -467,7 +467,7 @@ def create_local_lead(db, data, original, batch_id=None, source_kind="import"):
         contact_outcome=data.get("contact_outcome"),
         source_data={"original": original, "normalized": data, "batch_id": batch_id},
         recorded_date=_dt(data.get("recorded_date")),
-        ds_flags=data.get("flags") or {},
+        ds_flags=data.get("flags") or data.get("ds_flags") or {},
         ds_flags_raw=data.get("flags_raw"),
         ds_extra_flags=data.get("extra_flags") or [],
         ds_compatible_offers=data.get("compatible_offers") or [],

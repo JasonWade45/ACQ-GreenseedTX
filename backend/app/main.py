@@ -37,6 +37,7 @@ from .models import (
     Message,
     SyncConflict,
     Task,
+    SuggestedAction,
 )
 from .schemas import (
     NoteIn,
@@ -55,6 +56,9 @@ from .schemas import (
     SchedulerIn,
     LoginIn,
     LeadFieldEdit,
+    MessageEdit,
+    BulkDraftIn,
+    TemplateIn,
     OUTCOMES,
     PipelineCreate,
     PipelineRename,
@@ -1155,6 +1159,12 @@ def export_reports(request: Request, db: DB):
     )
 
 
+def _cadence_days(db):
+    from .services import sequences
+
+    return sequences.cadence_days(db)
+
+
 @app.get("/api/settings")
 def settings_view(db: DB):
     settings = get_settings()
@@ -1175,6 +1185,9 @@ def settings_view(db: DB):
             for title, count in sorted(observed.items(), key=lambda item: (-item[1], item[0]))
         ],
         "priority_rules": db.get(AppSetting, "priority_rules").value,
+        "sender_name": settings.sender_name,
+        "company_name": settings.company_name,
+        "cadence": _cadence_days(db),
         "local_only": settings.app_host in {"127.0.0.1", "localhost", "::1"},
         "authentication_enabled": bool(settings.app_access_password),
         "max_upload_mb": settings.max_upload_mb,
@@ -1197,11 +1210,28 @@ def settings_update(body: SettingsIn, db: DB):
         db.get(AppSetting, "stage_mapping").value = {k.strip().lower(): v for k, v in body.stage_mapping.items()}
     if body.priority_rules is not None:
         current = db.get(AppSetting, "priority_rules")
-        if set(body.priority_rules) != set(current.value) or any(
-            not 0 <= v <= 365 for v in body.priority_rules.values()
-        ):
-            raise ValueError("Use the existing priority-rule keys and values between 0 and 365")
+        if set(body.priority_rules) != set(current.value):
+            raise ValueError("Use the existing priority-rule keys; add new defaults by restarting the app")
+        for key, value in body.priority_rules.items():
+            floor = -365 if key == "negative_equity_penalty" else 0
+            if not floor <= value <= 365:
+                raise ValueError(f"{key} must be between {floor} and 365")
         current.value = body.priority_rules
+    if body.sender_name is not None or body.company_name is not None:
+        # The opener identity is process configuration, so it is stored in the private
+        # settings file the app already reads at startup (never in the database).
+        from .services import private_settings
+
+        updates = {}
+        if body.sender_name is not None:
+            updates["SENDER_NAME"] = body.sender_name.strip()
+        if body.company_name is not None:
+            updates["COMPANY_NAME"] = body.company_name.strip()
+        private_settings.write_private(updates)
+    if body.cadence is not None:
+        from .services import sequences
+
+        sequences.save_cadence(db, body.cadence)
     db.add(AuditLog(action="settings_changed", details={"keys": list(body.model_fields_set)}))
     db.commit()
     return settings_view(db)
@@ -1532,20 +1562,170 @@ def audit_list(db: DB, limit: int = 200, action: str | None = None):
     ]
 
 
-# ── Phase 3: templates & messages ────────────────────────────────────────────
+# ── Templates and message drafts (cold outreach) ─────────────────────────────
 @app.get("/api/message-templates")
 def list_message_templates(db: DB):
+    from .services import templates as T
 
     rows = db.query(Template).order_by(Template.category, Template.variant).all()
-    return [{"id": t.id, "category": t.category, "variant": t.variant, "body": t.body, "active": t.active, "stats": t.stats or {}} for t in rows]
+    return [
+        {
+            "id": t.id,
+            "category": T.canonical_category(t.category),
+            "raw_category": t.category,
+            "variant": t.variant,
+            "body": t.body,
+            "active": t.active,
+            "version": t.version,
+            "stats": t.stats or {},
+            "banned_words": T.validate_message(
+                T.render_template(t.body, type("L", (), {"properties": [], "first_name": "Test", "full_name": "Test"})())[0],
+                True,
+                sender_name="Jason Wade",
+                company="GreenSeedTX LLC",
+            )[1],
+        }
+        for t in rows
+    ]
 
 
 @app.post("/api/templates/seed")
 def seed_templates(db: DB):
     from .services import templates as T
 
-    n = T.seed_templates(db)
-    return {"created": n}
+    return {"created": T.seed_templates(db)}
+
+
+@app.post("/api/message-templates/reset")
+def reset_message_templates(db: DB):
+    """Restore the reviewed default wording. Explicit action, never automatic."""
+    from .services import templates as T
+
+    return T.reset_templates(db)
+
+
+@app.patch("/api/message-templates/{template_id}")
+def edit_message_template(template_id: int, body: TemplateIn, db: DB):
+    from .services import templates as T
+
+    row = found(db, Template, template_id)
+    if body.body is not None:
+        sample = type(
+            "SampleLead",
+            (),
+            {
+                "first_name": "Dana",
+                "full_name": "Dana Seller",
+                "properties": [
+                    type("P", (), {"street_address": "1 Test St", "city": "Fort Worth"})()
+                ],
+            },
+        )()
+        rendered = T.render_template(body.body, sample, "Jason Wade", "GreenSeedTX LLC")
+        ok, reasons = T.validate_message(
+            rendered, True, sender_name="Jason Wade", company="GreenSeedTX LLC"
+        )
+        if not ok:
+            raise ValueError("Template cannot be saved: " + ", ".join(reasons))
+        row.body = body.body
+        row.version += 1
+    if body.active is not None:
+        row.active = body.active
+    db.add(AuditLog(action="template_edited", details={"template_id": row.id, "active": row.active}))
+    db.commit()
+    return {"id": row.id, "category": row.category, "variant": row.variant, "body": row.body, "active": row.active}
+
+
+@app.get("/api/drafts")
+def draft_review_queue(db: DB, status: str = "DRAFT", limit: int = 100):
+    """The copy-only review queue. There is no bulk copy and no send anywhere."""
+    rows = (
+        db.query(Message)
+        .filter(Message.direction == "outbound", Message.status == status)
+        .order_by(Message.id.desc())
+        .limit(min(limit, 300))
+        .all()
+    )
+    items = []
+    for row in rows:
+        lead = db.get(Lead, row.lead_id)
+        items.append(
+            {
+                **templates_message_dict(row),
+                "lead_name": lead.full_name if lead else None,
+                "lead_external_id": lead.external_id if lead else None,
+                "heat": lead.heat if lead else None,
+                "score": lead.score if lead else None,
+                "outreach_mode": lead.outreach_mode if lead else None,
+            }
+        )
+    return {"items": items, "total": db.query(Message).filter(Message.status == status, Message.direction == "outbound").count()}
+
+
+def templates_message_dict(row):
+    return {
+        "id": row.id,
+        "lead_id": row.lead_id,
+        "body": row.body,
+        "status": row.status,
+        "template_id": row.template_id,
+        "variant": row.variant,
+        "validator_result": row.validator_result or {},
+        "why_this_template": row.reason_tags or [],
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@app.patch("/api/messages/{message_id}")
+def edit_message(message_id: int, body: MessageEdit, db: DB):
+    from .services import templates as T
+
+    row = found(db, Message, message_id)
+    if row.direction != "outbound" or row.status not in {"DRAFT", "APPROVED"}:
+        raise ValueError("Only an outgoing draft can be edited")
+    lead = db.get(Lead, row.lead_id)
+    if lead is not None and lead.do_not_contact:
+        raise ValueError("Draft editing is blocked by the lead's current contact restriction")
+    sender_name, company = T.sender_identity()
+    ok, reasons = T.validate_message(body.body, True, sender_name=sender_name, company=company)
+    if not ok:
+        raise ValueError("Draft cannot be saved: " + ", ".join(reasons))
+    row.body = body.body
+    row.validator_result = {"ok": ok, "reasons": reasons}
+    db.add(AuditLog(lead_id=row.lead_id, action="draft_edited", details={"message_id": row.id, "never_sent": True}))
+    db.commit()
+    return templates_message_dict(row)
+
+
+@app.post("/api/drafts/bulk")
+def bulk_generate_drafts(body: BulkDraftIn, db: DB):
+    """Generate drafts for a reviewed selection; they land in the review queue.
+
+    No bulk copy and no bulk send exists by design.
+    """
+    from .services import templates as T
+
+    if not body.confirm:
+        raise ValueError("Confirm generating drafts for this selection")
+    query = select(Lead).where(Lead.needs_skip_trace.is_(False), Lead.local_do_not_contact.is_(False))
+    if body.lead_ids:
+        query = query.where(Lead.id.in_(body.lead_ids))
+    if body.tier:
+        query = query.where(Lead.priority_tier == body.tier)
+    if not body.lead_ids and not body.tier:
+        raise ValueError("Select leads or a priority tier")
+    leads = db.scalars(query).all()
+    if not leads:
+        raise ValueError("No lead in this selection can receive a draft")
+    results = T.bulk_drafts(db, leads, get_settings(), variant=body.variant)
+    return {
+        "requested": len(leads),
+        "generated": sum(1 for r in results if r["ok"]),
+        "blocked": sum(1 for r in results if not r["ok"]),
+        "results": results,
+        "bulk_copy": False,
+        "bulk_send": False,
+    }
 
 
 @app.post("/api/messages/{message_id}/approve")
@@ -1629,6 +1809,67 @@ def handle_reply(lead_id: int, body: dict, db: DB):
     db.add(AuditLog(lead_id=lead.id, action="reply_classified", details={"classification": result["classification"], "confidence": result["confidence"]}))
     db.commit()
     return result
+
+
+@app.get("/api/suggested-actions")
+def list_suggested_actions(db: DB, status: str = "pending", limit: int = 100):
+    rows = (
+        db.query(SuggestedAction)
+        .filter(SuggestedAction.status == status)
+        .order_by(SuggestedAction.id.desc())
+        .limit(min(limit, 300))
+        .all()
+    )
+    result = []
+    for row in rows:
+        lead = db.get(Lead, row.lead_id)
+        result.append(
+            {
+                "id": row.id,
+                "lead_id": row.lead_id,
+                "lead_name": lead.full_name if lead else None,
+                "kind": row.kind,
+                "classification": row.classification,
+                "confidence": row.confidence,
+                "evidence": row.evidence,
+                "payload": row.payload or {},
+                "status": row.status,
+                "requires_confirmation": row.requires_confirmation,
+                "created_at": row.created_at,
+            }
+        )
+    return result
+
+
+@app.post("/api/suggested-actions/{action_id}/confirm")
+def confirm_suggested_action(action_id: int, db: DB):
+    from .services import replies as R
+
+    action = found(db, SuggestedAction, action_id)
+    result = R.confirm_action(db, action, decision="confirm")
+    db.add(AuditLog(lead_id=action.lead_id, action="suggested_action_confirmed", details=result))
+    db.commit()
+    return result
+
+
+@app.post("/api/suggested-actions/{action_id}/dismiss")
+def dismiss_suggested_action(action_id: int, db: DB):
+    from .services import replies as R
+
+    action = found(db, SuggestedAction, action_id)
+    result = R.confirm_action(db, action, decision="dismiss")
+    db.add(AuditLog(lead_id=action.lead_id, action="suggested_action_dismissed", details=result))
+    db.commit()
+    return result
+
+
+@app.post("/api/replies/scan")
+def scan_inbound_activities(db: DB):
+    """Classify inbound activity text the read-only sync already stored."""
+    from .services import replies as R
+
+    result = R.classify_inbound_activities(db)
+    return {"classified": len(result), "items": result}
 
 
 @app.post("/api/replies/classify")

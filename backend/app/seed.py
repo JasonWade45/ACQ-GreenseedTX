@@ -48,6 +48,23 @@ SOURCE_STATUS_DEFAULTS = {
 }
 
 
+# Deterministic priority weights. Every one is editable in Settings > Pipeline.
+DEFAULT_PRIORITY_RULES = {
+    "callback_bonus": 30,
+    "negotiation_bonus": 20,
+    "appointment_bonus": 25,
+    "overdue_per_day": 2,
+    "new_lead_priority": 40,
+    "stale_after_days": 30,
+    # Sale-likelihood / equity factors (Data Syndicate context).
+    "heat_very_hot_bonus": 30,
+    "heat_hot_bonus": 15,
+    "ds_score_weight": 20,
+    "equity_bonus": 5,
+    "negative_equity_penalty": -15,
+}
+
+
 def initialize_defaults(db):
     for position, (code, label) in enumerate(STAGES):
         if not db.get(PipelineStage, code):
@@ -64,20 +81,16 @@ def initialize_defaults(db):
         setting.value = mapping
     else:
         db.add(AppSetting(key="stage_mapping", value=mapping))
-    if not db.get(AppSetting, "priority_rules"):
-        db.add(
-            AppSetting(
-                key="priority_rules",
-                value={
-                    "callback_bonus": 30,
-                    "negotiation_bonus": 20,
-                    "appointment_bonus": 25,
-                    "overdue_per_day": 2,
-                    "new_lead_priority": 40,
-                    "stale_after_days": 30,
-                },
-            )
-        )
+    rules = db.get(AppSetting, "priority_rules")
+    if not rules:
+        db.add(AppSetting(key="priority_rules", value=dict(DEFAULT_PRIORITY_RULES)))
+    else:
+        # New weights appear with their defaults; a value Jason already changed is kept.
+        merged = dict(rules.value)
+        for key, value in DEFAULT_PRIORITY_RULES.items():
+            merged.setdefault(key, value)
+        if merged != rules.value:
+            rules.value = merged
     db.commit()
 
 
