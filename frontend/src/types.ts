@@ -139,6 +139,30 @@ export interface MessageDraft {
   outreach_mode?: string | null;
 }
 
+export interface TemplateSelection {
+  category: string;
+  label: string;
+  tags: string[];
+  reason: string;
+  variant: string;
+  variants_available: string[];
+  outreach_mode: string;
+  preview: string | null;
+  blockers: string[];
+  selectable: boolean;
+  never_sent: boolean;
+}
+
+export interface ReplyScan {
+  scanned: number;
+  classified: number;
+  needs_human: number;
+  skipped_empty: number;
+  already_seen: number;
+  items: { lead_id: number; classification: string; confidence: number }[];
+  never_sent: boolean;
+}
+
 export interface LeadSequence {
   lead_id: number;
   active: boolean;

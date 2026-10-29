@@ -1795,13 +1795,47 @@ def list_messages(db: DB, lead_id: int | None = None, status: str | None = None,
 # ── Phase 3: template selection preview ──────────────────────────────────────
 @app.get("/api/leads/{lead_id}/template-selection")
 def template_selection(lead_id: int, db: DB):
+    """Explain, before a draft exists, which template would be used and why."""
     from .services import templates as T
 
     lead = db.get(Lead, lead_id)
     if not lead:
         raise HTTPException(404, "Lead not found")
-    cat = T.select_category(lead)
-    return {"category": cat, "reason": "selected by lead context"}
+    selection = T.selection_reason(lead)
+    category = selection["category"]
+    variants = T.DEFAULT_TEMPLATES.get(category, {})
+    sender_name, company = T.sender_identity()
+    preview = None
+    if variants:
+        # Rendering here is a preview of the wording, never a message.
+        preview = T.render_template(variants["A"], lead, sender_name, company)
+    outreach_mode = getattr(lead, "outreach_mode", None) or "relationship"
+    blockers = []
+    if getattr(lead, "needs_skip_trace", False):
+        blockers.append("No verified owner name or phone yet: run a skip trace first.")
+    if getattr(lead, "do_not_contact", False):
+        blockers.append("Do Not Contact: drafting is blocked.")
+    if getattr(lead, "restriction_status", None) != "reviewed_clear":
+        blockers.append("Contact restrictions are not reviewed yet.")
+    if getattr(lead, "in_license", True) is False:
+        blockers.append("The property is outside the licensed area.")
+    return {
+        "category": category,
+        "label": category.replace("_", " ").title(),
+        "tags": selection["tags"],
+        "reason": (
+            "Matched on: " + ", ".join(selection["tags"])
+            if selection["tags"]
+            else "No distress flag matched; the generic opener is used."
+        ),
+        "variant": "A",
+        "variants_available": sorted(variants),
+        "outreach_mode": outreach_mode,
+        "preview": preview,
+        "blockers": blockers,
+        "selectable": not blockers,
+        "never_sent": True,
+    }
 
 
 # ── Phase 4: sequences ───────────────────────────────────────────────────────
@@ -1971,11 +2005,25 @@ def dismiss_suggested_action(action_id: int, db: DB):
 
 @app.post("/api/replies/scan")
 def scan_inbound_activities(db: DB):
-    """Classify inbound activity text the read-only sync already stored."""
+    """Classify inbound activity text the read-only sync already stored.
+
+    Manual on purpose: scheduled sync never classifies or writes anything.
+    """
     from .services import replies as R
 
-    result = R.classify_inbound_activities(db)
-    return {"classified": len(result), "items": result}
+    result = R.scan_inbound_activities(db)
+    db.add(
+        AuditLog(
+            action="replies_scanned",
+            details={
+                "scanned": result["scanned"],
+                "classified": result["classified"],
+                "needs_human": result["needs_human"],
+            },
+        )
+    )
+    db.commit()
+    return result
 
 
 @app.post("/api/replies/classify")

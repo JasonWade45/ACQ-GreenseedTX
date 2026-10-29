@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { BriefingPage } from "./pages/BriefingPage";
 import DraftsPage from "./pages/DraftsPage";
 import SkipTracePage from "./pages/SkipTracePage";
+import { SyncPage } from "./pages/OperationsPages";
 
 const briefing = {
   generated_at: "2026-10-29T12:00:00Z",
@@ -122,6 +123,14 @@ beforeEach(() => {
     "/briefing": briefing,
     "/drafts": drafts,
     "/skip-trace/summary": skipTrace,
+    "/sync": {
+      mode: "disabled",
+      health: "never",
+      last_run: null,
+      runs: [],
+      scheduler: { enabled: false, interval_minutes: 30 },
+      conflicts: { open: 0, resolved: 0 },
+    },
     "/sequences/summary": {
       active: 3,
       due_today: 2,
@@ -173,6 +182,17 @@ it("shows the cadence work waiting and never offers a send", async () => {
     screen.getByRole("button", { name: /Prepare due drafts/ }),
   ).toBeEnabled();
   expect(screen.queryByRole("button", { name: /send/i })).toBeNull();
+});
+
+it("reports exactly what the synced-reply scan read and left alone", async () => {
+  mount(<SyncPage />);
+  await screen.findByText("Replies inside synced activity");
+  expect(
+    screen.getByRole("button", { name: /Scan synced replies/ }),
+  ).toBeEnabled();
+  expect(
+    screen.getByText(/Scheduled sync never classifies or writes anything/),
+  ).toBeInTheDocument();
 });
 
 it("explains the skip-trace loop without claiming a provider call", async () => {

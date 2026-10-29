@@ -62,6 +62,7 @@ import type {
   LeadProfile,
   LeadSequence,
   SuggestedAction,
+  TemplateSelection,
 } from "../types";
 
 export default function LeadDetail() {
@@ -1268,6 +1269,7 @@ function DraftPanel({ lead }: { lead: LeadProfile }) {
             </p>
           </div>
         )}
+        <TemplatePreview lead={lead} />
         <Button
           variant="secondary"
           className="full-width"
@@ -1678,5 +1680,57 @@ function CadencePanel({ lead }: { lead: LeadProfile }) {
         </details>
       )}
     </Panel>
+  );
+}
+
+function TemplatePreview({ lead }: { lead: LeadProfile }) {
+  const [open, setOpen] = useState(false);
+  const selection = useQuery({
+    queryKey: ["template-selection", lead.id],
+    queryFn: () => api<TemplateSelection>(`/leads/${lead.id}/template-selection`),
+    enabled: open,
+  });
+  return (
+    <details
+      className="template-preview"
+      onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+    >
+      <summary>Which template would be used, and why?</summary>
+      {!open ? null : selection.isPending ? (
+        <Loading />
+      ) : selection.isError ? (
+        <ErrorState error={selection.error} retry={() => selection.refetch()} />
+      ) : (
+        <>
+          <div className="row wrap">
+            <Badge tone="neutral">{selection.data.label}</Badge>
+            <Badge tone="neutral">variant {selection.data.variant}</Badge>
+            <Badge tone={selection.data.selectable ? "green" : "amber"}>
+              {selection.data.selectable ? "draftable" : "blocked"}
+            </Badge>
+          </div>
+          <p>{selection.data.reason}</p>
+          {selection.data.blockers.length > 0 && (
+            <Notice tone="warning">
+              <ul>
+                {selection.data.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            </Notice>
+          )}
+          {selection.data.preview && (
+            <>
+              <span className="mini-label">WORDING IT WOULD USE (NOT SENT)</span>
+              <blockquote>{selection.data.preview}</blockquote>
+            </>
+          )}
+          <small className="muted">
+            Distress flags stay internal: they choose the wording, they never appear
+            in it.
+          </small>
+        </>
+      )}
+    </details>
   );
 }

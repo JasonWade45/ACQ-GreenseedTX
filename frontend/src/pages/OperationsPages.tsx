@@ -16,6 +16,7 @@ import {
   Info,
   Play,
   Plus,
+  MessageSquareText,
   RefreshCw,
   Save,
   Settings2,
@@ -48,6 +49,7 @@ import type {
   Appointment,
   DashboardData,
   Insight,
+  ReplyScan,
   ReportsData,
   SettingsData,
   SyncState,
@@ -743,6 +745,7 @@ export function SyncPage() {
         uses paginated reconciliation; it never claims unsupported incremental
         updates.
       </Notice>
+      <ReplyScanPanel />
       <Panel
         title="Synchronization history"
         subtitle="Fetched/created/updated/skipped are lead counts. Failed counts include failed requests/resources."
@@ -1515,5 +1518,80 @@ function IdentityCadencePanel({ settings }: { settings: SettingsData }) {
         </form>
       </Panel>
     </>
+  );
+}
+
+function ReplyScanPanel() {
+  const action = useAction();
+  const [result, setResult] = useState<ReplyScan | null>(null);
+  return (
+    <Panel
+      title="Replies inside synced activity"
+      subtitle="Sync stores short summaries, not transcripts. This reads them, classifies only what the rules are sure about, and leaves the rest for you."
+      action={<MessageSquareText size={18} className="muted" />}
+    >
+      <div className="config-instructions">
+        <p>
+          A literal opt-out found here blocks outreach immediately; adding the number
+          to the suppression list stays your decision. Scheduled sync never classifies
+          or writes anything.
+        </p>
+      </div>
+      <Button
+        variant="secondary"
+        busy={action.busy}
+        onClick={async () => {
+          const scan = await action.run(
+            () => post<ReplyScan>("/replies/scan"),
+            "Synced activity scanned",
+          );
+          if (scan) setResult(scan);
+        }}
+      >
+        <RefreshCw size={15} /> Scan synced replies
+      </Button>
+      {result && (
+        <div className="stack">
+          <div className="settings-facts">
+            <div>
+              <span>Inbound texts read</span>
+              <strong>{result.scanned}</strong>
+            </div>
+            <div>
+              <span>Classified</span>
+              <strong>{result.classified}</strong>
+            </div>
+            <div>
+              <span>Needs a human read</span>
+              <strong>{result.needs_human}</strong>
+            </div>
+            <div>
+              <span>Already suggested</span>
+              <strong>{result.already_seen}</strong>
+            </div>
+          </div>
+          {result.items.length > 0 && (
+            <div className="row wrap">
+              {result.items.map((item) => (
+                <Badge key={`${item.lead_id}-${item.classification}`} tone="amber">
+                  Lead {item.lead_id}: {item.classification} ·{" "}
+                  {Math.round(item.confidence * 100)}%
+                </Badge>
+              ))}
+            </div>
+          )}
+          <p className="muted">
+            {result.classified
+              ? "Review them in the briefing or on each lead."
+              : "Nothing new was certain enough to suggest."}{" "}
+            Nothing was sent or written to the CRM.
+          </p>
+          <Link className="text-link" to="/briefing">
+            Open the briefing
+          </Link>
+        </div>
+      )}
+      {action.error && <p className="muted">{action.error}</p>}
+    </Panel>
   );
 }
