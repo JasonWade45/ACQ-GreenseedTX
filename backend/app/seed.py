@@ -91,6 +91,9 @@ def initialize_defaults(db):
             merged.setdefault(key, value)
         if merged != rules.value:
             rules.value = merged
+    from .services.checklists import ensure_templates
+
+    ensure_templates(db)
     db.commit()
 
 
