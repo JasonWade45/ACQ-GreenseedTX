@@ -496,3 +496,155 @@ class SuggestedAction(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     __table_args__ = (CheckConstraint("status IN ('pending','confirmed','dismissed')"),)
+
+
+class CrmPush(Base):
+    """The local side of one lead's push into REsimpli.
+
+    This row *is* the sync mapping: the REsimpli id we got back, the hash of exactly
+    what was sent, and the state that the Push Queue shows. Losing it cannot create a
+    duplicate, because every push searches the CRM by address and phone first.
+    """
+
+    __tablename__ = "crm_pushes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), unique=True, index=True)
+    provider: Mapped[str] = mapped_column(String(30), default="resimpli")
+    resimpli_lead_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    payload_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    note_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    blocked_reason: Mapped[Optional[str]] = mapped_column(Text)
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+    pushed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    __table_args__ = (
+        CheckConstraint("state IN ('pending','blocked','pushing','pushed','failed')"),
+        CheckConstraint("provider IN ('resimpli')"),
+    )
+
+
+class CrmNoteOutbox(Base):
+    """A structured note that belongs to a lead, held as a hash-addressed outbox row.
+
+    REsimpli's v6 Open API has no note endpoint. A note can therefore only travel
+    inside ``comment`` when the lead is created; for a lead that already exists the note
+    is stored here as ``blocked`` with that reason, so nothing is invented and nothing
+    is lost if the endpoint ever appears.
+    """
+
+    __tablename__ = "crm_note_outbox"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    note_hash: Mapped[str] = mapped_column(String(64))
+    body: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(30), default="import")
+    state: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    blocked_reason: Mapped[Optional[str]] = mapped_column(Text)
+    delivered_via: Mapped[Optional[str]] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+    delivered_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    __table_args__ = (
+        UniqueConstraint("lead_id", "note_hash", name="uq_crm_note_outbox_lead_hash"),
+        CheckConstraint("state IN ('pending','blocked','delivered','skipped')"),
+        CheckConstraint("source IN ('import','enrichment','manual','advisor')"),
+    )
+
+
+class ChecklistTemplate(Base):
+    """An editable checklist definition; two are seeded (Lead Manager, Acquisition)."""
+
+    __tablename__ = "checklist_templates"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class ChecklistTemplateItem(Base):
+    __tablename__ = "checklist_template_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    template_id: Mapped[int] = mapped_column(ForeignKey("checklist_templates.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    title: Mapped[str] = mapped_column(String(200))
+    detail: Mapped[Optional[str]] = mapped_column(Text)
+    default_done: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    __table_args__ = (UniqueConstraint("template_id", "position", name="uq_checklist_template_item_position"),)
+
+
+class LeadChecklistItem(Base):
+    """One checklist line on one lead; the template is copied, never referenced live."""
+
+    __tablename__ = "lead_checklist_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    template_key: Mapped[str] = mapped_column(String(40), index=True)
+    template_item_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("checklist_template_items.id", ondelete="SET NULL"), nullable=True
+    )
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    title: Mapped[str] = mapped_column(String(200))
+    detail: Mapped[Optional[str]] = mapped_column(Text)
+    done: Mapped[bool] = mapped_column(Boolean, default=False)
+    done_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    source: Mapped[str] = mapped_column(String(20), default="template")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+    __table_args__ = (CheckConstraint("source IN ('template','ai','manual')"),)
+
+
+class GrokRun(Base):
+    """One xAI call, stored with its model, input hash and PII-free request preview.
+
+    Nothing here is ever a message that leaves the machine: the outputs are drafts,
+    suggestions and advice that a person accepts, edits or copies.
+    """
+
+    __tablename__ = "grok_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    lead_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    purpose: Mapped[str] = mapped_column(String(30), index=True)
+    api: Mapped[str] = mapped_column(String(30), default="responses")
+    model_id: Mapped[str] = mapped_column(String(100))
+    state: Mapped[str] = mapped_column(String(20), default="succeeded", index=True)
+    input_hash: Mapped[str] = mapped_column(String(64), index=True)
+    request_preview: Mapped[dict] = mapped_column(JSON, default=dict)
+    output: Mapped[dict] = mapped_column(JSON, default=dict)
+    usage: Mapped[dict] = mapped_column(JSON, default=dict)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    __table_args__ = (
+        CheckConstraint("purpose IN ('followup_draft','checklist_suggest','advisor')"),
+        CheckConstraint("state IN ('succeeded','failed','invalid','blocked')"),
+        CheckConstraint("api IN ('responses','chat_completions')"),
+    )
+
+
+class AiChecklistSuggestion(Base):
+    """A checklist line the model proposed; it exists only once a person accepts it."""
+
+    __tablename__ = "ai_checklist_suggestions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("grok_runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    title: Mapped[str] = mapped_column(String(200))
+    detail: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    __table_args__ = (CheckConstraint("status IN ('pending','accepted','rejected')"),)

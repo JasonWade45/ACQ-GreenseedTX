@@ -31,7 +31,7 @@ def upgrade():
             name="ck_suppression_reason",
         ),
     )
-    op.add_column("leads", sa.Column("in_license", sa.Boolean(), nullable=False, server_default=sa.text("1")))
+    op.add_column("leads", sa.Column("in_license", sa.Boolean(), nullable=False, server_default=sa.true()))
 
 
 def downgrade():

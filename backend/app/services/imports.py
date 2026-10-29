@@ -492,6 +492,10 @@ def create_local_lead(db, data, original, batch_id=None, source_kind="import"):
         lead.source_do_not_contact = True
     db.add(lead)
     db.flush()
+    # Every lead gets its checklists here, so import, sync and workspace merge all agree.
+    from .checklists import apply_to_lead
+
+    apply_to_lead(db, lead)
     # Persist ALL detected phone numbers (not just primary/2/3).
     for pos, ph in enumerate(data.get("phones") or []):
         num = ph.get("number") if isinstance(ph, dict) else ph

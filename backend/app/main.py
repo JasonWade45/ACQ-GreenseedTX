@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import logging
 import shutil
 import sqlite3
@@ -10,9 +11,10 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, BackgroundTasks, Request, Query
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.orm import Session
 from .config import get_settings, ROOT
 from .version import APP_VERSION
@@ -92,6 +94,7 @@ from .services.reporting import dashboard, reports, count_query
 from .services.normalization import FIELDS, csv_bytes
 from .services.imports import upload_batch, preview_batch, approve_batch
 from .services.sync import begin_sync, sync_run
+from .routes_crm import router as crm_router
 from .routes_intelligence import router as intelligence_router
 from .routes_unified import router as unified_router
 from .services.cloud_ai import cloud_status
@@ -165,7 +168,13 @@ async def lifespan(app):
             pending.completed_at = utcnow()
         db.commit()
         configure_scheduler(db)
-    scheduler.start()
+    if settings.scheduler_enabled:
+        scheduler.start()
+    else:
+        logger.warning(
+            "APP_SCHEDULER_ENABLED is off, so nothing runs in this process. Call "
+            "POST /api/cron/run with the CRON_SECRET header from an external scheduler."
+        )
     # One-time migration of API keys from .env into the secret store (Phase 1.3).
     try:
         from .services import secrets_store
@@ -181,7 +190,8 @@ async def lifespan(app):
         backup_service.prune(settings.database_url, settings.backup_keep)
     except Exception:
         pass
-    scheduler.shutdown(wait=False)
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -191,7 +201,28 @@ app = FastAPI(
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
 )
+def cors_options(settings) -> dict:
+    """The one place the browser-origin policy is defined.
+
+    Credentials stay off on purpose: the session travels in an Authorization header,
+    not a cookie, so no cookie is ever sent cross-site. An empty CORS_ORIGINS produces
+    an empty allowlist, never a wildcard.
+    """
+    return {
+        "allow_origins": settings.allowed_origins,
+        "allow_credentials": False,
+        "allow_methods": ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Authorization", "Content-Type", "X-Cron-Secret"],
+        "expose_headers": ["Content-Disposition"],
+        "max_age": 600,
+    }
+
+
 app.add_middleware(AccessMiddleware)
+# Registered after AccessMiddleware so it runs first: the browser must be able to see
+# the CORS headers on the 401 the access middleware produces, and its preflight OPTIONS
+# must be answered before the bearer-token check.
+app.add_middleware(CORSMiddleware, **cors_options(get_settings()))
 DB = Annotated[Session, Depends(get_db)]
 
 
@@ -258,9 +289,35 @@ def download(content, filename):
     )
 
 
+def database_label(url: str) -> str:
+    """The engine name only: never a host, a user or a query string."""
+    return "postgresql" if url.startswith("postgresql") else "sqlite"
+
+
 @app.get("/api/health")
-def health():
-    return {"status": "ok", "application": "Acquisitions Assistant AI"}
+def health(db: DB):
+    """Answer only when the database answers too.
+
+    A host that keeps reporting healthy while its database is unreachable keeps
+    receiving traffic it cannot serve, so the check fails fast with the error class
+    (never the URL, which can carry a password) and the render/uptime probe sees 503.
+    """
+    settings = get_settings()
+    base = {
+        "application": "Acquisitions Assistant AI",
+        "version": APP_VERSION,
+        "database": database_label(settings.database_url),
+        "scheduler": "in-process" if settings.scheduler_enabled else "external-cron",
+    }
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as error:  # noqa: BLE001 - the class name is the useful part here
+        logger.error("Health check cannot reach the database: %s", type(error).__name__)
+        return JSONResponse(
+            status_code=503,
+            content={**base, "status": "unavailable", "detail": f"database unreachable ({type(error).__name__})"},
+        )
+    return {**base, "status": "ok"}
 
 
 def record_audit(db, action: str, details: dict):
@@ -288,6 +345,45 @@ def login(body: LoginIn, request: Request, db: DB):
         )
     record_audit(db, "auth_login", {"client": client})
     return {"token": token, "expires_in_seconds": 43200}
+
+
+def _cron_secret_matches(request) -> bool:
+    """The cron secret, from a header or a bearer token. A session token is not one.
+
+    The cron trigger comes from a scheduler with no user session, so the header wins and
+    a browser session is never mistaken for the shared secret.
+    """
+    provided = request.headers.get("x-cron-secret") or request.query_params.get("token", "")
+    if not provided:
+        authorization = request.headers.get("authorization", "")
+        if authorization.lower().startswith("bearer "):
+            provided = authorization[7:]
+    return bool(provided) and hmac.compare_digest(str(provided), str(get_settings().cron_secret))
+
+
+@app.post("/api/cron/run")
+def cron_run(request: Request, db: DB, job: str = Query(default="cadence")):
+    """The scheduler for hosts that do not keep a process alive.
+
+    A serverless or free-tier host suspends the process, so the in-process scheduler
+    never fires. An external scheduler calls this route with the shared secret instead
+    and gets the same work, with the counts to prove it ran. Nothing here sends: the
+    cadence job writes drafts for review.
+    """
+    settings = get_settings()
+    if not settings.cron_secret:
+        # Behave as if the route did not exist rather than confirm what is missing.
+        raise HTTPException(404, "Not found")
+    if not _cron_secret_matches(request):
+        raise HTTPException(401, "Invalid cron secret")
+    if job not in {"cadence"}:
+        raise ValueError("Supported job: cadence")
+    from .scheduler import run_cadence
+
+    result = run_cadence()
+    db.add(AuditLog(action="cron_job_ran", details={"job": job, **result, "trigger": "external"}))
+    db.commit()
+    return {"job": job, **result}
 
 
 @app.post("/api/auth/logout")
@@ -1295,7 +1391,10 @@ def _cadence_days(db):
 
 @app.get("/api/settings")
 def settings_view(db: DB):
+    from .services.private_settings import identity_locked
+
     settings = get_settings()
+    locked_identity = identity_locked()
     mapping = db.get(AppSetting, "stage_mapping").value
     observed = db.get(AppSetting, "source_status_counts")
     observed = observed.value if observed else {}
@@ -1315,6 +1414,11 @@ def settings_view(db: DB):
         "priority_rules": db.get(AppSetting, "priority_rules").value,
         "sender_name": settings.sender_name,
         "company_name": settings.company_name,
+        # When the environment pins the opener identity this screen cannot change it,
+        # so it says so instead of accepting an edit that would never take effect.
+        "sender_name_locked": locked_identity["sender_name"],
+        "company_name_locked": locked_identity["company_name"],
+        "identity_source": "environment" if any(locked_identity.values()) else "settings file",
         "cadence": _cadence_days(db),
         "local_only": settings.app_host in {"127.0.0.1", "localhost", "::1"},
         "authentication_enabled": bool(settings.app_access_password),
@@ -1350,6 +1454,20 @@ def settings_update(body: SettingsIn, db: DB):
         # settings file the app already reads at startup (never in the database).
         from .services import private_settings
 
+        locked = private_settings.identity_locked()
+        blocked = [
+            field.replace("_", " ").title()
+            for field, value in (("sender_name", body.sender_name), ("company_name", body.company_name))
+            if value is not None and locked[field]
+        ]
+        if blocked:
+            raise HTTPException(
+                400,
+                ", ".join(blocked)
+                + " is set by the environment (SENDER_NAME/COMPANY_NAME), which takes precedence over this "
+                "screen. Change it in the deployment environment.",
+            )
+
         updates = {}
         if body.sender_name is not None:
             updates["SENDER_NAME"] = body.sender_name.strip()
@@ -1375,15 +1493,18 @@ def backup_view(item: dict) -> dict:
 
 def backup_overview(db):
     settings = get_settings()
-    source = backup_service.database_path(settings.database_url)
     row = db.get(AppSetting, "backup_second_folder")
     value = row.value if row and isinstance(row.value, dict) else {}
     second = value.get("path")
+    storage = backup_service.durability(settings.database_url)
     return {
         "enabled": settings.backup_enabled,
         "keep": settings.backup_keep,
         "hour_utc": settings.backup_hour_utc,
-        "folder": str(backup_service.backup_directory(source)),
+        "folder": storage["folder"],
+        "format": "sqlite-file" if settings.database_url.startswith("sqlite") else "ndjson-gzip",
+        "durable": storage["durable"],
+        "storage_detail": storage["detail"],
         "second_folder": second,
         "status": value.get("status") or {},
     }
@@ -1462,8 +1583,17 @@ def backup_config_update(body: dict, db: DB):
     path = (body or {}).get("second_folder")
     path = (path or "").strip() or None
     validated = backup_service.validate_second_folder(path) if path else None
+    storage = backup_service.durability(get_settings().database_url)
+    if validated and not storage["durable"]:
+        # Accept the path (the user may mount persistent storage later) but say plainly
+        # that a copy written here does not survive a redeploy.
+        status = {"ok": False, "checked_at": utcnow().isoformat(), "detail": storage["detail"]}
+    elif validated:
+        status = {"ok": True, "checked_at": utcnow().isoformat()}
+    else:
+        status = {}
     row = db.get(AppSetting, "backup_second_folder")
-    value = {"path": validated, "status": {"ok": True, "checked_at": utcnow().isoformat()} if validated else {}}
+    value = {"path": validated, "status": status}
     if row is None:
         db.add(AppSetting(key="backup_second_folder", value=value))
     else:
@@ -1475,12 +1605,20 @@ def backup_config_update(body: dict, db: DB):
 
 @app.get("/api/backups/{name}")
 def download_backup(name: str):
+    """Hand the user the backup file itself.
+
+    On a host whose filesystem is wiped on redeploy this is the only copy that outlives
+    the deployment, which is why it is a first-class button and not a hidden route.
+    """
     settings = get_settings()
     try:
         path = backup_service.resolve_backup(settings.database_url, name)
     except ValueError as error:
         raise HTTPException(404, str(error)) from error
-    return FileResponse(path, filename=path.name, media_type="application/vnd.sqlite3")
+    media = (
+        "application/gzip" if backup_service.backup_format(path.name) == "ndjson-gzip" else "application/vnd.sqlite3"
+    )
+    return FileResponse(path, filename=path.name, media_type=media)
 
 
 @app.delete("/api/backups/{name}")
@@ -1498,10 +1636,35 @@ def delete_backup(name: str, db: DB, confirm: str = Query(default="")):
     return {"deleted": name}
 
 
+def restore_logical_backup(body, db):
+    """Replace a PostgreSQL database's rows from a verified logical backup."""
+    if (body or {}).get("confirm") != "RESTORE FROM BACKUP":
+        raise ValueError("Restoring a PostgreSQL backup requires confirm=RESTORE FROM BACKUP")
+    settings = get_settings()
+    try:
+        path = backup_service.resolve_backup(settings.database_url, (body or {}).get("name"))
+    except ValueError as error:
+        raise HTTPException(404, str(error)) from error
+    # Take a copy of what is live now first: a restore is not undoable by itself.
+    safety = backup_service.create_backup(settings.database_url, reason="manual")
+    from .services import logical_backup
+
+    engine = backup_service.engine_for(settings.database_url)
+    try:
+        result = logical_backup.restore(engine, path)
+    finally:
+        engine.dispose()
+    db.add(AuditLog(action="backup_restored", details={"from": path.name, "safety_copy": safety.name}))
+    db.commit()
+    return {**result, "safety_copy": safety.name, "restart_required": True}
+
+
 @app.post("/api/backups/restore")
 def restore_backup(body: dict, db: DB):
     name = (body or {}).get("name")
     settings = get_settings()
+    if settings.is_postgres:
+        return restore_logical_backup(body, db)
     try:
         path = backup_service.resolve_backup(settings.database_url, name)
     except ValueError as error:
@@ -1548,10 +1711,14 @@ def export_everything(db: DB):
     settings = get_settings()
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        # Database copy
+        # Database copy: the file when there is one, otherwise a fresh logical dump.
         try:
-            db_path = backup_service.database_path(settings.database_url)
-            zf.write(db_path, arcname="acquisitions.db")
+            if settings.is_postgres:
+                dump = backup_service.create_backup(settings.database_url, reason="manual")
+                zf.write(dump, arcname=dump.name)
+            else:
+                db_path = backup_service.database_path(settings.database_url)
+                zf.write(db_path, arcname="acquisitions.db")
         except Exception:
             pass
         # CSV export of leads (inline, no dependency on a helper that may not exist)
@@ -2240,6 +2407,7 @@ def example_file(filename: str):
 
 app.include_router(intelligence_router)
 app.include_router(unified_router)
+app.include_router(crm_router)
 
 # Frontend is bundled once and served by the same local process. No CDN or cloud dependency.
 frontend = ROOT / "frontend" / "dist"

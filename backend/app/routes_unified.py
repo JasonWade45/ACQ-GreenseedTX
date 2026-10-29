@@ -49,6 +49,9 @@ class SubjectFacts(StrictModel):
     square_feet: int | None = Field(default=None, ge=100, le=100_000)
     bedrooms: int | None = Field(default=None, ge=0, le=30)
     bathrooms: float | None = Field(default=None, ge=0, le=30)
+    # The assessor's parcel number. It lives with the property facts, not in a column,
+    # because that is where the importer and the research fill already put it.
+    apn: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class LocalRefresh(StrictModel):
@@ -98,8 +101,10 @@ def fill_subject_facts(lead_id: int, property_id: int, body: SubjectFacts, db: D
     prop = next((item for item in lead.properties if item.id == property_id), None)
     if not prop:
         raise HTTPException(404, "That property is not attached to this seller")
-    incoming = {key: value for key, value in body.model_dump().items() if value is not None}
-    if not incoming:
+    payload = body.model_dump()
+    apn = (payload.pop("apn", None) or "").strip()
+    incoming = {key: value for key, value in payload.items() if value is not None}
+    if not incoming and not apn:
         raise ValueError("Enter at least one fact")
     filled, kept = {}, {}
     for field, value in incoming.items():
@@ -108,6 +113,15 @@ def fill_subject_facts(lead_id: int, property_id: int, body: SubjectFacts, db: D
         else:
             setattr(prop, field, value)
             filled[field] = value
+    if apn:
+        facts = {**(prop.property_metadata or {}).get("facts", {})}
+        existing = str(facts.get("apn") or "").strip()
+        if existing and existing.replace("-", "").replace(" ", "") != apn.replace("-", "").replace(" ", ""):
+            kept["apn"] = existing
+        elif not existing:
+            facts["apn"] = apn
+            prop.property_metadata = {**(prop.property_metadata or {}), "facts": facts}
+            filled["apn"] = apn
     if filled:
         db.add(
             AuditLog(
@@ -163,16 +177,37 @@ class MergeSource(StrictModel):
     confirmation: str
 
 
+def require_file_database(what: str):
+    """Legacy workspace features read and write a SQLite file; a hosted database has none.
+
+    Refusing here is deliberate: these paths would otherwise be handed a database URL
+    they treat as a file path, and fail in a way nobody can act on.
+    """
+    if get_settings().is_postgres:
+        raise HTTPException(
+            400,
+            f"{what} works with a local SQLite database file. This deployment uses PostgreSQL, "
+            "where the equivalent is scripts/migrate_sqlite_to_postgres.py (read-only source, "
+            "per-table counts, safe to re-run).",
+        )
+
+
 @router.get("/workspace-merges/capabilities")
 def merge_capabilities():
+    postgres = get_settings().is_postgres
     return {
-        "local_selection_available": get_settings().app_host in {"127.0.0.1", "localhost", "::1"},
+        "local_selection_available": not postgres
+        and get_settings().app_host in {"127.0.0.1", "localhost", "::1"},
         "uploads_supported": False,
+        "unavailable_reason": (
+            "PostgreSQL deployments migrate with scripts/migrate_sqlite_to_postgres.py" if postgres else None
+        ),
     }
 
 
 @router.post("/workspace-merges/prepare")
 def merge_prepare(body: MergeSource, db: DB):
+    require_file_database("Preparing a workspace merge")
     if get_settings().app_host not in {"127.0.0.1", "localhost", "::1"}:
         raise HTTPException(
             403,
@@ -209,6 +244,7 @@ def merge_detail(merge_id: str, db: DB):
 def merge_refresh(merge_id: str, db: DB):
     from .services.workspace_merge import refresh_review, merge_dict
 
+    require_file_database("Refreshing a workspace merge")
     row = db.get(WorkspaceMerge, merge_id)
     if not row:
         raise HTTPException(404, "Workspace migration not found")
@@ -231,6 +267,7 @@ class MergeApproval(StrictModel):
 def merge_commit(merge_id: str, body: MergeApproval, db: DB):
     from .services.workspace_merge import commit_merge, merge_dict
 
+    require_file_database("Committing a workspace merge")
     row = db.get(WorkspaceMerge, merge_id)
     if not row:
         raise HTTPException(404, "Workspace migration not found")

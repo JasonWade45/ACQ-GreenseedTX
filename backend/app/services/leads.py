@@ -75,6 +75,16 @@ def missing_clause():
     )
 
 
+def compact(column):
+    """A column rendered as lower-case, whitespace-free JSON text.
+
+    PostgreSQL stores json in its own canonical form and compares LIKE
+    case-sensitively, while SQLite replays the text we wrote and ignores case for
+    ASCII. Lower-casing both sides keeps one filter meaning one thing on both.
+    """
+    return func.lower(func.replace(cast(column, String), " ", ""))
+
+
 def metric_clause(metric, zone):
     start, end = day_bounds(zone)
     if metric == "total":
@@ -223,15 +233,17 @@ def lead_query(params, zone):
         for name in wanted:
             if not re.fullmatch(r"[a-z0-9_]{2,40}", name):
                 raise ValueError("Unknown flag filter; use lower_snake_case flag names")
-            # Match the JSON key only, so "owner_occupied" cannot match "senior_owner_occupied".
+            # Match the JSON key only, so "owner_occupied" cannot match
+            # "senior_owner_occupied". Spaces are stripped from both sides of the
+            # comparison because SQLite keeps the text we stored while PostgreSQL
+            # stores json/jsonb in its own canonical form; "a": 1 and "a":1 are the
+            # same document and must filter the same way.
             query = query.where(
-                or_(
-                    cast(Lead.ds_flags, String).like(f'%"{name}": true%'),
-                    cast(Lead.ds_flags, String).like(f'%"{name}":true%'),
-                )
+                compact(Lead.ds_flags).like(f'%"{name}":true%', escape="\\")
             )
     if params.get("offer"):
-        query = query.where(cast(Lead.ds_compatible_offers, String).like("%" + params["offer"] + "%"))
+        offer = str(params["offer"]).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        query = query.where(compact(Lead.ds_compatible_offers).like(f'%"{offer}"%', escape="\\"))
     if params.get("metric"):
         query = query.where(metric_clause(params["metric"], zone))
     if params.get("followup"):

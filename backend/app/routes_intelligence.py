@@ -28,7 +28,7 @@ DB = Annotated[Session, Depends(get_db)]
 
 
 class CredentialIn(StrictModel):
-    provider: Literal["groq", "resimpli"]
+    provider: Literal["groq", "resimpli", "grok"]
     action: Literal["save", "remove"] = "save"
     api_key: str | None = Field(default=None, max_length=2000, repr=False)
     confirm_private_storage: bool = False
@@ -129,7 +129,7 @@ def integrations(db: DB):
 def credentials(body: CredentialIn, db: DB):
     if not body.confirm_private_storage:
         raise ValueError("Confirm backend-only private key storage")
-    name = "GROQ_API_KEY" if body.provider == "groq" else "RESIMPLI_API_KEY"
+    name = {"groq": "GROQ_API_KEY", "resimpli": "RESIMPLI_API_KEY", "grok": "GROK_API_KEY"}[body.provider]
     if body.action == "save" and not body.api_key:
         raise ValueError("Enter a replacement key; do not reuse a key posted in chat")
     private_settings.write_private({name: body.api_key if body.action == "save" else None})

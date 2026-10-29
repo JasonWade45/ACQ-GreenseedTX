@@ -23,7 +23,7 @@ def upgrade():
         sa.Column("body", sa.Text(), nullable=False),
         sa.Column("variant", sa.String(4), nullable=False, server_default="A"),
         sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
-        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("stats", sa.JSON(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
@@ -50,7 +50,7 @@ def upgrade():
         sa.Column("name", sa.String(120), nullable=False),
         sa.Column("lead_type", sa.String(120), nullable=True),
         sa.Column("cadence", sa.JSON(), nullable=True),
-        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("created_at", sa.DateTime(), nullable=False),
     )
     op.create_table(
@@ -81,7 +81,7 @@ def upgrade():
         sa.Column("local_value", sa.Text(), nullable=True),
         sa.Column("crm_value", sa.Text(), nullable=True),
         sa.Column("detected_at", sa.DateTime(), nullable=False, index=True),
-        sa.Column("resolved", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("resolved", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("resolution", sa.String(40), nullable=True),
     )
     op.create_table(

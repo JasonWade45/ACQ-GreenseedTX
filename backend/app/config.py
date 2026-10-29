@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 from functools import lru_cache
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 from pydantic import field_validator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,10 +14,58 @@ ROOT = resource_root()
 DATA_ROOT = data_root()
 
 
+PSQL_INSECURE_MODES = {"disable", "allow", "prefer"}
+PSQL_SECURE_MODES = {"require", "verify-ca", "verify-full"}
+LOCAL_DB_HOSTS = {"", "localhost", "127.0.0.1", "::1"}
+
+
+def normalise_database_url(value: str) -> str:
+    """Return a SQLAlchemy URL, accepting the plain URLs hosted providers hand out.
+
+    A hosted PostgreSQL database is never reached without TLS: an explicit
+    ``sslmode`` of require/verify-ca/verify-full is mandatory unless the server is on
+    this machine (a unix socket or loopback), where there is nothing to intercept.
+    """
+    url = (value or "").strip()
+    if not url:
+        return ""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            url = "postgresql+psycopg://" + url[len(prefix) :]
+            break
+    if not url.startswith("postgresql"):
+        return url
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    query = parse_qs(parsed.query)
+    mode = (query.get("sslmode") or [""])[0].lower()
+    if host in LOCAL_DB_HOSTS:
+        return url
+    if mode not in PSQL_SECURE_MODES:
+        raise ValueError(
+            "A hosted PostgreSQL database requires sslmode=require (or verify-ca/verify-full) "
+            f"in DATABASE_URL; got sslmode={mode or 'missing'!r} for host {host!r}"
+        )
+    return url
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=DATA_ROOT / ".env", extra="ignore")
     # Filled in below so a moved data folder is honoured without re-importing.
     database_url: str = ""
+    # Hosted PostgreSQL only: the exact browser origin of a separately deployed
+    # interface. Never "*": a wildcard would let any page on the internet drive an
+    # authenticated session. Comma-separated when more than one origin is needed.
+    cors_origins: str = ""
+    # Shared secret for the external cron trigger of the daily cadence runner.
+    cron_secret: str = ""
+    # Long-lived in-process scheduler for sync/backup/cadence. On a host whose
+    # process is suspended (serverless, free tiers) turn this off and use the cron
+    # endpoint instead.
+    scheduler_enabled: bool = True
+    # Hosted filesystems are ephemeral. When set, backups are still written but are
+    # reported as non-durable so the interface asks for a download instead.
+    ephemeral_filesystem: bool = False
     app_timezone: str = "America/New_York"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
@@ -29,6 +78,9 @@ class Settings(BaseSettings):
     sync_enabled: bool = False
     sync_interval_minutes: int = 30
     sync_requests_per_minute: int = 90
+    # A second, explicit switch for pushing leads. Sync can be live while writes stay
+    # off; turning this on is the only way a create request can leave the machine.
+    crm_writes_enabled: bool = False
     sync_max_pages: int = 1000
     sync_deep_refresh_hours: int = 24
     ollama_enabled: bool = False
@@ -39,9 +91,30 @@ class Settings(BaseSettings):
     groq_model: str = "openai/gpt-oss-20b"
     groq_daily_request_limit: int = Field(default=30, ge=1, le=500)
     groq_max_output_tokens: int = Field(default=3000, ge=512, le=4096)
+    # xAI Grok (a different vendor from Groq above). The key is read from GROK_API_KEY and
+    # is never returned, logged or audited. Every model is a setting so a model change is
+    # a configuration change, not a code change.
+    grok_enabled: bool = False
+    grok_api_key: str = Field(default="", repr=False)
+    grok_api: str = "responses"
+    grok_followup_model: str = "grok-4.3"
+    grok_checklist_model: str = "grok-4.3"
+    grok_advisor_model: str = "grok-4.3"
+    grok_daily_request_limit: int = Field(default=20, ge=1, le=500)
+    grok_max_output_tokens: int = Field(default=1200, ge=256, le=8192)
+    grok_timeout_seconds: int = Field(default=45, ge=5, le=180)
+    # Which lead fields may be sent. A comma-separated subset of services.ai_grok.AI_FIELDS.
+    grok_ai_fields: str = "property_address,property_facts,lead_type,priority,equity,flags,contact_history"
+    # Used only for the Settings cost estimate: tokens per call and calls per day.
+    grok_expected_tokens_in: int = Field(default=1200, ge=1)
+    grok_expected_tokens_out: int = Field(default=500, ge=1)
+    grok_expected_daily_calls: int = Field(default=10, ge=0, le=500)
     max_upload_mb: int = 25
     max_import_rows: int = 50000
     backup_enabled: bool = True
+    # Where backups go when the database is not a file (PostgreSQL). Empty means the
+    # data folder; on a host that wipes its filesystem, point this at a mounted volume.
+    backup_dir: str = ""
     backup_keep: int = Field(default=7, ge=1, le=90)
     backup_hour_utc: int = Field(default=2, ge=0, le=23)
     # Daily cadence runner: prepares the follow-up drafts that are due today.
@@ -67,12 +140,27 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def default_database(cls, value):
-        return value or f"sqlite:///{DATA_ROOT / 'data/acquisitions.db'}"
+        return normalise_database_url(value) or f"sqlite:///{DATA_ROOT / 'data/acquisitions.db'}"
+
+    @property
+    def is_postgres(self) -> bool:
+        return self.database_url.startswith("postgresql")
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        return [item.strip().rstrip("/") for item in self.cors_origins.split(",") if item.strip()]
 
     @field_validator("app_timezone")
     @classmethod
     def valid_timezone(cls, value):
         ZoneInfo(value)
+        return value
+
+    @field_validator("grok_api")
+    @classmethod
+    def grok_surface(cls, value):
+        if value not in {"responses", "chat_completions"}:
+            raise ValueError("Use responses or chat_completions")
         return value
 
     @field_validator("resimpli_mode")

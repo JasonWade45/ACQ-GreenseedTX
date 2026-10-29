@@ -287,7 +287,22 @@ No automatic model download or arbitrary external Ollama URL is allowed. Local m
 **Sessions.** A signed-in browser receives a 12-hour signed token. **Sign out** cancels that token on the server immediately (the interface calls `POST /api/auth/logout`), not just in the browser. `POST /api/auth/logout-all` cancels every session on every device and persists the cutoff, so a restart cannot resurrect an old token. Successful and failed sign-ins and sign-outs are written to the audit log — never with the password itself.
 
 
-Important variables in `.env.example`: `DATABASE_URL`, `APP_TIMEZONE` (default America/New_York, explicitly the company business timezone), `APP_HOST`/`APP_PORT` (127.0.0.1/8000), `APP_ACCESS_PASSWORD`, `SESSION_SECRET`, integration/AI flags and limits.
+Important variables in `.env.example`: `DATABASE_URL` (SQLite file or PostgreSQL URL), `APP_TIMEZONE` (default America/New_York, explicitly the company business timezone), `APP_HOST`/`APP_PORT` (127.0.0.1/8000), `APP_ACCESS_PASSWORD`, `SESSION_SECRET`, integration/AI flags and limits.
+
+Storage and deployment variables, all optional:
+
+| Variable | What it does |
+|---|---|
+| `DATABASE_URL` | A file-backed SQLite database (default) or a PostgreSQL URL. `postgres://` is normalised; a hosted host must carry `sslmode=require`. |
+| `CORS_ORIGINS` | Exact browser origins allowed to call the API when the interface is hosted separately (e.g. Vercel). Comma-separated. Never `*`. |
+| `CRON_SECRET` | Enables `POST /api/cron/run` for an external scheduler. Empty hides the route. |
+| `APP_SCHEDULER_ENABLED` | Set `false` on a host that suspends the process; use the cron route instead. |
+| `BACKUP_DIR` | Where PostgreSQL backups go. Empty means the data folder. |
+| `EPHEMERAL_FILESYSTEM` | `true` when the host wipes its disk: backups are flagged as non-durable and the interface asks for a download. |
+| `VITE_API_URL` | Build-time address of the API for a separately hosted interface. Empty keeps same-origin. |
+
+Moving an existing workspace to PostgreSQL, and the whole Neon runbook:
+[`docs/POSTGRES_NEON_AR.md`](docs/POSTGRES_NEON_AR.md).
 
 Backend settings precedence: process environment > private `.env.secrets` > `.env` > defaults. Normal users use the default private file; the test runner may supply a private-file location within its disposable DB directory. No credentials are placed in the release.
 

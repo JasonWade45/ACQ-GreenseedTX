@@ -20,6 +20,15 @@ ALLOWED = {
     "RESIMPLI_MODE",
     "RESIMPLI_ADAPTER_PATH",
     "RESIMPLI_ADAPTER_VERIFIED",
+    # xAI Grok (distinct from GROQ_* above). The key is the only secret here.
+    "GROK_API_KEY",
+    "GROK_ENABLED",
+    "GROK_API",
+    "GROK_FOLLOWUP_MODEL",
+    "GROK_CHECKLIST_MODEL",
+    "GROK_ADVISOR_MODEL",
+    "GROK_DAILY_REQUEST_LIMIT",
+    "GROK_AI_FIELDS",
     # Opener identity for every draft path (not a secret, but it is process config).
     "SENDER_NAME",
     "COMPANY_NAME",
@@ -115,10 +124,25 @@ def save_adapter(text, verified):
     write_private({"RESIMPLI_ADAPTER_PATH": str(destination), "RESIMPLI_ADAPTER_VERIFIED": True})
 
 
+IDENTITY_ENV = {"sender_name": "SENDER_NAME", "company_name": "COMPANY_NAME"}
+
+
+def identity_locked():
+    """Which opener-identity fields the process environment pins, and so cannot edit.
+
+    Environment variables beat both settings files, so a saved value under a pinned
+    field would look accepted and never take effect. The interface shows those fields
+    as locked instead of pretending the edit worked.
+    """
+    return {field: name in os.environ for field, name in IDENTITY_ENV.items()}
+
+
 def environment_overrides():
     return {
+        "identity": {field: locked for field, locked in identity_locked().items()},
         "groq": any(name in os.environ for name in ("GROQ_API_KEY", "GROQ_ENABLED", "GROQ_MODEL")),
         "resimpli": any(
             name in os.environ for name in ("RESIMPLI_API_KEY", "RESIMPLI_MODE", "RESIMPLI_ADAPTER_VERIFIED")
         ),
+        "grok": any(name in os.environ for name in ("GROK_API_KEY", "GROK_ENABLED", "GROK_ADVISOR_MODEL")),
     }

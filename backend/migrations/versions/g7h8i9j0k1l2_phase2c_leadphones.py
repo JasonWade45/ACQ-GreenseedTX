@@ -25,7 +25,7 @@ def upgrade():
         sa.Column("phone", sa.String(40), nullable=True),
         sa.Column("phone_normalized", sa.String(40), index=True),
         sa.Column("phone_type", sa.String(40), nullable=True),
-        sa.Column("is_primary", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("is_primary", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("position", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("source_column", sa.String(120), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),

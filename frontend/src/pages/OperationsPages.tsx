@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   ArrowDownToLine,
   ArrowRight,
   ArrowUpRight,
@@ -1235,6 +1236,11 @@ type BackupOverview = {
   keep: number;
   hour_utc: number;
   folder: string;
+  // "ndjson-gzip" when the database is PostgreSQL: one gzipped logical dump.
+  format?: string;
+  // False when this host wipes its filesystem on redeploy, so the file needs a download.
+  durable?: boolean;
+  storage_detail?: string;
   second_folder: string | null;
   status: {
     ok?: boolean;
@@ -1285,6 +1291,11 @@ export function BackupsPanel() {
       className="backup-panel"
       action={<HardDrive size={18} />}
     >
+      {overview.durable === false && (
+        <p className="muted">
+          <AlertTriangle size={13} /> {overview.storage_detail}
+        </p>
+      )}
       <div className="settings-facts">
         <div>
           <span>Automatic backups</span>
@@ -1299,6 +1310,14 @@ export function BackupsPanel() {
         <div>
           <span>Stored in</span>
           <strong>{overview.folder}</strong>
+        </div>
+        <div>
+          <span>Format</span>
+          <strong>
+            {overview.format === "ndjson-gzip"
+              ? "One gzipped logical dump of every table"
+              : "A copy of the SQLite database file"}
+          </strong>
         </div>
       </div>
       <SecondFolderForm
@@ -1375,12 +1394,21 @@ export function BackupsPanel() {
         </div>
       )}
       <div className="config-instructions">
-        <p>
-          Restore only while the application is stopped: replace{" "}
-          <code>data/acquisitions.db</code> with the downloaded copy, then start
-          again. Backups contain seller records, so treat them as confidential
-          and keep <code>.env</code> separate.
-        </p>
+        {overview.format === "ndjson-gzip" ? (
+          <p>
+            A downloaded dump restores with{" "}
+            <code>python scripts/manage.py restore-postgres --file &lt;name&gt;</code>,
+            or let your database provider restore a point in time. Keep the file
+            out of shared drives: it contains every seller record.
+          </p>
+        ) : (
+          <p>
+            Restore only while the application is stopped: replace{" "}
+            <code>data/acquisitions.db</code> with the downloaded copy, then start
+            again. Backups contain seller records, so treat them as confidential
+            and keep <code>.env</code> separate.
+          </p>
+        )}
       </div>
     </Panel>
   );
@@ -1470,18 +1498,45 @@ function IdentityCadencePanel({ settings }: { settings: SettingsData }) {
           }}
         >
           <div className="info-grid">
-            <Field label="Sender name">
-              <input value={sender} onChange={(e) => setSender(e.target.value)} />
+            <Field
+              label="Sender name"
+              hint={
+                settings.sender_name_locked
+                  ? "Set by environment (SENDER_NAME) — change it there, not here."
+                  : undefined
+              }
+            >
+              <input
+                value={sender}
+                disabled={settings.sender_name_locked}
+                onChange={(e) => setSender(e.target.value)}
+              />
             </Field>
-            <Field label="Company">
-              <input value={company} onChange={(e) => setCompany(e.target.value)} />
+            <Field
+              label="Company"
+              hint={
+                settings.company_name_locked
+                  ? "Set by environment (COMPANY_NAME) — change it there, not here."
+                  : undefined
+              }
+            >
+              <input
+                value={company}
+                disabled={settings.company_name_locked}
+                onChange={(e) => setCompany(e.target.value)}
+              />
             </Field>
           </div>
           <p className="muted">
-            Checks run in code and reject a draft that does not include this
-            identity, the street address and the opt-out sentence.
+            {settings.sender_name_locked || settings.company_name_locked
+              ? "A deployment environment variable pins this identity, and the environment wins over anything saved here."
+              : "Checks run in code and reject a draft that does not include this identity, the street address and the opt-out sentence."}
           </p>
-          <Button type="submit" busy={action.busy}>
+          <Button
+            type="submit"
+            busy={action.busy}
+            disabled={settings.sender_name_locked && settings.company_name_locked}
+          >
             <Save size={15} /> Save identity
           </Button>
         </form>

@@ -11,6 +11,24 @@ from app.services.imports import create_local_lead
 BUSINESS_HOURS = datetime(2026, 10, 29, 15, 0, tzinfo=timezone.utc)
 
 
+def due_clock(state, timezone_name="America/New_York"):
+    """A clock that is past this sequence's due time and inside calling hours.
+
+    A frozen timestamp is a time bomb: a sequence started now is due *now*, so a
+    hard-coded instant in the past silently makes "nothing is due" the outcome.
+    """
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+
+    moment = state.next_due_at or datetime.now(timezone.utc)
+    local = moment.astimezone(ZoneInfo(timezone_name))
+    if local.hour >= 20:
+        local = (local + timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
+    elif local.hour < 9:
+        local = local.replace(hour=10, minute=0, second=0, microsecond=0)
+    return local.astimezone(timezone.utc) + timedelta(minutes=1)
+
+
 def _cold_lead(db, **extra):
     data = {
         "full_name": "Dana Seller",
@@ -364,7 +382,7 @@ def test_cadence_defaults_and_stop_conditions(db):
     assert sequences.cadence_days(db) == [0, 3, 7, 14, 30, 60, 90, 120]
     lead = _cold_lead(db)
     state = sequences.start_sequence(db, lead)
-    items = sequences.runner_due_today(db, BUSINESS_HOURS)
+    items = sequences.runner_due_today(db, due_clock(state))
     assert any(item["status"] == "drafted" for item in items)
     db.refresh(state)
     assert state.current_step == 1 and state.next_due_at is not None
@@ -389,7 +407,7 @@ def test_sequence_runner_stops_when_a_reply_exists(db):
     state = sequences.start_sequence(db, lead)
     db.add(Message(lead_id=lead.id, direction="inbound", body="stop", status="RECEIVED"))
     db.commit()
-    sequences.runner_due_today(db, BUSINESS_HOURS)
+    sequences.runner_due_today(db, due_clock(state))
     db.refresh(state)
     assert state.status == "stopped" and state.stop_reason == "replied"
 

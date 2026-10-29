@@ -5,6 +5,7 @@ import {
 } from "../unified";
 import { navigateTabs } from "../components";
 import { CloudWorkbench } from "../intelligence";
+import { LeadIntegrationCards } from "../crm";
 import { useState, useEffect } from "react";
 import type { FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -180,6 +181,9 @@ export default function LeadDetail() {
           </button>
         ))}
       </div>
+      {tab === "overview" && (
+        <LeadIntegrationCards leadId={lead.id} />
+      )}
       {tab === "preparation" && <CallPreparation lead={lead} />}
       {tab === "research" && <PropertyResearch lead={lead} />}
       {tab === "overview" && (
