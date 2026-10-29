@@ -750,7 +750,11 @@ test("bulk restriction review unlocks a tier of drafts without sending anything"
   await expect(
     page.getByRole("heading", { name: "Review normalized records" }),
   ).toBeVisible();
-  await page.getByRole("checkbox", { name: "Select import row 1" }).check();
+  await page
+    .getByRole("row")
+    .filter({ hasText: "Nadia Tier" })
+    .getByRole("checkbox")
+    .check();
   const approve = page.getByRole("button", {
     name: "Review & approve local import",
   });
@@ -811,7 +815,11 @@ test("skip-trace results only change the fields they matched, after the typed ph
   await expect(
     page.getByRole("heading", { name: "Review normalized records" }),
   ).toBeVisible();
-  await page.getByRole("checkbox", { name: "Select import row 1" }).check();
+  await page
+    .getByRole("row")
+    .filter({ hasText: "4300 Skip Trace Lane" })
+    .getByRole("checkbox")
+    .check();
   const approve = page.getByRole("button", {
     name: "Review & approve local import",
   });
