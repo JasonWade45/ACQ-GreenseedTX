@@ -329,7 +329,8 @@ class Message(Base):
     status: Mapped[str] = mapped_column(String(20), default="DRAFT", index=True)
     validator_result: Mapped[dict] = mapped_column(JSON, default=dict)
     scheduled_for: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
-    sent_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    # There is deliberately no sent_at: this application cannot send a message, so
+    # the schema must not be able to claim one left the machine.
     classification: Mapped[Optional[str]] = mapped_column(String(30))
     confidence: Mapped[Optional[float]] = mapped_column(Float)
     # Why this template was chosen (internal context, never printed in the message).
