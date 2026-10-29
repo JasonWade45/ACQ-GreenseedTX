@@ -157,73 +157,56 @@ jobs:
       # The suite builds the interface, starts a throwaway server with a synthetic
       # database and a random password, and tears it down afterwards.
       - name: Run the browser suite
+        id: browser
         run: |
           set -o pipefail
           python scripts/test_browser.py 2>&1 | tee docs/browser-log.txt
-      # The console log is not always reachable from a phone, so the failing test name
-      # and message are also raised as annotations on the run.
+      # The console log is not always reachable from a phone, so when the suite fails
+      # the failing test and its message are raised as annotations on the run.
       - name: Name the browser test that failed
-        if: always()
+        if: always() && steps.browser.outcome == 'failure'
         run: |
           python - <<'PY'
           import pathlib, xml.etree.ElementTree as ET
 
+          def note(title, body):
+              safe = body.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print(f"::warning title={title}::{safe[:5500]}")
+
           path = pathlib.Path("docs/browser-test-results.xml")
-          results = pathlib.Path("frontend/test-results")
-          if results.exists():
-              for entry in sorted(results.rglob("*")):
-                  print(f"test-results: {entry.relative_to(results)}")
-          else:
-              print("test-results: directory missing")
           if not path.exists():
               print("::error title=Browser results::No XML report was written")
+              log = pathlib.Path("docs/browser-log.txt")
+              if log.exists():
+                  note("Browser console tail", log.read_text(errors="replace")[-5000:])
               raise SystemExit(0)
+
+          root = ET.parse(path).getroot()
           failed = 0
-          for case in ET.parse(path).getroot().iter("testcase"):
+          for case in root.iter("testcase"):
               for failure in case.findall("failure"):
                   failed += 1
                   name = f"{case.get('classname', '')} :: {case.get('name', '')}".strip()
                   text = " ".join((failure.text or failure.get("message") or "").split())
                   print(f"::error title=Browser test failed::{name} - {text[:6000]}")
-          root = ET.parse(path).getroot()
-          for suite in root.iter("testsuite"):
-              print(
-                  "suite:",
-                  suite.get("name"),
-                  "tests=", suite.get("tests"),
-                  "failures=", suite.get("failures"),
-                  "errors=", suite.get("errors"),
-                  "skipped=", suite.get("skipped"),
-                  "time=", suite.get("time"),
-              )
-          for case in root.iter("testcase"):
-              for child in list(case):
-                  if child.tag in {"failure", "error"}:
-                      continue
-                  text = " ".join((child.text or "").split())
-                  print(f"::warning title=Browser test {child.tag}::{case.get('name', '')} - {text[:300]}")
-          def note(title, body):
-              safe = body.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-              print(f"::warning title={title}::{safe[:5500]}")
-
-          log = pathlib.Path("docs/browser-log.txt")
-          if log.exists():
-              print("log lines:", len(log.read_text(errors="replace").splitlines()))
-              note("Browser console tail", log.read_text(errors="replace")[-5000:])
-          cases = [case.get("name", "") for case in root.iter("testcase")]
-          print("cases:", len(cases))
-          note("Browser cases", " | ".join(cases))
-          note("Browser report head", " ".join(path.read_text(errors="replace").split())[:2500])
           if failed:
               print(f"{failed} browser test(s) failed")
-          else:
-              print("::warning title=Browser results::No testcase failure in the report")
-              print(f"report bytes: {path.stat().st_size}")
-              print(" ".join(path.read_text(errors="replace").split())[:1500])
+              raise SystemExit(0)
+          # The suite exited non-zero but the report shows no failing test: the failure
+          # is in the run itself, so show what the console said.
+          print("::warning title=Browser results::No testcase failure in the report")
+          log = pathlib.Path("docs/browser-log.txt")
+          if log.exists():
+              note("Browser console tail", log.read_text(errors="replace")[-5000:])
+          note(
+              "Browser cases",
+              " | ".join(case.get("name", "") for case in root.iter("testcase")),
+          )
+          note("Browser report head", " ".join(path.read_text(errors="replace").split())[:2500])
           PY
 
       - name: Keep the results when something fails
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: browser-test-results
