@@ -183,6 +183,7 @@ export default function LeadDetail() {
       {tab === "overview" && (
         <div className="profile-grid">
           <div className="stack">
+            <VendorContextPanel lead={lead} />
             <Panel
               title="Seller details"
               action={<Badge tone="neutral">Source + local review</Badge>}
@@ -1461,6 +1462,104 @@ function LeadMessages({ lead }: { lead: LeadProfile }) {
             </tbody>
           </table>
         </div>
+      )}
+    </Panel>
+  );
+}
+
+function VendorContextPanel({ lead }: { lead: LeadProfile }) {
+  const flags = Object.entries(lead.ds_flags || {}).filter(([, v]) => v);
+  const priority = (lead as any).priority as
+    | { score: number; factors: string[] }
+    | undefined;
+  const hasContext =
+    lead.score !== null ||
+    lead.heat ||
+    lead.equity_pct !== null ||
+    flags.length > 0 ||
+    Boolean(lead.priority_tier);
+  if (!hasContext && !lead.needs_skip_trace) return null;
+  return (
+    <Panel
+      title="Vendor context — internal only"
+      subtitle="Distress signals from the imported list. None of this text appears in a draft."
+      action={<Badge tone="neutral">Data Syndicate</Badge>}
+    >
+      <div className="info-grid info-grid-four">
+        <Info label="Sale likelihood">{lead.score ?? "Not recorded"}</Info>
+        <Info label="Heat">
+          {lead.heat && lead.heat !== "NONE" ? (
+            <Badge tone={lead.heat === "VERY_HOT" ? "red" : "amber"}>
+              {lead.heat === "VERY_HOT" ? "Very hot" : "Hot"}
+            </Badge>
+          ) : (
+            "No signal"
+          )}
+        </Info>
+        <Info label="Estimated equity">
+          {typeof lead.equity_pct === "number" ? `${lead.equity_pct}%` : "Not recorded"}
+        </Info>
+        <Info label="Priority tier">
+          {lead.priority_tier || "Not ranked"}
+          {typeof lead.priority_rank === "number"
+            ? ` · rank ${lead.priority_rank}`
+            : ""}
+        </Info>
+        <Info label="Lead type">{lead.lead_type || "Not recorded"}</Info>
+        <Info label="County">{lead.county || "Not recorded"}</Info>
+        <Info label="Vendor recorded date">
+          <Timestamp value={lead.recorded_date || null} dateOnly />
+        </Info>
+        <Info label="Outreach context">
+          {lead.outreach_mode === "cold"
+            ? "Cold — no prior relationship"
+            : "Relationship — warm history available"}
+        </Info>
+      </div>
+      {flags.length > 0 && (
+        <>
+          <span className="mini-label">RECORDED FLAGS</span>
+          <div className="row wrap">
+            {flags.map(([key]) => (
+              <Badge key={key}>{human(key)}</Badge>
+            ))}
+            {(lead.ds_extra_flags || []).map((flag) => (
+              <Badge key={flag} tone="neutral">
+                {flag}
+              </Badge>
+            ))}
+          </div>
+        </>
+      )}
+      {(lead.ds_compatible_offers || []).length > 0 && (
+        <p className="muted">
+          Compatible offer types: {(lead.ds_compatible_offers || []).join(", ")}
+        </p>
+      )}
+      {lead.needs_skip_trace && (
+        <Notice tone="warning">
+          No verified owner name or phone yet. This lead is worked from the
+          skip-trace loop and never appears as a “call this seller” task.
+        </Notice>
+      )}
+      <details>
+        <summary>Why this priority?</summary>
+        <p>
+          Deterministic score {priority?.score ?? "not calculated"} from task
+          priority, overdue days, explicit callback, negotiation and
+          appointment stage, heat, sale likelihood and negative equity — capped
+          at 100.
+        </p>
+        {(priority?.factors || []).map((factor) => (
+          <p key={factor}>· {factor}</p>
+        ))}
+        {!priority?.factors?.length && <p>No factor adds to the base score.</p>}
+      </details>
+      {(lead.user_edited_fields || []).length > 0 && (
+        <p className="muted">
+          Manually corrected fields (a later vendor import will not overwrite
+          them): {(lead.user_edited_fields || []).map(human).join(", ")}
+        </p>
       )}
     </Panel>
   );

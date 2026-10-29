@@ -16,6 +16,7 @@ import {
   LockKeyhole,
   MessageSquareText,
   FileText,
+  ScanSearch,
   LogOut,
   Menu,
   Search,
@@ -45,6 +46,7 @@ import {
 import { BriefingPage } from "./pages/BriefingPage";
 import DraftsPage from "./pages/DraftsPage";
 import TemplatesPage from "./pages/TemplatesPage";
+import SkipTracePage from "./pages/SkipTracePage";
 import { SafetyPage } from "./SafetyPage";
 
 /* The version comes from package.json at build time, so it can never drift again. */
@@ -62,6 +64,7 @@ const navigation = [
   { label: "Settings", path: "/settings", icon: Settings2 },
   { label: "Draft Queue", path: "/drafts", icon: MessageSquareText },
   { label: "Templates", path: "/templates", icon: FileText },
+  { label: "Skip Trace", path: "/skip-trace", icon: ScanSearch },
   { label: "Briefing", path: "/briefing", icon: ClipboardList },
   { label: "Safety", path: "/safety", icon: ShieldCheck },
 ];
@@ -453,6 +456,7 @@ function Workspace({ onLogout }: { onLogout?: () => void }) {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/drafts" element={<DraftsPage />} />
               <Route path="/templates" element={<TemplatesPage />} />
+              <Route path="/skip-trace" element={<SkipTracePage />} />
               <Route path="/briefing" element={<BriefingPage />} />
               <Route path="/safety" element={<SafetyPage />} />
               <Route

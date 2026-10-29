@@ -83,7 +83,8 @@ from .services.leads import (
     apply_contact_outcome,
     update_next_followup,
 )
-from .services.operations import daily_queue, complete_followup
+from .services.operations import daily_queue, complete_followup, priority_for
+from .services.operations import day_bounds as _day_bounds
 from .services.reporting import dashboard, reports, count_query
 from .services.normalization import FIELDS, csv_bytes
 from .services.imports import upload_batch, preview_batch, approve_batch
@@ -505,9 +506,25 @@ def lead_profile(lead_id: int, db: DB):
         ),
         "draft": draft_dict(draft) if draft and lead_record.restriction_status == "reviewed_clear" else None,
         "draft_stale": bool(draft and draft.context != context_for(db, lead_record)),
+        "priority": _lead_priority(db, lead_record),
         "external_url": None,
         "source_notice": "Activity summaries are not full conversation transcripts. Local changes are not written back to REsimpli.",
     }
+
+
+def _lead_priority(db, lead) -> dict:
+    """The same deterministic score the queue uses, with every reason spelled out."""
+    settings = get_settings()
+    rules_row = db.get(AppSetting, "priority_rules")
+    rules = rules_row.value if rules_row else {}
+    followup = db.scalar(
+        select(Followup)
+        .where(Followup.lead_id == lead.id, Followup.status == "pending")
+        .order_by(Followup.due_at.asc().nullslast())
+    )
+    start, _ = _day_bounds(settings.app_timezone)
+    score, factors = priority_for(lead, followup, rules, start, settings.app_timezone)
+    return {"score": score, "factors": factors, "followup_id": followup.id if followup else None}
 
 
 LEAD_EDITABLE_FIELDS = {

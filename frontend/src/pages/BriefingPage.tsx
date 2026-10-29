@@ -210,7 +210,7 @@ export function BriefingPage() {
         title="Leads needing a skip trace"
         subtitle={`${b.leads_needing_skip_trace} address-only leads have no verified owner name or phone.`}
         action={
-          <Link className="text-link" to="/imports">
+          <Link className="text-link" to="/skip-trace">
             Open skip-trace loop
           </Link>
         }
