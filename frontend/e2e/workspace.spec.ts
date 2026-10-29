@@ -738,9 +738,11 @@ test("bulk restriction review unlocks a tier of drafts without sending anything"
   page,
 }) => {
   await page.goto("/imports");
+  // Plain columns only: a distress-scored export asks the review screen for decisions
+  // that this scenario is not about. Without a score the lead lands in tier P3.
   const csv =
-    "Full Name,Phone,Property Address,City,State,Zip,Sale Likelihood,Estimated Equity (%),County\n" +
-    "Nadia Tier,2025550188,4200 Tier Two Lane,Arlington,TX,76015,87.1 Score HOT,55%,Tarrant\n";
+    "Full Name,Phone,Property Address,City,State,ZIP,County,DNC\n" +
+    "Nadia Tier,2025550188,4200 Tier Two Lane,Arlington,TX,76015,Tarrant,no\n";
   await page.getByLabel("Upload lead file").setInputFiles({
     name: "e2e-tier-p1.csv",
     mimeType: "text/csv",
@@ -767,14 +769,13 @@ test("bulk restriction review unlocks a tier of drafts without sending anything"
   // A dialog left open means the import was refused; say why instead of timing out.
   const stuck = page.getByRole("dialog");
   if (await stuck.count()) {
-    throw new Error(
-      `Import dialog still open: ${(await stuck.first().innerText()).slice(0, 500)}`,
-    );
+    const html = await stuck.first().evaluate((el) => (el as HTMLElement).outerHTML);
+    throw new Error(`Import dialog still open: ${html.slice(0, 1200)}`);
   }
 
   // A brand-new lead cannot be drafted until a person records a contact review.
   await page.goto("/drafts");
-  await page.getByRole("combobox", { name: "Priority tier" }).selectOption("P1");
+  await page.getByRole("combobox", { name: "Priority tier" }).selectOption("P3");
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Generate drafts" }).click();
   await expect(
@@ -797,7 +798,7 @@ test("bulk restriction review unlocks a tier of drafts without sending anything"
   await page.getByRole("button", { name: "Done" }).click();
 
   await page.goto("/drafts");
-  await page.getByRole("combobox", { name: "Priority tier" }).selectOption("P1");
+  await page.getByRole("combobox", { name: "Priority tier" }).selectOption("P3");
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Generate drafts" }).click();
   await expect(page.getByText("Requested", { exact: true })).toBeVisible();
