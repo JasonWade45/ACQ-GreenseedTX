@@ -302,10 +302,12 @@ test("dashboard accessibility: named controls and no critical/serious WCAG viola
     ["critical", "serious"].includes(v.impact || ""),
   );
   expect(
+    // The measured colours travel with the failure: without them the report only
+    // says "contrast" and someone has to guess which two values to change.
     major.map((v) => ({
       id: v.id,
       description: v.description,
-      nodes: v.nodes.map((n) => n.target),
+      nodes: v.nodes.map((n) => `${n.target.join(" ")} :: ${n.failureSummary}`),
     })),
   ).toEqual([]);
 });
