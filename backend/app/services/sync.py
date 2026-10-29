@@ -39,10 +39,20 @@ def digest(data):
 
 def _normalize_record(raw, settings):
     data, errors, _ = normalize_record(raw, {k: k for k in raw if k in FIELDS}, settings.app_timezone, "reject")
-    if errors:
-        raise IntegrationError("Lead normalization failed: " + "; ".join(errors))
     if not data.get("external_id"):
         raise IntegrationError("Stable external lead ID missing; record was not inserted")
+    # REsimpli is the system of record and this sync is a read-only local mirror,
+    # so a record it already holds is never dropped wholesale. When a single
+    # optional field fails to normalize (an invalid or placeholder phone, an
+    # out-of-range year, a malformed amount) normalize_record leaves exactly that
+    # field unset and appends a message; nothing is fabricated. Likewise a lead
+    # carrying only a phone number (no seller name and no property address yet)
+    # is kept as-is. Drafting and outreach already require a full_name together
+    # with a normalized primary_phone and a reviewed-clear restriction status, so
+    # an incomplete lead is stored for reference but is not cleared for contact.
+    # Field-level messages are retained on the record for audit.
+    if errors:
+        data["_sync_warnings"] = errors
     return data
 
 
