@@ -5437,7 +5437,8 @@ td {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
-  color: #8aa074;
+  /* 5.5:1 on the pale green chip: the old #8aa074 was 2.6:1 and failed WCAG AA at 10px. */
+  color: #4e6a33;
   background: #f0f6e9;
   border: 1px solid #dfead2;
   border-radius: 5px;

@@ -571,8 +571,10 @@ test("unified property research has known references, no fabricated sales and mo
     .first()
     .click();
   await page.getByRole("tab", { name: "Property research" }).click();
+  // There is no MLS feed, and the panel says so instead of implying sold data exists.
+  await expect(page.getByText("No MLS feed")).toBeVisible();
   await expect(
-    page.getByText("No verified sold comparables connected"),
+    page.getByText(/Comparables here are the ones you entered yourself/),
   ).toBeVisible();
   await expect(page.locator(".research-subject")).toContainText("88 Sample Avenue");
   await expect(page.getByText("$185,000", { exact: true })).toBeVisible();
