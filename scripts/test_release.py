@@ -72,7 +72,13 @@ path = Path(settings.database_url.removeprefix("sqlite:///"))
 with sqlite3.connect(path.as_uri()+"?mode=ro",uri=True) as db:
     revision = db.execute("SELECT version_num FROM alembic_version").fetchone()[0]
     tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'") if not row[0].startswith("sqlite_")}
-    assert revision == "0a6d91cf17b2" and {"call_plans","workspace_merges"}.issubset(tables)
+    # Compare against the migration head instead of a hard-coded revision, so a new
+    # migration cannot silently make this release check stale.
+    from alembic.config import Config as AlembicConfig
+    from alembic.script import ScriptDirectory
+    script_dir = ScriptDirectory.from_config(AlembicConfig("alembic.ini"))
+    assert revision == script_dir.get_current_head(), (revision, script_dir.get_current_head())
+    assert {"call_plans","workspace_merges"}.issubset(tables)
     assert db.execute("SELECT count(*) FROM leads").fetchone()[0] == 0
     assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert not db.execute("PRAGMA foreign_key_check").fetchall()

@@ -145,12 +145,13 @@ one stylesheet.
 | Check | Result |
 |---|---|
 | Backend suite | **369 passed**, 2 explicit live-account skips |
-| Frontend unit suite | **21 passed** |
+| Frontend unit suite | **24 passed** |
 | `ruff check backend scripts` | clean |
 | `tsc -b` | clean |
 | Production build | clean; 1 JS + 1 CSS in `index.html`, 3 lazy route chunks |
 | Upgrade test | previous release schema → head keeps leads, activities, drafts, stages; adds the new columns and merges the new priority weights without overwriting an explicit value |
 | Route test | no duplicate routes, no shadowed static paths, no send-shaped route |
+| `scripts/test_release.py` on the packaged ZIP | passed — release `1.5.0`, schema head `i1j2k3l4m5n6`, 29 application tables, 2 built assets served, `integrity ok`, 0 foreign-key violations, every included file hash verified, no database or private file in the archive |
 
 These are synthetic, local checks. They do not verify your real database, a vendor
 account, a provider account or a native Windows runtime.

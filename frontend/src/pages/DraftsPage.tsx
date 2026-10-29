@@ -61,6 +61,12 @@ export default function DraftsPage() {
   }
 
   async function generate() {
+    if (
+      !window.confirm(
+        `Generate drafts for every ${tier} lead that passes the gates? Drafts are created for review only — nothing is copied and nothing is sent.`,
+      )
+    )
+      return;
     const result = await action.run(
       () =>
         post<{
