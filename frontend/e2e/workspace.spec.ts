@@ -295,6 +295,18 @@ test("all application routes render without browser exceptions and mobile has no
 test("dashboard accessibility: named controls and no critical/serious WCAG violations", async ({
   page,
 }) => {
+  // Colour is measured on the settled page. An entrance animation at 95% opacity
+  // lightens every label and reports contrast failures that do not exist.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  await expect(
+    page.locator(".metric-card").filter({ hasText: "Total seller leads" }),
+  ).toBeVisible();
+  await page.evaluate(() =>
+    Promise.all(
+      document.getAnimations().map((animation) => animation.finished.catch(() => {})),
+    ),
+  );
   const result = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
     .analyze();
@@ -735,11 +747,15 @@ test("bulk restriction review unlocks a tier of drafts without sending anything"
     buffer: Buffer.from(csv),
   });
   await page.getByRole("button", { name: "Normalize & preview" }).click();
-  await expect(page.getByText("Nadia Tier", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Select all new records" }).click();
-  await page
-    .getByRole("button", { name: "Review & approve local import" })
-    .click();
+  await expect(
+    page.getByRole("heading", { name: "Review normalized records" }),
+  ).toBeVisible();
+  await page.getByRole("checkbox", { name: "Select import row 1" }).check();
+  const approve = page.getByRole("button", {
+    name: "Review & approve local import",
+  });
+  await expect(approve).toBeEnabled();
+  await approve.click();
   await page
     .getByRole("textbox", { name: "Type IMPORT LOCAL to confirm" })
     .fill("IMPORT LOCAL");
@@ -792,10 +808,15 @@ test("skip-trace results only change the fields they matched, after the typed ph
     buffer: Buffer.from(propertyOnly),
   });
   await page.getByRole("button", { name: "Normalize & preview" }).click();
-  await page.getByRole("button", { name: "Select all new records" }).click();
-  await page
-    .getByRole("button", { name: "Review & approve local import" })
-    .click();
+  await expect(
+    page.getByRole("heading", { name: "Review normalized records" }),
+  ).toBeVisible();
+  await page.getByRole("checkbox", { name: "Select import row 1" }).check();
+  const approve = page.getByRole("button", {
+    name: "Review & approve local import",
+  });
+  await expect(approve).toBeEnabled();
+  await approve.click();
   await page
     .getByRole("textbox", { name: "Type IMPORT LOCAL to confirm" })
     .fill("IMPORT LOCAL");
