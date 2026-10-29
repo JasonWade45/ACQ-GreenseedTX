@@ -38,6 +38,8 @@ from .models import (
     SyncConflict,
     Task,
     SuggestedAction,
+    LeadSequenceState,
+    SequenceStep,
 )
 from .schemas import (
     NoteIn,
@@ -1820,6 +1822,82 @@ def run_due_sequences(db: DB):
 
     items = S.runner_due_today(db)
     return {"processed": len(items), "items": items}
+
+
+@app.get("/api/leads/{lead_id}/sequence")
+def lead_sequence(lead_id: int, db: DB):
+    """The cadence state for one lead, with the step that comes next."""
+    from .services import sequences as S
+
+    lead = found(db, Lead, lead_id)
+    state = (
+        db.query(LeadSequenceState)
+        .filter(LeadSequenceState.lead_id == lead.id)
+        .order_by(LeadSequenceState.id.desc())
+        .first()
+    )
+    steps = []
+    if state is not None:
+        steps = [
+            {"day_offset": step.day_offset, "category": step.template_category}
+            for step in db.query(SequenceStep)
+            .filter(SequenceStep.sequence_id == state.sequence_id)
+            .order_by(SequenceStep.sort_order)
+            .all()
+        ]
+    return {
+        "lead_id": lead.id,
+        "active": bool(state and state.status == "active"),
+        "status": state.status if state else "not_started",
+        "current_step": state.current_step if state else 0,
+        "total_steps": len(steps),
+        "next_due_at": state.next_due_at.isoformat() if state and state.next_due_at else None,
+        "stop_reason": state.stop_reason if state else None,
+        "started_at": state.started_at.isoformat() if state and state.started_at else None,
+        "cadence_days": S.cadence_days(db),
+        "steps": steps,
+        # Nothing below this line can send: the cadence only prepares drafts.
+        "never_sent": True,
+    }
+
+
+@app.post("/api/leads/{lead_id}/sequence/pause")
+def pause_lead_sequence(lead_id: int, db: DB):
+    from .services import sequences as S
+
+    lead = found(db, Lead, lead_id)
+    paused = S.pause_sequence(db, lead.id, "paused_by_user")
+    db.add(AuditLog(lead_id=lead.id, action="sequence_paused", details={"paused": paused}))
+    db.commit()
+    return {"paused": paused, "never_sent": True}
+
+
+@app.get("/api/sequences/summary")
+def sequences_summary(db: DB):
+    """How much cadence work is waiting, for the draft queue header."""
+    from .services import sequences as S
+
+    now = datetime.now(timezone.utc)
+    active = (
+        db.query(LeadSequenceState).filter(LeadSequenceState.status == "active").count()
+    )
+    due = (
+        db.query(LeadSequenceState)
+        .filter(
+            LeadSequenceState.status == "active",
+            LeadSequenceState.next_due_at.isnot(None),
+            LeadSequenceState.next_due_at <= now,
+        )
+        .count()
+    )
+    return {
+        "active": active,
+        "due_today": due,
+        "cadence_days": S.cadence_days(db),
+        "runner_hour_utc": get_settings().cadence_hour_utc,
+        "runner_enabled": get_settings().cadence_enabled,
+        "never_sent": True,
+    }
 
 
 # ── Phase 6: reply handling ──────────────────────────────────────────────────

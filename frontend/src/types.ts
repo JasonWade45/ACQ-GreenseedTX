@@ -139,6 +139,29 @@ export interface MessageDraft {
   outreach_mode?: string | null;
 }
 
+export interface LeadSequence {
+  lead_id: number;
+  active: boolean;
+  status: string;
+  current_step: number;
+  total_steps: number;
+  next_due_at: string | null;
+  stop_reason: string | null;
+  started_at: string | null;
+  cadence_days: number[];
+  steps: { day_offset: number; category: string }[];
+  never_sent: boolean;
+}
+
+export interface SequenceSummary {
+  active: number;
+  due_today: number;
+  cadence_days: number[];
+  runner_hour_utc: number;
+  runner_enabled: boolean;
+  never_sent: boolean;
+}
+
 export interface SuggestedAction {
   id: number;
   lead_id: number;

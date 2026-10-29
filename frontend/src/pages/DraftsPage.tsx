@@ -15,7 +15,7 @@ import {
   useAction,
   useWorkspace,
 } from "../components";
-import type { MessageDraft } from "../types";
+import type { MessageDraft, SequenceSummary } from "../types";
 
 type Queue = { items: MessageDraft[]; total: number };
 
@@ -35,10 +35,30 @@ export default function DraftsPage() {
     results: { lead_id: number; ok: boolean; reason?: string }[];
   } | null>(null);
   const [editing, setEditing] = useState<Record<number, string>>({});
+  const cadence = useQuery({
+    queryKey: ["sequences"],
+    queryFn: () => api<SequenceSummary>("/sequences/summary"),
+  });
 
   async function refresh() {
     await queue.refetch();
     client.invalidateQueries({ queryKey: ["briefing"] });
+  }
+
+  async function runDue() {
+    const result = await action.run(
+      () => post<{ processed: number; items: any[] }>("/sequences/run-due"),
+      "Due follow-up drafts prepared. Nothing was sent.",
+    );
+    if (result) {
+      const drafted = result.items.filter((i) => i.status === "drafted").length;
+      const blocked = result.items.filter((i) => i.status === "blocked").length;
+      toast(
+        `${drafted} draft(s) prepared, ${blocked} stopped by a gate. Nothing was sent.`,
+      );
+    }
+    await refresh();
+    client.invalidateQueries({ queryKey: ["sequences"] });
   }
 
   async function decide(id: number, decision: "approve" | "reject") {
@@ -149,6 +169,41 @@ export default function DraftsPage() {
           </div>
         )}
         {action.error && <p className="muted">{action.error}</p>}
+      </Panel>
+
+      <Panel
+        title="Due follow-ups"
+        subtitle="The daily runner prepares a draft for every cadence step that is due. It never sends and it stops itself on a reply, a suppression, an appointment or a closed stage."
+      >
+        <div className="settings-facts">
+          <div>
+            <span>Active cadences</span>
+            <strong>{cadence.data?.active ?? "—"}</strong>
+          </div>
+          <div>
+            <span>Due today</span>
+            <strong>{cadence.data?.due_today ?? "—"}</strong>
+          </div>
+          <div>
+            <span>Automatic run</span>
+            <strong>
+              {cadence.data?.runner_enabled
+                ? `Daily at ${cadence.data.runner_hour_utc}:15 UTC`
+                : "Disabled"}
+            </strong>
+          </div>
+        </div>
+        <Button
+          variant="secondary"
+          busy={action.busy}
+          disabled={!cadence.data?.due_today}
+          onClick={runDue}
+        >
+          <RefreshCw size={15} /> Prepare due drafts
+        </Button>
+        {!cadence.data?.due_today && (
+          <p className="muted">Nothing is due right now.</p>
+        )}
       </Panel>
 
       <Panel title={`Drafts awaiting review (${queue.data.total})`}>

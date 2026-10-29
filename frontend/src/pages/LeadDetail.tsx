@@ -60,6 +60,7 @@ import type {
   Followup,
   Insight,
   LeadProfile,
+  LeadSequence,
   SuggestedAction,
 } from "../types";
 
@@ -410,6 +411,7 @@ export default function LeadDetail() {
           <Timeline lead={lead} />
         </Panel>
       )}
+      {tab === "followups" && <CadencePanel lead={lead} />}
       {tab === "followups" && (
         <Panel
           title="Follow-up schedule"
@@ -1560,6 +1562,120 @@ function VendorContextPanel({ lead }: { lead: LeadProfile }) {
           Manually corrected fields (a later vendor import will not overwrite
           them): {(lead.user_edited_fields || []).map(human).join(", ")}
         </p>
+      )}
+    </Panel>
+  );
+}
+
+function CadencePanel({ lead }: { lead: LeadProfile }) {
+  const action = useAction();
+  const client = useQueryClient();
+  const { toast } = useWorkspace();
+  const sequence = useQuery({
+    queryKey: ["sequence", lead.id],
+    queryFn: () => api<LeadSequence>(`/leads/${lead.id}/sequence`),
+  });
+  async function run(endpoint: "start" | "pause") {
+    await action.run(
+      () => post(`/leads/${lead.id}/sequence/${endpoint}`),
+      endpoint === "start"
+        ? "Cadence started. Drafts are prepared for review; nothing is sent."
+        : "Cadence paused",
+    );
+    client.invalidateQueries({ queryKey: ["sequence", lead.id] });
+    client.invalidateQueries({ queryKey: ["sequences"] });
+  }
+  if (sequence.isPending) return <Panel title="Follow-up cadence"><Loading /></Panel>;
+  if (sequence.isError)
+    return (
+      <Panel title="Follow-up cadence">
+        <ErrorState error={sequence.error} retry={() => sequence.refetch()} />
+      </Panel>
+    );
+  const s = sequence.data;
+  const next = s.steps[s.current_step];
+  return (
+    <Panel
+      title="Follow-up cadence"
+      subtitle="Each step prepares a draft on its day. The runner never sends, and any reply stops it."
+      action={
+        <Badge tone={s.active ? "green" : s.status === "completed" ? "blue" : "neutral"}>
+          {human(s.status)}
+        </Badge>
+      }
+    >
+      <div className="settings-facts">
+        <div>
+          <span>Progress</span>
+          <strong>
+            {s.current_step} of {s.total_steps} steps
+          </strong>
+        </div>
+        <div>
+          <span>Next draft</span>
+          <strong>
+            {s.active && next ? (
+              <>
+                day {next.day_offset} · <Timestamp value={s.next_due_at} dateOnly />
+              </>
+            ) : s.status === "completed" ? (
+              "Cadence finished"
+            ) : (
+              "Not scheduled"
+            )}
+          </strong>
+        </div>
+        <div>
+          <span>Days</span>
+          <strong>{s.cadence_days.join(", ")}</strong>
+        </div>
+      </div>
+      {s.stop_reason && (
+        <p className="muted">
+          Stopped because: {human(s.stop_reason)}
+        </p>
+      )}
+      {!s.active && (
+        <Notice tone="info">
+          Starting the cadence only creates drafts and tasks you can review. There is no
+          send control anywhere in this application.
+        </Notice>
+      )}
+      <div className="row wrap">
+        {s.active ? (
+          <Button variant="secondary" busy={action.busy} onClick={() => run("pause")}>
+            <X size={15} /> Pause cadence
+          </Button>
+        ) : (
+          <Button
+            variant="secondary"
+            busy={action.busy}
+            disabled={lead.do_not_contact}
+            onClick={() => run("start")}
+          >
+            <Clock3 size={15} /> Start cadence
+          </Button>
+        )}
+        <button
+          className="text-link"
+          onClick={() => {
+            if (next) toast(`Next step: day ${next.day_offset} · ${human(next.category)}`);
+          }}
+        >
+          What comes next?
+        </button>
+      </div>
+      {action.error && <Notice tone="warning">{action.error}</Notice>}
+      {s.steps.length > 0 && (
+        <details>
+          <summary>All {s.total_steps} steps</summary>
+          {s.steps.map((step, index) => (
+            <p key={`${step.day_offset}-${step.category}`}>
+              Day {step.day_offset} · {human(step.category)}
+              {index < s.current_step ? " · prepared" : ""}
+            </p>
+          ))}
+        </details>
       )}
     </Panel>
   );
