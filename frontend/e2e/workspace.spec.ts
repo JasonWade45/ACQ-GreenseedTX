@@ -234,37 +234,35 @@ test("appointments, reports and sync health are reachable with actual data", asy
   ).toBeVisible();
 });
 
+// Every route in the sidebar, so a new screen cannot ship unopened.
+const ROUTES = [
+  "/",
+  "/leads",
+  "/followups",
+  "/appointments",
+  "/imports",
+  "/reports",
+  "/insights",
+  "/sync",
+  "/settings",
+  "/drafts",
+  "/templates",
+  "/skip-trace",
+  "/briefing",
+  "/safety",
+];
+
 test("all application routes render without browser exceptions and mobile has no page overflow", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  for (const route of [
-    "/",
-    "/leads",
-    "/followups",
-    "/appointments",
-    "/imports",
-    "/reports",
-    "/insights",
-    "/sync",
-    "/settings",
-  ]) {
+  for (const route of ROUTES) {
     await page.goto(route);
     await expect(page.locator("main h1")).toBeVisible();
   }
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const route of [
-    "/",
-    "/leads",
-    "/followups",
-    "/appointments",
-    "/imports",
-    "/reports",
-    "/insights",
-    "/sync",
-    "/settings",
-  ]) {
+  for (const route of ROUTES) {
     await page.goto(route);
     await expect(page.locator("main h1")).toBeVisible();
     expect(
@@ -678,4 +676,157 @@ test("unified local database migration requires decisions and preserves historic
   await page.getByLabel(/full local path/).fill(process.env.E2E_LEGACY_SOURCE!);
   await page.getByRole("button", { name: "Prepare read-only review" }).click();
   await expect(page.getByText(/Review complete. Both originals/)).toBeVisible();
+});
+
+test("a STOP reply blocks contact at once and only suppresses after a human confirms", async ({
+  page,
+}) => {
+  await page.goto("/leads?search=Jordan");
+  await page.getByRole("link", { name: /Jordan Ellis/ }).first().click();
+  await expect(
+    page.getByRole("heading", { name: "Jordan Ellis" }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Analysis & drafts" }).click();
+  await page
+    .getByLabel("Seller reply text")
+    .fill("STOP - please do not text me again");
+  await page.getByRole("button", { name: "Record reply" }).click();
+  await expect(
+    page.getByText(/The cadence for this lead is paused/),
+  ).toBeVisible();
+
+  // The block is immediate; the suppression list is still a decision.
+  await page.reload();
+  await expect(page.getByText(/Do Not Contact/).first()).toBeVisible();
+  await page.getByRole("tab", { name: "Analysis & drafts" }).click();
+  await expect(
+    page.getByText("Do Not Contact: marketing follow-up drafts are blocked."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Suggested next actions" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Confirm" }).first().click();
+  await expect(
+    page.getByText(/Suggestion applied. Nothing was sent./),
+  ).toBeVisible();
+
+  await page.goto("/safety");
+  await expect(
+    page.getByRole("cell", { name: /2025550101/ }),
+  ).toBeVisible();
+  // Nothing in the workspace can send: there is no send control to press.
+  await expect(page.getByRole("button", { name: /^send/i })).toHaveCount(0);
+});
+
+test("bulk restriction review unlocks a tier of drafts without sending anything", async ({
+  page,
+}) => {
+  await page.goto("/imports");
+  const csv =
+    "Full Name,Phone,Property Address,City,State,Zip,Sale Likelihood,Estimated Equity (%),County\n" +
+    "Nadia Tier,2025550188,4200 Tier Two Lane,Arlington,TX,76015,87.1 Score HOT,55%,Tarrant\n";
+  await page.getByLabel("Upload lead file").setInputFiles({
+    name: "e2e-tier-p1.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(csv),
+  });
+  await page.getByRole("button", { name: "Normalize & preview" }).click();
+  await expect(page.getByText("Nadia Tier", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Select all new records" }).click();
+  await page
+    .getByRole("button", { name: "Review & approve local import" })
+    .click();
+  await page
+    .getByRole("textbox", { name: "Type IMPORT LOCAL to confirm" })
+    .fill("IMPORT LOCAL");
+  await page.getByRole("button", { name: "Approve local writes" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  // A brand-new lead cannot be drafted until a person records a contact review.
+  await page.goto("/drafts");
+  await page.getByRole("combobox", { name: "Priority tier" }).selectOption("P1");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Generate drafts" }).click();
+  await expect(
+    page.getByText(/No lead in this selection can receive a draft|Blocked by a gate/),
+  ).toBeVisible();
+
+  await page.goto("/leads?search=Nadia");
+  await page.getByRole("checkbox", { name: "Select Nadia Tier" }).check();
+  await page
+    .getByRole("button", { name: "Review contact restrictions" })
+    .click();
+  await page
+    .getByRole("textbox", { name: /What did you check/ })
+    .fill("Screened the vendor list for opt-outs before import on 2026-10-29.");
+  await page
+    .getByRole("textbox", { name: /Type REVIEW RESTRICTIONS/ })
+    .fill("REVIEW RESTRICTIONS");
+  await page.getByRole("button", { name: "Apply to 1 lead(s)" }).click();
+  await expect(page.getByText(/1 reviewed/)).toBeVisible();
+  await page.getByRole("button", { name: "Done" }).click();
+
+  await page.goto("/drafts");
+  await page.getByRole("combobox", { name: "Priority tier" }).selectOption("P1");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Generate drafts" }).click();
+  await expect(page.getByText("Requested", { exact: true })).toBeVisible();
+  await expect(page.getByText("Generated", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Nadia Tier" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^send/i })).toHaveCount(0);
+});
+
+test("skip-trace results only change the fields they matched, after the typed phrase", async ({
+  page,
+}) => {
+  await page.goto("/imports");
+  const propertyOnly =
+    'Property Address,Beds Baths and Sqft,MV\n"4300 Skip Trace Lane, Arlington, TX 76015",3 beds 2 baths 1800 sqft,250k Redfin\n';
+  await page.getByLabel("Upload lead file").setInputFiles({
+    name: "e2e-skip-trace-source.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(propertyOnly),
+  });
+  await page.getByRole("button", { name: "Normalize & preview" }).click();
+  await page.getByRole("button", { name: "Select all new records" }).click();
+  await page
+    .getByRole("button", { name: "Review & approve local import" })
+    .click();
+  await page
+    .getByRole("textbox", { name: "Type IMPORT LOCAL to confirm" })
+    .fill("IMPORT LOCAL");
+  await page.getByRole("button", { name: "Approve local writes" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  await page.goto("/skip-trace");
+  const results =
+    "address,city,state,zip,owner_name,phone1\n" +
+    "4300 Skip Trace Lane,Arlington,TX,76015,Marcia Owner,(202) 555-0177\n" +
+    "9999 Unmatched Road,Nowhere,TX,70000,Nobody Real,(555) 555-5555\n";
+  await page.getByLabel("Skip-trace results file").setInputFiles({
+    name: "e2e-skip-trace-results.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(results),
+  });
+  await expect(page.getByText("1 matched", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 rejected", { exact: true })).toBeVisible();
+
+  const apply = page.getByRole("button", { name: "Apply matched results" });
+  await expect(apply).toBeDisabled();
+  await page
+    .getByRole("textbox", { name: /Type IMPORT LOCAL to apply/ })
+    .fill("IMPORT LOCAL");
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(page.getByText(/1 lead\(s\) updated/)).toBeVisible();
+
+  await page.goto("/leads?search=Marcia");
+  await expect(
+    page.getByRole("link", { name: /Marcia Owner/ }).first(),
+  ).toBeVisible();
+  await page.getByRole("link", { name: /Marcia Owner/ }).first().click();
+  await expect(
+    page.getByRole("heading", { name: "Marcia Owner" }),
+  ).toBeVisible();
+  await expect(page.getByText(/202/).first()).toBeVisible();
 });
