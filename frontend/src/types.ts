@@ -111,6 +111,95 @@ export interface Draft {
   model_id: string;
   created_at: string;
   updated_at: string;
+  kind?: "relationship" | "cold";
+  message_id?: number;
+  template_id?: number | null;
+  variant?: string | null;
+  status?: string;
+  validator_result?: { ok: boolean; reasons: string[] };
+  why_this_template?: string[];
+  warnings?: string[];
+  category?: string;
+}
+
+export interface MessageDraft {
+  id: number;
+  lead_id: number;
+  body: string;
+  status: string;
+  template_id: number | null;
+  variant: string | null;
+  validator_result: { ok: boolean; reasons: string[] };
+  why_this_template: string[];
+  created_at: string | null;
+  lead_name?: string | null;
+  lead_external_id?: string | null;
+  heat?: string | null;
+  score?: number | null;
+  outreach_mode?: string | null;
+}
+
+export interface SuggestedAction {
+  id: number;
+  lead_id: number;
+  lead_name: string | null;
+  kind: string;
+  classification: string;
+  confidence: number;
+  evidence: string | null;
+  payload: Record<string, unknown>;
+  status: string;
+  requires_confirmation: boolean;
+  created_at: string;
+}
+
+export interface BriefingData {
+  generated_at: string;
+  compliance_first: {
+    id: number;
+    lead_id: number;
+    lead_name: string | null;
+    classification: string;
+    confidence: number;
+    evidence: string | null;
+    label: string;
+  }[];
+  replies_needing_action: {
+    lead_id: number;
+    name: string | null;
+    classification: string;
+    confidence: number;
+    evidence: string | null;
+    suggestion_id: number;
+    kind: string;
+    needs_review: boolean;
+    received_at: string | null;
+  }[];
+  followups_due: { lead_id: number; name: string; due_at: string | null }[];
+  drafts_awaiting_approval: number;
+  drafts_failing_validation: { id: number; lead_id: number; reasons: string[] }[];
+  leads_needing_skip_trace: number;
+  skip_trace_leads: {
+    lead_id: number;
+    address: string | null;
+    heat: string | null;
+    score: number | null;
+    priority_tier: string | null;
+  }[];
+  stalled_leads: number;
+  stalled_window_days: number;
+  sync_conflicts: number;
+  backups: {
+    last_backup_at: string | null;
+    last_backup_file: string | null;
+    last_backup_reason: string | null;
+    second_folder: string | null;
+    second_folder_ok: boolean | null;
+    second_folder_detail: string | null;
+    second_folder_checked_at: string | null;
+  };
+  last_backup: string | null;
+  never_sent: boolean;
 }
 export interface Audit {
   id: number;
@@ -158,6 +247,25 @@ export interface Lead {
   do_not_contact: boolean;
   properties: Property[];
   missing_information: string[];
+  // Data Syndicate context (internal only; never appears in outgoing text).
+  // Optional so an older payload or a test fixture stays assignable.
+  recorded_date?: string | null;
+  score?: number | null;
+  heat?: "NONE" | "HOT" | "VERY_HOT" | null;
+  equity_pct?: number | null;
+  county?: string | null;
+  lead_type?: string | null;
+  priority_tier?: string | null;
+  priority_rank?: number | null;
+  needs_skip_trace?: boolean;
+  outreach_status?: string;
+  ds_flags?: Record<string, boolean>;
+  ds_flags_raw?: string | null;
+  ds_extra_flags?: string[];
+  ds_compatible_offers?: string[];
+  outreach_mode?: "relationship" | "cold";
+  user_edited_fields?: string[];
+  import_batch_id?: string | null;
 }
 export interface LeadProfile extends Lead {
   activities: Activity[];
@@ -343,6 +451,9 @@ export interface SettingsData {
     mapped: boolean;
   }[];
   priority_rules: Record<string, number>;
+  sender_name: string;
+  company_name: string;
+  cadence: number[];
   local_only: boolean;
   authentication_enabled: boolean;
   max_upload_mb: number;

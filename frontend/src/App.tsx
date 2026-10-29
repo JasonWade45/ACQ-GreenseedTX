@@ -14,6 +14,8 @@ import {
   House,
   LayoutDashboard,
   LockKeyhole,
+  MessageSquareText,
+  FileText,
   LogOut,
   Menu,
   Search,
@@ -41,6 +43,8 @@ import {
   SettingsPage,
 } from "./pages/OperationsPages";
 import { BriefingPage } from "./pages/BriefingPage";
+import DraftsPage from "./pages/DraftsPage";
+import TemplatesPage from "./pages/TemplatesPage";
 import { SafetyPage } from "./SafetyPage";
 
 /* The version comes from package.json at build time, so it can never drift again. */
@@ -56,6 +60,8 @@ const navigation = [
   { label: "AI Insights", path: "/insights", icon: Sparkles },
   { label: "Sync Status", path: "/sync", icon: CloudDownload },
   { label: "Settings", path: "/settings", icon: Settings2 },
+  { label: "Draft Queue", path: "/drafts", icon: MessageSquareText },
+  { label: "Templates", path: "/templates", icon: FileText },
   { label: "Briefing", path: "/briefing", icon: ClipboardList },
   { label: "Safety", path: "/safety", icon: ShieldCheck },
 ];
@@ -445,6 +451,8 @@ function Workspace({ onLogout }: { onLogout?: () => void }) {
               <Route path="/insights" element={<InsightsPage />} />
               <Route path="/sync" element={<SyncPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/drafts" element={<DraftsPage />} />
+              <Route path="/templates" element={<TemplatesPage />} />
               <Route path="/briefing" element={<BriefingPage />} />
               <Route path="/safety" element={<SafetyPage />} />
               <Route

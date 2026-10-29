@@ -113,6 +113,7 @@ export default function QueuePage() {
           <div className="mini-label">WORK SECTIONS</div>
           {Object.entries(
             data.data?.labels || {
+              needs_skip_trace: "Needs skip trace",
               overdue: "Overdue",
               today: "Due Today",
               new: "New Leads Not Contacted",
@@ -169,11 +170,17 @@ export default function QueuePage() {
           ) : !data.data.sections[section]?.length ? (
             <Empty
               title={
-                section === "overdue"
-                  ? "No overdue tasks. Keep it that way."
-                  : "You’re clear in this section"
+                section === "needs_skip_trace"
+                  ? "No lead is waiting on a skip trace"
+                  : section === "overdue"
+                    ? "No overdue tasks. Keep it that way."
+                    : "You’re clear in this section"
               }
-              description="Only justified, recorded tasks appear here. An unknown follow-up date is never labeled overdue."
+              description={
+                section === "needs_skip_trace"
+                  ? "Address-only leads are worked here, never as “call this seller” tasks."
+                  : "Only justified, recorded tasks appear here. An unknown follow-up date is never labeled overdue."
+              }
               action={
                 <Link className="btn btn-secondary" to="/leads">
                   Review seller leads <ArrowRight size={15} />
@@ -242,6 +249,12 @@ function TaskCard({
         </div>
         <div className="row wrap">
           <StageBadge code={l.stage_code} />
+          {l.heat && l.heat !== "NONE" ? (
+            <Badge tone={l.heat === "VERY_HOT" ? "red" : "amber"}>
+              {l.heat === "VERY_HOT" ? "Very hot" : "Hot"}
+            </Badge>
+          ) : null}
+          {l.priority_tier ? <Badge>{l.priority_tier}</Badge> : null}
           <Badge
             tone={
               item.priority >= 75
@@ -264,6 +277,11 @@ function TaskCard({
         <span>
           Phone <strong>{l.primary_phone || "Missing"}</strong>
         </span>
+        {typeof l.equity_pct === "number" ? (
+          <span>
+            Equity <strong>{l.equity_pct}%</strong>
+          </span>
+        ) : null}
         <span>
           Last contact{" "}
           <strong>

@@ -51,6 +51,8 @@ import {
   useData,
   useWorkspace,
 } from "../components";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "../api";
 import { currency, dateTime, human, isoFromLocal, patch, post } from "../api";
 import type {
   Appointment,
@@ -58,6 +60,7 @@ import type {
   Followup,
   Insight,
   LeadProfile,
+  SuggestedAction,
 } from "../types";
 
 export default function LeadDetail() {
@@ -524,10 +527,12 @@ export default function LeadDetail() {
       {tab === "intelligence" && (
         <>
           <CloudWorkbench lead={lead} />
+          <ReplyCapture lead={lead} />
           <div className="profile-grid">
             <AnalysisPanel lead={lead} />
             <DraftPanel lead={lead} />
           </div>
+          <LeadMessages lead={lead} />
         </>
       )}
       {tab === "audit" && (
@@ -1278,6 +1283,185 @@ function DraftPanel({ lead }: { lead: LeadProfile }) {
           No send controls or automated outreach jobs exist.
         </div>
       </div>
+    </Panel>
+  );
+}
+
+function ReplyCapture({ lead }: { lead: LeadProfile }) {
+  const action = useAction();
+  const client = useQueryClient();
+  const [text, setText] = useState("");
+  const [result, setResult] = useState<{
+    classification: string;
+    confidence: number;
+    evidence: string;
+    suggestion_id: number | null;
+    needs_review: boolean;
+    note: string | null;
+  } | null>(null);
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const response = await action.run(
+      () => post<any>(`/leads/${lead.id}/reply`, { text }),
+      "Reply recorded. Nothing was sent.",
+    );
+    if (response) {
+      setResult(response);
+      setText("");
+      client.invalidateQueries({ queryKey: ["briefing"] });
+      client.invalidateQueries({ queryKey: ["messages"] });
+    }
+  }
+  return (
+    <Panel
+      title="Record a seller reply"
+      subtitle="Paste what the seller said. Rules classify it; a person still decides what happens next."
+      action={<MessageSquareText size={18} className="text-green" />}
+    >
+      <form className="settings-form" onSubmit={submit}>
+        <Field label="Seller reply text">
+          <textarea
+            rows={3}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Paste the reply exactly as received."
+          />
+        </Field>
+        <Button busy={action.busy} type="submit" disabled={!text.trim()}>
+          <Plus size={15} /> Record reply
+        </Button>
+      </form>
+      {result && (
+        <Notice tone={result.classification === "STOP" ? "warning" : "info"}>
+          <strong>{result.classification}</strong> · confidence{" "}
+          {Math.round((result.confidence || 0) * 100)}%
+          {result.evidence ? <blockquote>“{result.evidence}”</blockquote> : null}
+          {result.needs_review && (
+            <p>Low confidence: read the message before taking any action.</p>
+          )}
+          <p className="muted">
+            The cadence for this lead is paused. Suppression, stage changes and
+            replies are suggestions until you confirm them.
+          </p>
+        </Notice>
+      )}
+      {action.error && <Notice tone="warning">{action.error}</Notice>}
+    </Panel>
+  );
+}
+
+function LeadMessages({ lead }: { lead: LeadProfile }) {
+  const action = useAction();
+  const client = useQueryClient();
+  const messages = useQuery({
+    queryKey: ["messages", lead.id],
+    queryFn: () => api<any[]>(`/messages?lead_id=${lead.id}`),
+  });
+  const suggestions = useQuery({
+    queryKey: ["suggested-actions", lead.id],
+    queryFn: () => api<SuggestedAction[]>("/suggested-actions"),
+  });
+  const pending = (Array.isArray(suggestions.data) ? suggestions.data : []).filter(
+    (a) => a.lead_id === lead.id,
+  );
+  const rows = Array.isArray(messages.data) ? messages.data : [];
+  async function decide(id: number, decision: "confirm" | "dismiss") {
+    await action.run(
+      () => post(`/suggested-actions/${id}/${decision}`),
+      decision === "confirm"
+        ? "Suggestion applied. Nothing was sent."
+        : "Suggestion dismissed",
+    );
+    client.invalidateQueries({ queryKey: ["suggested-actions", lead.id] });
+    client.invalidateQueries({ queryKey: ["messages", lead.id] });
+    client.invalidateQueries({ queryKey: ["briefing"] });
+  }
+  if (messages.isPending) return <Panel title="Recorded messages"><Loading /></Panel>;
+  if (messages.isError)
+    return (
+      <Panel title="Recorded messages">
+        <ErrorState error={messages.error} retry={() => messages.refetch()} />
+      </Panel>
+    );
+  return (
+    <Panel
+      title="Recorded messages & suggestions"
+      subtitle="Inbound replies and copy-only drafts for this lead."
+    >
+      {pending.length > 0 && (
+        <div className="stack">
+          <h3>Suggested next actions</h3>
+          <ul className="task-list">
+            {pending.map((a) => (
+              <li key={a.id}>
+                <div>
+                  <strong>
+                    <Badge tone="amber">{a.classification}</Badge>{" "}
+                    {human(a.kind)}
+                  </strong>
+                  <p>
+                    confidence {Math.round((a.confidence || 0) * 100)}%
+                    {a.evidence ? ` · “${a.evidence}”` : ""}
+                  </p>
+                </div>
+                <div className="row wrap">
+                  <Button busy={action.busy} onClick={() => decide(a.id, "confirm")}>
+                    <Check size={15} /> Confirm
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    busy={action.busy}
+                    onClick={() => decide(a.id, "dismiss")}
+                  >
+                    <X size={15} /> Dismiss
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {rows.length === 0 ? (
+        <Empty
+          title="No messages recorded"
+          description="Recorded replies and prepared drafts appear here. Nothing is ever sent."
+        />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Direction</th>
+                <th>Status</th>
+                <th>Text</th>
+                <th>Recorded</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((m) => (
+                <tr key={m.id}>
+                  <td>{human(m.direction)}</td>
+                  <td>
+                    {m.status}
+                    {m.classification ? (
+                      <>
+                        {" "}
+                        <Badge tone="amber">{m.classification}</Badge>
+                      </>
+                    ) : null}
+                  </td>
+                  <td>
+                    <small>{m.body}</small>
+                  </td>
+                  <td>
+                    <Timestamp value={m.created_at} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Panel>
   );
 }
