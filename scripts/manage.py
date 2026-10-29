@@ -147,10 +147,15 @@ def main():
             from app.main import migrate
             from app.db import SessionLocal
             from app.seed import initialize_defaults
+            from app.services import templates as template_service
 
             migrate()
             with SessionLocal() as db:
                 initialize_defaults(db)
+                # The startup path seeds the reviewed template library too, so a database
+                # prepared here is already complete: the first start must not have to
+                # write anything, and an update cannot look like it changed seller data.
+                template_service.seed_templates(db)
             print("Schema migrated and default pipeline initialized (no seller data seeded).")
         elif args.action == "backup":
             backup(args.output)
