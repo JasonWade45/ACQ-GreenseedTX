@@ -117,7 +117,7 @@ def upload_batch(db, content, filename, settings, profile: str = "auto"):
     if existing:
         return existing, True
     sheets = inspect_file(content, filename, settings.max_import_rows)
-    if profile not in {"auto", "standard", "address_only"}:
+    if profile not in {"auto", "standard", "address_only", "skip_trace_results"}:
         raise ValueError("Choose the standard or Data Syndicate (address-only) profile")
     detected = ""
     if profile == "auto":
@@ -234,6 +234,10 @@ def preview_batch(db, batch, request, settings):
         kind, candidates = index.match(data)
         row.normalized, row.errors, row.warnings = data, errors, warnings
         row.duplicate_kind, row.candidates = kind, candidates
+        # A re-imported Data Syndicate file is idempotent: the same address is the same
+        # lead, and the review step offers an explicit refresh instead of a new record.
+        if kind != "new_record" and str(data.get("external_id") or "").startswith("ds:"):
+            row.duplicate_kind = "data_syndicate_refresh"
         row.state = "invalid" if errors else "ready"
         row.error = None
         if not errors:
@@ -275,6 +279,70 @@ def update_counts(db, batch):
         "failed": sum(r.state == "failed" for r in rows),
         "excluded": sum(r.state == "excluded" for r in rows),
     }
+
+
+DS_REFRESH_FIELDS = [
+    "score",
+    "heat",
+    "equity_pct",
+    "lead_type",
+    "county",
+    "priority_tier",
+    "priority_rank",
+    "dedupe_key",
+    "needs_skip_trace",
+]
+DS_JSON_FIELDS = {
+    "ds_flags": "flags",
+    "ds_flags_raw": "flags_raw",
+    "ds_extra_flags": "extra_flags",
+    "ds_compatible_offers": "compatible_offers",
+}
+
+
+def update_data_syndicate_lead(db, lead, data, batch_id):
+    """Refresh vendor fields on a re-import without touching anything Jason edited.
+
+    Rules: never create a second lead, never overwrite a field listed in
+    ``user_edited_fields``, never blank a field because the new file left it empty,
+    and never touch a name/phone that came from a skip trace.
+    """
+    if not str(lead.external_id or "").startswith("ds:"):
+        raise ValueError("Only Data Syndicate leads can be refreshed from a re-import")
+    edited = set(lead.user_edited_fields or [])
+    changed = []
+    for field in DS_REFRESH_FIELDS:
+        if field in edited:
+            continue
+        incoming = data.get(field)
+        if incoming is None:
+            continue
+        if getattr(lead, field) != incoming:
+            setattr(lead, field, incoming)
+            changed.append(field)
+    for column, key in DS_JSON_FIELDS.items():
+        if column in edited:
+            continue
+        incoming = data.get(key)
+        if incoming in (None, [], {}):
+            continue
+        if getattr(lead, column) != incoming:
+            setattr(lead, column, incoming)
+            changed.append(column)
+    recorded = _dt(data.get("recorded_date"))
+    if recorded and lead.recorded_date != recorded:
+        lead.recorded_date = recorded
+        changed.append("recorded_date")
+    lead.import_batch_id = str(batch_id)
+    attach_property(db, lead, data, {"batch_id": batch_id, "refreshed": True}, update_from_source=True)
+    db.add(
+        AuditLog(
+            lead_id=lead.id,
+            action="data_syndicate_refreshed",
+            details={"batch_id": batch_id, "changed": changed, "user_edited_fields": sorted(edited)},
+        )
+    )
+    return changed
 
 
 PROPERTY_FIELDS = [
@@ -529,10 +597,12 @@ def _approve_batch(db, batch, request):
         if row.errors or row.state not in {"ready", "failed"}:
             raise ValueError(f"Row {row.row_number}: invalid or not previewed")
         resolution = request.resolutions.get(str(row.id), row.resolution)
-        if row.duplicate_kind != "new_record" and resolution not in {"skip", "separate", "link"}:
+        if row.duplicate_kind != "new_record" and resolution not in {"skip", "separate", "link", "update"}:
             raise ValueError(f"Row {row.row_number}: explicitly resolve duplicate candidate first")
         if row.duplicate_kind == "existing_resimpli_record" and resolution == "separate":
             raise ValueError("An existing REsimpli ID cannot be imported as a separate record")
+        if row.duplicate_kind == "data_syndicate_refresh" and resolution == "separate":
+            raise ValueError("This Data Syndicate address is already a lead; refresh it or skip the row")
     batch.state = "importing"
     db.add(
         AuditLog(action="import_approved", details={"batch_id": batch.id, "rows": len(rows), "destination": "local"})
@@ -548,6 +618,20 @@ def _approve_batch(db, batch, request):
             row.resolution = resolution
             if resolution == "skip":
                 row.state = "skipped"
+            elif resolution == "update":
+                targets = [
+                    candidate.get("lead_id")
+                    for candidate in row.candidates
+                    if candidate.get("lead_id")
+                ]
+                if len(set(targets)) != 1:
+                    raise ValueError("Refresh requires exactly one matched local lead")
+                lead = db.get(Lead, targets[0])
+                changed = update_data_syndicate_lead(db, lead, row.normalized, batch.id)
+                row.lead_id, row.external_id, row.state = lead.id, lead.external_id, "linked"
+                row.warnings = list(row.warnings or []) + (
+                    ["Refreshed fields: " + ", ".join(changed)] if changed else ["No vendor field changed"]
+                )
             elif resolution == "link":
                 targets = []
                 for candidate in row.candidates:

@@ -94,7 +94,7 @@ class MappingIn(StrictModel):
 class ImportApproval(StrictModel):
     fill_missing: bool = False
     row_ids: list[int] = Field(max_length=50000)
-    resolutions: dict[str, Literal["skip", "separate", "link"]] = Field(default_factory=dict)
+    resolutions: dict[str, Literal["skip", "separate", "link", "update"]] = Field(default_factory=dict)
     confirmation: str
     destination: Literal["local"] = "local"
 
@@ -135,6 +135,14 @@ class TemplateIn(StrictModel):
 
 class DraftEdit(StrictModel):
     body: str = Field(min_length=1, max_length=8000)
+
+
+class LeadFieldEdit(StrictModel):
+    """A manual local correction. Every edited field is remembered by name so a
+    later vendor re-import can never overwrite it."""
+
+    fields: dict[str, str | float | None | list[str]]
+    confirm: bool
 
 
 class BulkIn(StrictModel):

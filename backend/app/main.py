@@ -54,6 +54,7 @@ from .schemas import (
     SettingsIn,
     SchedulerIn,
     LoginIn,
+    LeadFieldEdit,
     OUTCOMES,
     PipelineCreate,
     PipelineRename,
@@ -219,6 +220,18 @@ def filter_params(request):
         "followup",
         "from_date",
         "to_date",
+        # Data Syndicate context filters (internal only).
+        "lead_type",
+        "heat",
+        "county",
+        "min_equity",
+        "max_equity",
+        "min_score",
+        "flags",
+        "offer",
+        "tier",
+        "needs_skip_trace",
+        "outreach_mode",
     }
     return {k: v for k, v in request.query_params.items() if k in allowed and v}
 
@@ -365,6 +378,15 @@ def list_leads(
         "stage_code",
         "lead_source",
         "last_contact_at",
+        # Data Syndicate columns Jason sorts by when working a list.
+        "score",
+        "heat",
+        "equity_pct",
+        "lead_type",
+        "county",
+        "recorded_date",
+        "priority_rank",
+        "priority_tier",
     }
     if sort not in fields or direction not in {"asc", "desc"}:
         raise ValueError("Invalid sort field or direction")
@@ -482,6 +504,58 @@ def lead_profile(lead_id: int, db: DB):
         "external_url": None,
         "source_notice": "Activity summaries are not full conversation transcripts. Local changes are not written back to REsimpli.",
     }
+
+
+LEAD_EDITABLE_FIELDS = {
+    "full_name",
+    "first_name",
+    "last_name",
+    "email",
+    "primary_phone",
+    "lead_type",
+    "county",
+    "equity_pct",
+    "score",
+    "heat",
+    "ds_flags",
+    "ds_compatible_offers",
+}
+
+
+@app.patch("/api/leads/{lead_id}/fields")
+def edit_lead_fields(lead_id: int, body: LeadFieldEdit, db: DB):
+    """Correct a local field by hand. The change is audit-logged and remembered.
+
+    A remembered field name is what stops a later Data Syndicate re-import from
+    overwriting Jason's correction.
+    """
+    if not body.confirm:
+        raise ValueError("Confirm this local-only correction")
+    lead = found(db, Lead, lead_id)
+    unknown = sorted(set(body.fields) - LEAD_EDITABLE_FIELDS)
+    if unknown:
+        raise ValueError("These fields cannot be edited here: " + ", ".join(unknown))
+    edited = list(dict.fromkeys(list(lead.user_edited_fields or [])))
+    changed = {}
+    for field, value in body.fields.items():
+        if field == "primary_phone" and value:
+            from .services.normalization import normalize_phone
+
+            value = normalize_phone(str(value))
+        if field in {"ds_flags", "ds_compatible_offers"}:
+            if not isinstance(value, (dict, list)):
+                raise ValueError(f"{field} must be a structured value")
+        if getattr(lead, field) != value:
+            setattr(lead, field, value)
+            changed[field] = value
+        if field not in edited:
+            edited.append(field)
+    if not changed:
+        return {"updated": 0, "user_edited_fields": edited}
+    lead.user_edited_fields = edited
+    db.add(AuditLog(lead_id=lead.id, action="lead_field_edited", details={"fields": list(changed)}))
+    db.commit()
+    return {"updated": len(changed), "user_edited_fields": edited, "lead": lead_dict(lead)}
 
 
 @app.patch("/api/leads/{lead_id}/stage")
@@ -635,6 +709,7 @@ def batch_dict(b):
             "counts",
             "errors",
             "mapping_config",
+            "profile",
             "created_at",
             "finished_at",
         ]
@@ -647,13 +722,15 @@ def list_imports(db: DB):
 
 
 @app.post("/api/imports/upload")
-async def upload_import(db: DB, file: UploadFile = File(...)):
+async def upload_import(db: DB, file: UploadFile = File(...), profile: str = Query("auto")):
     settings = get_settings()
     content = await file.read(settings.max_upload_mb * 1024 * 1024 + 1)
     await file.close()
     if len(content) > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(413, "File exceeds the configured upload limit")
-    batch, repeated = await asyncio.to_thread(upload_batch, db, content, file.filename or "upload", settings)
+    batch, repeated = await asyncio.to_thread(
+        upload_batch, db, content, file.filename or "upload", settings, profile
+    )
     return {**batch_dict(batch), "repeated_file": repeated}
 
 
@@ -710,14 +787,12 @@ def get_batch(
 @app.get("/api/imports/{batch_id}/eligible-ids")
 def eligible_import_ids(batch_id: int, db: DB):
     found(db, ImportBatch, batch_id)
-    ids = db.scalars(
-        select(ImportRow.id).where(
-            ImportRow.batch_id == batch_id,
-            ImportRow.state.in_(["ready", "failed"]),
-            ImportRow.duplicate_kind == "new_record",
-        )
+    base = (ImportRow.batch_id == batch_id, ImportRow.state.in_(["ready", "failed"]))
+    ids = db.scalars(select(ImportRow.id).where(*base, ImportRow.duplicate_kind == "new_record"))
+    refresh = db.scalars(
+        select(ImportRow.id).where(*base, ImportRow.duplicate_kind == "data_syndicate_refresh")
     )
-    return {"row_ids": list(ids)}
+    return {"row_ids": list(ids), "update_row_ids": list(refresh)}
 
 
 @app.post("/api/imports/{batch_id}/preview")
@@ -828,6 +903,83 @@ def export_import(batch_id: int, db: DB, kind: str = "report"):
     db.add(AuditLog(action="import_exported", details={"batch_id": b.id, "kind": kind, "records": len(rows)}))
     db.commit()
     return download(csv_bytes(rows, headers), f"import-{batch_id}-{kind}.csv")
+
+
+# ── Skip-trace loop (address-only Data Syndicate leads) ──────────────────────
+@app.get("/api/skip-trace/export")
+def skip_trace_export(db: DB):
+    from .services import skip_trace
+
+    return download(skip_trace.export_csv(db), "skip-trace-export.csv")
+
+
+@app.get("/api/skip-trace/summary")
+def skip_trace_summary(db: DB):
+    from .services import skip_trace
+
+    rows = skip_trace.export_rows(db)
+    return {
+        "needs_skip_trace": len(rows),
+        "columns": skip_trace.EXPORT_HEADERS,
+        "accepts": skip_trace.RESULT_HEADERS,
+    }
+
+
+@app.post("/api/skip-trace/upload")
+async def skip_trace_upload(db: DB, file: UploadFile = File(...)):
+    settings = get_settings()
+    content = await file.read(settings.max_upload_mb * 1024 * 1024 + 1)
+    await file.close()
+    if len(content) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(413, "File exceeds the configured upload limit")
+    batch, repeated = await asyncio.to_thread(
+        upload_batch, db, content, file.filename or "skip-trace.csv", settings, "skip_trace_results"
+    )
+    from .services import skip_trace
+
+    # Matching is read-only, so the upload can show the review immediately.
+    return {**skip_trace.prepare_preview(db, batch), "repeated_file": repeated}
+
+
+@app.post("/api/skip-trace/{batch_id}/preview")
+def skip_trace_preview(batch_id: int, db: DB):
+    from .services import skip_trace
+
+    batch = found(db, ImportBatch, batch_id)
+    if batch.profile != skip_trace.SKIP_TRACE_PROFILE:
+        raise HTTPException(400, "This batch is not a skip-trace result file")
+    return skip_trace.prepare_preview(db, batch)
+
+
+@app.post("/api/skip-trace/{batch_id}/apply")
+def skip_trace_apply(batch_id: int, body: dict, db: DB):
+    from .services import skip_trace
+
+    batch = found(db, ImportBatch, batch_id)
+    if batch.profile != skip_trace.SKIP_TRACE_PROFILE:
+        raise HTTPException(400, "This batch is not a skip-trace result file")
+    return skip_trace.apply_results(
+        db,
+        batch,
+        confirmation=(body or {}).get("confirmation", ""),
+        resolutions=(body or {}).get("resolutions") or {},
+    )
+
+
+@app.get("/api/skip-trace/{batch_id}/rejected")
+def skip_trace_rejected(batch_id: int, db: DB):
+    batch = found(db, ImportBatch, batch_id)
+    rows = db.scalars(select(ImportRow).where(ImportRow.batch_id == batch.id)).all()
+    rejected = [
+        {
+            "row_number": row.row_number,
+            "errors": "; ".join(row.errors or []),
+            "original": row.original,
+        }
+        for row in rows
+        if row.state == "invalid"
+    ]
+    return download(csv_bytes(rejected, ["row_number", "errors", "original"]), "skip-trace-rejected.csv")
 
 
 def sync_dict(r):
