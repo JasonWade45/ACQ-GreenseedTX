@@ -771,10 +771,13 @@ test("bulk restriction review unlocks a tier of drafts without sending anything"
   await stuck
     .waitFor({ state: "detached", timeout: 10000 })
     .catch(async () => {
-      const screen = await page.evaluate(
-        () => (document.querySelector("main") as HTMLElement).innerText,
+      const screen = await page.evaluate(() => document.body.innerText);
+      const at = screen.toLowerCase().indexOf("duplicat");
+      const around =
+        at < 0 ? screen.slice(0, 1200) : screen.slice(Math.max(0, at - 700), at + 700);
+      throw new Error(
+        `Import dialog still open: ${around.replace(/\s+/g, " ")}`,
       );
-      throw new Error(`Import dialog still open: ${screen.slice(0, 3000)}`);
     });
 
   // A brand-new lead cannot be drafted until a person records a contact review.
