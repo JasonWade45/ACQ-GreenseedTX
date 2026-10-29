@@ -157,7 +157,9 @@ jobs:
       # The suite builds the interface, starts a throwaway server with a synthetic
       # database and a random password, and tears it down afterwards.
       - name: Run the browser suite
-        run: python scripts/test_browser.py
+        run: |
+          set -o pipefail
+          python scripts/test_browser.py 2>&1 | tee docs/browser-log.txt
       # The console log is not always reachable from a phone, so the failing test name
       # and message are also raised as annotations on the run.
       - name: Name the browser test that failed
@@ -200,6 +202,18 @@ jobs:
                       continue
                   text = " ".join((child.text or "").split())
                   print(f"::warning title=Browser test {child.tag}::{case.get('name', '')} - {text[:300]}")
+          def note(title, body):
+              safe = body.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print(f"::warning title={title}::{safe[:5500]}")
+
+          log = pathlib.Path("docs/browser-log.txt")
+          if log.exists():
+              print("log lines:", len(log.read_text(errors="replace").splitlines()))
+              note("Browser console tail", log.read_text(errors="replace")[-5000:])
+          cases = [case.get("name", "") for case in root.iter("testcase")]
+          print("cases:", len(cases))
+          note("Browser cases", " | ".join(cases))
+          note("Browser report head", " ".join(path.read_text(errors="replace").split())[:2500])
           if failed:
               print(f"{failed} browser test(s) failed")
           else:
