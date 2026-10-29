@@ -20,6 +20,14 @@ ALLOWED = {
     "RESIMPLI_MODE",
     "RESIMPLI_ADAPTER_PATH",
     "RESIMPLI_ADAPTER_VERIFIED",
+    # xAI Grok (distinct from GROQ_* above). The key is the only secret here.
+    "GROK_API_KEY",
+    "GROK_ENABLED",
+    "GROK_API",
+    "GROK_FOLLOWUP_MODEL",
+    "GROK_CHECKLIST_MODEL",
+    "GROK_ADVISOR_MODEL",
+    "GROK_DAILY_REQUEST_LIMIT",
     # Opener identity for every draft path (not a secret, but it is process config).
     "SENDER_NAME",
     "COMPANY_NAME",
@@ -135,4 +143,5 @@ def environment_overrides():
         "resimpli": any(
             name in os.environ for name in ("RESIMPLI_API_KEY", "RESIMPLI_MODE", "RESIMPLI_ADAPTER_VERIFIED")
         ),
+        "grok": any(name in os.environ for name in ("GROK_API_KEY", "GROK_ENABLED", "GROK_ADVISOR_MODEL")),
     }

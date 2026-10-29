@@ -91,6 +91,24 @@ class Settings(BaseSettings):
     groq_model: str = "openai/gpt-oss-20b"
     groq_daily_request_limit: int = Field(default=30, ge=1, le=500)
     groq_max_output_tokens: int = Field(default=3000, ge=512, le=4096)
+    # xAI Grok (a different vendor from Groq above). The key is read from GROK_API_KEY and
+    # is never returned, logged or audited. Every model is a setting so a model change is
+    # a configuration change, not a code change.
+    grok_enabled: bool = False
+    grok_api_key: str = Field(default="", repr=False)
+    grok_api: str = "responses"
+    grok_followup_model: str = "grok-4.3"
+    grok_checklist_model: str = "grok-4.3"
+    grok_advisor_model: str = "grok-4.3"
+    grok_daily_request_limit: int = Field(default=20, ge=1, le=500)
+    grok_max_output_tokens: int = Field(default=1200, ge=256, le=8192)
+    grok_timeout_seconds: int = Field(default=45, ge=5, le=180)
+    # Which lead fields may be sent. A comma-separated subset of services.ai_grok.AI_FIELDS.
+    grok_ai_fields: str = "property_address,property_facts,lead_type,priority,equity,flags,contact_history"
+    # Used only for the Settings cost estimate: tokens per call and calls per day.
+    grok_expected_tokens_in: int = Field(default=1200, ge=1)
+    grok_expected_tokens_out: int = Field(default=500, ge=1)
+    grok_expected_daily_calls: int = Field(default=10, ge=0, le=500)
     max_upload_mb: int = 25
     max_import_rows: int = 50000
     backup_enabled: bool = True
@@ -136,6 +154,13 @@ class Settings(BaseSettings):
     @classmethod
     def valid_timezone(cls, value):
         ZoneInfo(value)
+        return value
+
+    @field_validator("grok_api")
+    @classmethod
+    def grok_surface(cls, value):
+        if value not in {"responses", "chat_completions"}:
+            raise ValueError("Use responses or chat_completions")
         return value
 
     @field_validator("resimpli_mode")
