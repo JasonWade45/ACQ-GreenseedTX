@@ -22,6 +22,11 @@ READ_PATHS = frozenset(
         "/appointmentList",
         "/getPipelineList",
         "/getUserInfo",
+        # Account lists served to the Settings screen so the four CRM push
+        # defaults can be picked without leaving the app. Both are documented
+        # read-only REsimpli reads; nothing here writes.
+        "/marketingCampaignList",
+        "/marketList",
     }
 )
 

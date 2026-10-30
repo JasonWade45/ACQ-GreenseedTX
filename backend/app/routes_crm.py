@@ -179,17 +179,49 @@ def push_accounts(db: DB):
     client = _reader(settings)
     try:
         result = {}
-        for name, path in (
-            ("marketing_campaigns", "/marketingCampaignList"),
-            ("markets", "/marketList"),
-            ("pipelines", "/getPipelineList"),
-        ):
-            try:
-                data = client.request(path, {})
-            except IntegrationError as error:
-                result[name] = {"error": str(error), "options": []}
-                continue
-            result[name] = {"error": None, "options": _records(data)[:200]}
+        # marketingCampaignList and getPipelineList require a typed parameter.
+        # Campaign Type 1-5 and Module Type 1-7 are REsimpli's own enums; module
+        # 1 is the seller-side "Active Leads" pipeline the push creates into.
+        try:
+            campaigns = []
+            for campaign_type in (1, 2, 3, 4, 5):
+                data = client.request("/marketingCampaignList", {"campaignType": campaign_type})
+                for item in _records(data):
+                    if isinstance(item, dict):
+                        item = {**item, "campaignType": campaign_type}
+                    campaigns.append(item)
+            result["marketing_campaigns"] = {"error": None, "options": campaigns[:200]}
+        except IntegrationError as error:
+            result["marketing_campaigns"] = {"error": str(error), "options": []}
+        try:
+            data = client.request("/getPipelineList", {"moduleType": 1})
+            pipelines = _records(data)
+            result["pipelines"] = {"error": None, "options": pipelines[:50]}
+            # main_status_id has no list endpoint of its own; each pipeline
+            # carries its statuses. Surface them so Settings can offer picks.
+            statuses = []
+            for pipeline in pipelines:
+                if not isinstance(pipeline, dict):
+                    continue
+                for status in pipeline.get("mainStatusList") or []:
+                    if isinstance(status, dict) and status.get("_id"):
+                        statuses.append(
+                            {
+                                "_id": status["_id"],
+                                "title": status.get("title"),
+                                "pipeline_id": pipeline.get("_id"),
+                                "pipeline": pipeline.get("title"),
+                            }
+                        )
+            result["main_statuses"] = {"error": None, "options": statuses[:200]}
+        except IntegrationError as error:
+            result["pipelines"] = {"error": str(error), "options": []}
+            result["main_statuses"] = {"error": str(error), "options": []}
+        try:
+            data = client.request("/marketList", {})
+            result["markets"] = {"error": None, "options": _records(data)[:200]}
+        except IntegrationError as error:
+            result["markets"] = {"error": str(error), "options": []}
     finally:
         client.close()
     return {

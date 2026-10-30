@@ -1,3 +1,20 @@
+import os
+
+# Must run before any app import: get_settings() is lru_cached, and app.main
+# constructs it at import time. Setting these here makes pydantic-settings read
+# our values (environment beats the env file) before anything caches.
+# The person running the suite on their own machine has a real .env with a workspace
+# password and API keys, so route tests would hit 401s and enabled-AI paths instead
+# of the responses they assert on (the CI box has no .env, which is why it is green).
+# This forces the same passwordless, cloud-off loopback mode CI runs in -- unless
+# the caller set these variables deliberately.
+os.environ.setdefault("APP_ACCESS_PASSWORD", "")
+os.environ.setdefault("GROQ_API_KEY", "")
+os.environ.setdefault("GROK_API_KEY", "")
+# Same reasoning as above: a local .env enables the live/verified sync mode, which
+# changes code paths the suite asserts against in the CI default ("disabled").
+os.environ.setdefault("RESIMPLI_MODE", "disabled")
+
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker

@@ -79,6 +79,8 @@ def test_no_route_can_send_a_message_or_write_to_the_crm():
         if path.startswith("/api/"):
             assert "resimpli" not in path or "integrations" in path or "sync" in path, path
     # REsimpli stays an explicit read allow-list, plus exactly one write.
+    # The two account lists feed the Settings screen's push defaults; both are
+    # documented read-only REsimpli reads added deliberately, never implicitly.
     assert READ_PATHS == frozenset(
         {
             "/lead/list",
@@ -88,6 +90,8 @@ def test_no_route_can_send_a_message_or_write_to_the_crm():
             "/appointmentList",
             "/getPipelineList",
             "/getUserInfo",
+            "/marketingCampaignList",
+            "/marketList",
         }
     )
     assert WRITE_PATHS == frozenset({"/lead/add"})

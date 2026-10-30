@@ -35,6 +35,8 @@ def test_env_write_preserves_keys_the_user_added(tmp_path):
 
 
 def test_env_file_is_private_on_posix(tmp_path):
+    if sys.platform.startswith("win"):
+        pytest.skip("POSIX file-permission bits do not exist on Windows")
     path = tmp_path / ".env"
     desktop.write_env(path, {"APP_ACCESS_PASSWORD": "Acq-abcdefghijklmnop"})
     assert path.stat().st_mode & 0o077 == 0

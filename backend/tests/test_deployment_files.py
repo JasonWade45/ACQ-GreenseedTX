@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,14 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 BASH = shutil.which("bash")
 
-pytestmark = pytest.mark.skipif(BASH is None, reason="bash is not installed here")
+# These scripts exist to bring the app up on a Linux host (systemd/caddy and a
+# real shell). On Windows, the "bash" found on PATH is normally the WSL stub
+# that prints store-install instructions and exits -- not a shell that can run
+# or parse them, so they can only be exercised on Linux/CI.
+pytestmark = pytest.mark.skipif(
+    BASH is None or sys.platform.startswith("win"),
+    reason="the Linux deployment scripts are executed on a Linux host; the Windows bash stub cannot parse them",
+)
 
 
 def run(args, stdin_file: Path | None = None):

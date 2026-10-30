@@ -208,6 +208,20 @@ def _mapping(db, lead_id):
     return db.scalar(select(CrmPush).where(CrmPush.lead_id == lead_id))
 
 
+def _flat_address(*parts):
+    """One normalized token for an address, whatever shape it arrived in.
+
+    The CRM returns the whole address as a single line on list endpoints; the local
+    store keeps street, city, state and ZIP as separate columns. Comparing the pipe
+    key against the flat string always lost. Flattening both into one token makes the
+    two shapes comparable and still ignores formatting noise (punctuation, casing,
+    # signs are kept so apartment numbers stay distinctive).
+    """
+    text = " ".join(str(part) for part in parts if part)
+    flat = re.sub(r"[^a-z0-9#]", "", text.lower())
+    return flat or ""
+
+
 def _matches(mapped, phones, key):
     """Compare one mapped CRM record with the local lead on phone digits and address."""
     found = []
@@ -225,6 +239,16 @@ def _matches(mapped, phones, key):
         mapped.get("street_address"), mapped.get("city"), mapped.get("state"), mapped.get("zip_code")
     )
     if key and remote_key and (key == remote_key or key.startswith(remote_key) or remote_key.startswith(key)):
+        found.append((mapped, "address"))
+        return found
+    # Same property seen in the CRM's single-line form against the local split form.
+    flat_local = key.replace("|", "") if key else ""
+    flat_remote = _flat_address(
+        mapped.get("street_address"), mapped.get("city"), mapped.get("state"), mapped.get("zip_code")
+    )
+    if flat_local and flat_remote and (
+        flat_remote.startswith(flat_local) or flat_local.startswith(flat_remote)
+    ):
         found.append((mapped, "address"))
     return found
 
@@ -389,6 +413,17 @@ def execute_push(db: Session, lead, *, reader, writer, confirmation=None, note=N
         mapping.state = "failed"
         mapping.blocked_reason = exc.code
         mapping.last_error = str(exc)[:2000]
+        # REsimpli enforces its own dedupe: "Address is already associated with other
+        # property" means the record already exists there and nothing was created.
+        # Surface that as a resolvable situation, not an error pile-up.
+        if "already associated" in str(exc).lower():
+            mapping.state = "blocked"
+            mapping.blocked_reason = "address_exists_in_crm"
+            mapping.last_error = (
+                "REsimpli refused the create because this property already exists in the CRM; nothing "
+                "was created twice. Find the existing lead in REsimpli and use Link to connect it."
+            )
+            outcome.message = mapping.last_error
         if plan.note and plan.note_hash:
             _queue_note(db, lead, plan.note, plan.note_hash, state="blocked", reason=str(exc)[:500])
         _audit(
@@ -398,8 +433,12 @@ def execute_push(db: Session, lead, *, reader, writer, confirmation=None, note=N
             {"code": exc.code, "payload_hash": plan.payload_hash, "attempts": mapping.attempts},
         )
         db.commit()
-        outcome.state = "failed" if exc.code != "outcome_unknown" else "outcome_unknown"
-        outcome.reason, outcome.message = exc.code, str(exc)
+        if "already associated" in str(exc).lower():
+            outcome.state = "blocked"
+            outcome.reason = "address_exists_in_crm"
+        else:
+            outcome.state = "failed" if exc.code != "outcome_unknown" else "outcome_unknown"
+            outcome.reason, outcome.message = exc.code, str(exc)
         outcome.payload_hash, outcome.attempts = plan.payload_hash, mapping.attempts
         return outcome
 

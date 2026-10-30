@@ -5,6 +5,7 @@ calls an AI/CRM, and never automatically resolves uncertain person matches.
 """
 
 from copy import deepcopy
+from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -66,7 +67,11 @@ def _date(value):
 
 
 def _read(path):
-    with sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True) as db:
+    # closing(): the sqlite3 connection context manager only commits or rolls
+    # back -- it never closes the file. On Windows an unclosed handle makes the
+    # later snapshot.unlink() fail with "used by another process", and on every
+    # platform it leaks file descriptors.
+    with closing(sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)) as db:
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA trusted_schema=OFF")
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -259,7 +264,9 @@ def _prepare_merge(db, source_path, storage_dir=None):
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     job_id = str(uuid4())
     snapshot = folder / (job_id + "-source.db")
-    with sqlite3.connect(source.as_uri() + "?mode=ro", uri=True) as src, sqlite3.connect(snapshot) as dst:
+    with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as src, closing(
+        sqlite3.connect(snapshot)
+    ) as dst:
         src.backup(dst)
     snapshot.chmod(0o600)
     try:
@@ -280,8 +287,8 @@ def _prepare_merge(db, source_path, storage_dir=None):
     if destination and destination != ":memory:" and Path(destination).exists():
         backup = folder / (job_id + "-target-before.db")
         with (
-            sqlite3.connect(Path(destination).resolve().as_uri() + "?mode=ro", uri=True) as src,
-            sqlite3.connect(backup) as dst,
+            closing(sqlite3.connect(Path(destination).resolve().as_uri() + "?mode=ro", uri=True)) as src,
+            closing(sqlite3.connect(backup)) as dst,
         ):
             src.backup(dst)
         backup.chmod(0o600)

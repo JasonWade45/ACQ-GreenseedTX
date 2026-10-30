@@ -187,25 +187,52 @@ class InstanceLock:
 
     Two copies would fight over one SQLite file and one port, so the second one
     opens the window that already exists instead of starting a second server.
+
+    Platform note: a Windows byte-region lock denies every other handle access
+    to the file itself, including reading it -- and the pid inside the lock file
+    is exactly what a person or the support screen may want to read. So on
+    Windows the hold lives on a sidecar ``<name>.lock`` stays readable, and the
+    lock lives on ``<name>.lock.hold``. POSIX flocks keep the pid file readable,
+    so there the lock stays on the same file.
     """
 
     def __init__(self, path: Path):
         self.path = Path(path)
         self._handle = None
+        self._hold = None
+
+    def _hold_path(self) -> Path:
+        suffix = self.path.suffix
+        return self.path.with_suffix(suffix + ".hold")
 
     def acquire(self) -> bool:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        handle = open(self.path, "a+", encoding="utf-8")
-        try:
-            if os.name == "nt":
+        if os.name == "nt":
+            hold = open(self._hold_path(), "a+", encoding="utf-8")
+            try:
                 import msvcrt
 
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
+                hold.seek(0)
+                msvcrt.locking(hold.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                hold.close()
+                return False
+            pid = open(self.path, "w", encoding="utf-8")
+            try:
+                pid.write(f"{os.getpid()}\n")
+                pid.flush()
+            except OSError:
+                hold.close()
+                pid.close()
+                return False
+            self._hold = hold
+            self._handle = pid
+            return True
+        handle = open(self.path, "a+", encoding="utf-8")
+        try:
+            import fcntl
 
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             handle.close()
             return False
@@ -218,15 +245,21 @@ class InstanceLock:
 
     def release(self) -> None:
         handle, self._handle = self._handle, None
+        hold, self._hold = self._hold, None
+        if hold is not None:
+            try:
+                import msvcrt
+
+                hold.seek(0)
+                msvcrt.locking(hold.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+            finally:
+                hold.close()
         if handle is None:
             return
         try:
-            if os.name == "nt":
-                import msvcrt
-
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
+            if os.name != "nt":
                 import fcntl
 
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

@@ -194,6 +194,30 @@ def test_the_address_alone_can_match(configured, make_lead):
     assert outcome.plan.matches[0]["matched_on"] == "address"
 
 
+def test_the_crm_single_line_address_matches_the_split_local_shape(configured, make_lead):
+    """REsimpli list records carry the whole address as one line, so the pipe-key
+    comparison lost and the create was refused by the CRM instead (observed live:
+    "Address is already associated with other property")."""
+    lead = make_lead(phone="+12025550199")
+    crm = Crm(existing=[{"id": "crm-1line", "name": "Owner", "phone": "5125550143", "address": "12 Example St, Austin, TX 78701"}])
+    outcome = crm_push.execute_push(
+        configured, lead, reader=crm.reader(), writer=crm.writer(), confirmation="PUSH TO CRM", settings=app_settings()
+    )
+    assert outcome.reason == "exists_in_crm"
+    assert outcome.plan.matches[0]["matched_on"] == "address"
+
+
+def test_the_crm_refusing_the_create_because_the_address_exists_is_blocked_clearly(configured, make_lead):
+    lead = make_lead(phone="+12025550199")
+    crm = Crm(write_responses=[httpx.Response(400, json={"ok": False, "message": "Address is already associated with other property."})])
+    outcome = crm_push.execute_push(
+        configured, lead, reader=crm.reader(), writer=crm.writer(), confirmation="PUSH TO CRM", settings=app_settings()
+    )
+    assert outcome.state == "blocked"
+    assert outcome.reason == "address_exists_in_crm"
+    assert "already exists in the CRM" in outcome.message
+
+
 def test_a_failed_search_blocks_the_push_instead_of_guessing(configured, make_lead):
     lead = make_lead()
     crm = Crm(search_status=400)

@@ -212,7 +212,14 @@ def test_a_missing_backup_stops_before_any_file_changes(tmp_path, monkeypatch):
 
 
 def test_the_remembered_folder_is_reused(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    # On Windows the registry lives under %LOCALAPPDATA%; on POSIX under
+    # XDG_STATE_HOME (scripts/update_acq.py registry_file). Point the platform's
+    # real location at the temporary folder so the test is hermetic everywhere.
+    registry_base = tmp_path / "state"
+    if os.name == "nt":
+        monkeypatch.setenv("LOCALAPPDATA", str(registry_base))
+    else:
+        monkeypatch.setenv("XDG_STATE_HOME", str(registry_base))
     old = make_install(tmp_path)
 
     assert updater.recorded_install() is None
