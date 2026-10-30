@@ -1,12 +1,8 @@
 {
-  "_readme": [
-    "Copy ONLY the leads.fields object below over the leads.fields object in your existing adapter file.",
-    "Leave every other block (success_path, activities, calls, appointments, pipelines) exactly as it is: those were verified against your account and already worked.",
-    "Why: contactData.0.phoneNumbers.0.number does not exist. The key is phoneNumber. A wrong JSON path returns nothing WITHOUT raising, so a typo looks exactly like 'the seller has no phone'.",
-    "After editing, run from the install folder: .venv\\Scripts\\python.exe scripts\\manage.py adapter-check",
-    "It prints, per field, how many sampled leads filled in. Any field at 0/5 is a wrong path, not missing CRM data."
-  ],
+  "description": "GreenSeedTX live REsimpli adapter (seller module). Lead fields follow the account's observed contactData.0 shape; activity/call/appointment blocks are present for sync but intentionally empty until verified.",
   "leads": {
+    "list_path": "data.items",
+    "detail_path": "data",
     "fields": {
       "external_id": "_id",
       "full_name": "contactData.0.fullName",
@@ -24,8 +20,24 @@
       "notes": "crmQuestionTitle"
     }
   },
+  "activities": {
+    "list_path": "data.items",
+    "fields": {}
+  },
+  "calls": {
+    "list_path": "data.items",
+    "fields": {}
+  },
+  "appointments": {
+    "list_path": "data.items",
+    "fields": {}
+  },
+  "pipelines": {
+    "list_path": "data.items",
+    "fields": {}
+  },
   "contact_outcomes": {
-    "completed": "Connected",
-    "no-answer": "No Answer"
+    "connected": "Connected",
+    "no_answer": "No Answer"
   }
 }
