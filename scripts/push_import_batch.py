@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 from app import models  # noqa: F401
 from app.config import get_settings
 from app.db import SessionLocal
-from app.models import Lead
+from app.models import CrmPush, Lead
 from app.services import crm_push
 from app.services.resimpli import ResimpliClient
 from app.services.resimpli_write import ResimpliWriter
@@ -61,6 +61,10 @@ def main():
     try:
         for index, lead in enumerate(leads, start=1):
             try:
+                mapping = db.query(CrmPush).filter(CrmPush.lead_id == lead.id).one_or_none()
+                if mapping is not None and mapping.state == "pushed":
+                    counts["already"] += 1
+                    continue
                 outcome = crm_push.execute_push(
                     db,
                     lead,

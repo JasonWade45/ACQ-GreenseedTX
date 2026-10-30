@@ -271,6 +271,8 @@ def build_lead_payload(lead, defaults, comment=None):
     }
     if property_type == "land":
         body["apn"] = apn
+    if getattr(lead, "county", None):
+        body["county"] = str(lead.county).strip()
     if comment:
         body["comment"] = comment
     payload = {"body": body, "warnings": warnings, "phone_count": len(phones)}
