@@ -97,3 +97,11 @@
 
 ### تنبيه أمني
 كلمة سر Neon القديمة ظهرت في الشات. اعمل Reset من Neon → Roles → `neondb_owner`، وحدّث `DATABASE_URL` في HF Space → Settings → Variables and secrets.
+
+### Lead brief (2026-10-30)
+كل ليد — قديم أو جديد — له Brief في Notes:
+- ملخص سريع (النوع، equity، priority، الحالة).
+- خمسة أسئلة Lead Manager: motivation، asking price، condition، closing timeline، هل المالك الوحيد على الـ deed.
+- Playbook حسب النوع: Code Violation، Foreclosure، Inheritance/Probate، Tax Lien، Divorce، Lis Pendens، Tax Deed، HOA Lien، General.
+- الـ Brief بيتحط كـ `comment` عند إنشاء ليد جديد في REsimpli. الليدز اللي اتعملت قبل التحديث مينفعش يتضاف لها note من API (v6 ماعندهوش note endpoint)، لكن الـ brief موجود في تبويب Notes داخل التطبيق.
+- تم عمل backfill لـ 1,226 ليد.
