@@ -26,6 +26,8 @@ import {
   Sparkles,
   Upload,
   Users,
+  Workflow,
+  Target,
   X,
 } from "lucide-react";
 import { api, post, sessionKey } from "./api";
@@ -46,6 +48,8 @@ import {
   SettingsPage,
 } from "./pages/OperationsPages";
 import { BriefingPage } from "./pages/BriefingPage";
+import { AutomationPage } from "./pages/AutomationPage";
+import { AssignmentPage } from "./pages/AssignmentPage";
 const DraftsPage = lazy(() => import("./pages/DraftsPage"));
 const TemplatesPage = lazy(() => import("./pages/TemplatesPage"));
 const SkipTracePage = lazy(() => import("./pages/SkipTracePage"));
@@ -64,6 +68,8 @@ const navigation = [
   { label: "AI Insights", path: "/insights", icon: Sparkles },
   { label: "Sync Status", path: "/sync", icon: CloudDownload },
   { label: "CRM & AI", path: "/crm", icon: Bot },
+  { label: "Automation", path: "/automation", icon: Workflow },
+  { label: "Assignments", path: "/assignment", icon: Target },
   { label: "Settings", path: "/settings", icon: Settings2 },
   { label: "Draft Queue", path: "/drafts", icon: MessageSquareText },
   { label: "Templates", path: "/templates", icon: FileText },
@@ -458,6 +464,8 @@ function Workspace({ onLogout }: { onLogout?: () => void }) {
               <Route path="/insights" element={<InsightsPage />} />
               <Route path="/sync" element={<SyncPage />} />
               <Route path="/crm" element={<CrmQueuePage />} />
+              <Route path="/automation" element={<AutomationPage />} />
+              <Route path="/assignment" element={<AssignmentPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/drafts" element={<DraftsPage />} />
               <Route path="/templates" element={<TemplatesPage />} />

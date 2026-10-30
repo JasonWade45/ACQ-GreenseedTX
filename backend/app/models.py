@@ -86,6 +86,10 @@ class Lead(Base):
     followups: Mapped[list["Followup"]] = relationship(back_populates="lead", cascade="all, delete-orphan")
     __table_args__ = (CheckConstraint("contact_status IN ('unknown','not_contacted','attempted','contacted')"),)
 
+    tags: Mapped[list["LeadTag"]] = relationship(
+        "LeadTag", cascade="all, delete-orphan", lazy="selectin", order_by="LeadTag.tag"
+    )
+
     @property
     def do_not_contact(self):
         return self.source_do_not_contact is True or self.local_do_not_contact
@@ -630,6 +634,110 @@ class GrokRun(Base):
         CheckConstraint("state IN ('succeeded','failed','invalid','blocked')"),
         CheckConstraint("api IN ('responses','chat_completions')"),
     )
+
+
+class CallLog(Base):
+    """One manually recorded call outcome.
+
+    This is a local record of a conversation that already happened. Nothing here
+    dials, sends or schedules a call by itself; the suggested follow-up is a task a
+    person can accept, edit or cancel on the lead profile.
+    """
+
+    __tablename__ = "call_logs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    outcome: Mapped[str] = mapped_column(String(40), index=True)
+    direction: Mapped[str] = mapped_column(String(20), default="outbound")
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    next_step: Mapped[Optional[str]] = mapped_column(Text)
+    occurred_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    followup_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("followups.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    __table_args__ = (
+        CheckConstraint(
+            "outcome IN ('connected','interested','wants_offer','no_answer','voicemail',"
+            "'callback','not_interested','dnc','wrong_number')"
+        ),
+        CheckConstraint("direction IN ('outbound','inbound')"),
+        CheckConstraint("duration_seconds IS NULL OR duration_seconds >= 0"),
+    )
+
+
+class LeadTag(Base):
+    """A local label. Tags never leave the machine unless the operator exports them."""
+
+    __tablename__ = "lead_tags"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    tag: Mapped[str] = mapped_column(String(60), index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    __table_args__ = (UniqueConstraint("lead_id", "tag", name="uq_lead_tag"),)
+
+
+class AssignmentRule(Base):
+    """A reviewed state/city rule that fills ``leads.assigned_manager``.
+
+    It never changes a stage, a restriction or contact permission: it only answers
+    "whose desk does this lead belong on".
+    """
+
+    __tablename__ = "assignment_rules"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    priority: Mapped[int] = mapped_column(Integer, default=100, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_fallback: Mapped[bool] = mapped_column(Boolean, default=False)
+    state: Mapped[Optional[str]] = mapped_column(String(2), index=True)
+    city: Mapped[Optional[str]] = mapped_column(String(120), index=True)
+    target_assignee: Mapped[str] = mapped_column(String(120))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+    __table_args__ = (
+        CheckConstraint(
+            "(is_fallback AND state IS NULL AND city IS NULL) OR "
+            "(NOT is_fallback AND (state IS NOT NULL OR city IS NOT NULL))"
+        ),
+    )
+
+
+class AutomationRule(Base):
+    """A local rule that creates follow-ups or labels; it never contacts a seller."""
+
+    __tablename__ = "automation_rules"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    rule_type: Mapped[str] = mapped_column(String(30), index=True)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    last_run_result: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+    __table_args__ = (
+        CheckConstraint("rule_type IN ('stale_lead','hot_lead','dead_lead')"),
+    )
+
+
+class AutomationLog(Base):
+    __tablename__ = "automation_logs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rule_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("automation_rules.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    rule_name: Mapped[str] = mapped_column(String(120))
+    records_affected: Mapped[int] = mapped_column(Integer, default=0)
+    result: Mapped[str] = mapped_column(String(20), default="success", index=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    details: Mapped[list] = mapped_column(JSON, default=list)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    __table_args__ = (CheckConstraint("result IN ('success','failed','skipped')"),)
 
 
 class AiChecklistSuggestion(Base):

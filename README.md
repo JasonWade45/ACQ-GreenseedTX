@@ -1,6 +1,8 @@
-# Acquisitions Assistant AI · 1.5.0
+# Acquisitions Assistant AI · 1.6.0
 
 A working **local-first US residential seller-acquisitions workspace**: React/TypeScript, FastAPI and SQLite. REsimpli is the intended primary CRM. This is an actual database-backed app, not a frontend mockup.
+
+**New in 1.6.0 — the call desk and the local rules.** A lead profile now has a **Calls** tab that records an outcome that already happened, shows the next step it implies, and creates the follow-up locally; a **Live call script** built from the lead's own data (no model call, no invented numbers); **tags**; **state/city assignment rules**; and an **automation engine** that creates follow-ups, tags or a reviewed stage change. The same release fixes the stale "no CRM write" documentation: a reviewed **CRM Push** exists (create one lead, duplicate search first, typed `PUSH TO CRM`), is **off by default**, and never edits, deletes or changes a CRM status. It also adds a verified zero-cost, no-credit-card path: **Render Free + Neon** (see `docs/FREE_HOSTING_AR.md`).
 
 **New in 1.5.0 — a Data Syndicate list becomes work you can do.** Import the vendor's
 address-only export (heat, sale likelihood, equity, flags, compatible offers, recorded
@@ -11,13 +13,15 @@ from a 13-category template library with two variants each and a hard content va
 replies are classified with a confidence and a quoted reason, pause the cadence and stay
 suggestions until you confirm them. A daily briefing collects opt-outs first, then
 replies, drafts, skip traces, stalled leads, sync conflicts and the last backup — and the
-backup can now be mirrored to a second, verified folder. **No send control, no dialer,
-no automated seller contact and no CRM write exists**, and the route table is tested for
-it. See [the 1.5.0 release notes](docs/RELEASE_1_5.md).
+backup can now be mirrored to a second, verified folder. **No send control, no dialer and
+no automated seller contact exists.** The only CRM write is a reviewed, single-lead create
+that is off unless `CRM_WRITES_ENABLED=true`, searches the CRM for a duplicate first and
+requires a typed confirmation. See [the 1.5.0 release notes](docs/RELEASE_1_5.md) and
+[the 1.6.0 release notes](docs/RELEASE_1_6.md).
 
 **Retained from 1.1:** optional Groq analysis/organized notes/drafts with **redaction + your explicit approval before each request**, private backend key settings, a refreshed responsive interface, Ctrl+K search, page/card/modal/loading animation, reduced-motion support and easier native Windows start/update helpers.
 
-**An installed Windows program (since 1.3.1).** `ACQ-Setup-1.5.0.exe` installs **Acquisitions Assistant** like any other program: double-click, next, done. No Python, no PowerShell, no console window, no ZIP to unpack, no path to remember. It puts a shortcut on the Desktop and in the Start Menu, opens in its own window, keeps one copy running at a time, and stores your database, password and backups in `%LOCALAPPDATA%\AcquisitionsAssistant` so upgrading or uninstalling never touches them. Built and smoke-tested for free on GitHub's Windows runner before publishing — see [the Windows program guide](docs/WINDOWS_APP.md).
+**An installed Windows program (since 1.3.1).** `ACQ-Setup-1.6.0.exe` installs **Acquisitions Assistant** like any other program: double-click, next, done. No Python, no PowerShell, no console window, no ZIP to unpack, no path to remember. It puts a shortcut on the Desktop and in the Start Menu, opens in its own window, keeps one copy running at a time, and stores your database, password and backups in `%LOCALAPPDATA%\AcquisitionsAssistant` so upgrading or uninstalling never touches them. Built and smoke-tested for free on GitHub's Windows runner before publishing — see [the Windows program guide](docs/WINDOWS_APP.md).
 
 **New in 1.2.7–1.2.9:** a draft is now always possible — **follow-up** built from the last recorded conversation, or a first-contact **opener** when there is none — and every message ends with the fixed signature `Jason Wade / Acquisition Manager, GreenSeedTX LLC`, appended locally after validation. The property page gained a **sold comparables worksheet** (your own sold prices, `$/sq ft`, a median-based range; arithmetic, not an appraisal), with a one-field prompt for the subject's living area when the CRM never sent one — it fills an empty field only, never overwrites a source value. Sync now records the exact `mainStatusTitle` values your CRM sends, so **Settings → Pipeline & priorities** shows real statuses with a stage selector instead of guessing — for CRM syncs and CSV imports alike.
 
@@ -25,13 +29,13 @@ it. See [the 1.5.0 release notes](docs/RELEASE_1_5.md).
 
 > **BOTH workspaces have important data.** The GitHub `backend/acquisitions.db` (UUID schema) is not interchangeable with this app's `data/acquisitions.db` (integer/Alembic schema). Never replace one with the other. Stop both apps, update the **old delivered 1.1 root** with `legacy/windows/UPDATE-WINDOWS.cmd`, then run `legacy/windows/MERGE-WORKSPACES.cmd` there to prepare a local review. Start the app and review separate/link/skip decisions in **Import Center** before approving. Keep originals/backups; do not upload customer DBs to chat. [Full both-database workflow and exact limits](docs/UNIFIED_MERGE.md).
 
-**GitHub unified tree:** the original Next/UUID implementation remains available in the parent history at `f96bc3d25b4aea4def3e1122a2004c7bf56c04ad`. The active tree is the reviewed single-server unified application; its prebuilt UI is included. No company DB, source secrets, automatic cloud batch or unverified CRM-write mechanism is published. [Unification notes](docs/GITHUB_UNIFICATION.md).
+**GitHub unified tree:** the original Next/UUID implementation remains available in the parent history at `f96bc3d25b4aea4def3e1122a2004c7bf56c04ad`. The active tree is the reviewed single-server unified application; its prebuilt UI is included. No company DB, source secrets or automatic cloud batch is published; the only CRM write is the reviewed, off-by-default create-one-lead push described below. [Unification notes](docs/GITHUB_UNIFICATION.md).
 
 **Private database backups (1.2.1, archived helpers):** `legacy/windows/UPLOAD-DATABASES.cmd` and `legacy/windows/RESTORE-DATABASES.cmd` prepare encrypted, integrity-checked backups of both original company DBs and push only ciphertext to a separate PRIVATE repository. Everyday protection is now built in: a verified nightly copy in `data/backups/` plus list/create/download/delete from **Settings → Runtime & backups**. The password is never uploaded. Raw DBs, WAL files, `.env` files and keys must never be attached to the public repo or a chat. [Instructions](docs/PRIVATE_DATABASE_BACKUP.md).
 
-Current release verification: **392 backend passed + 2 explicit skips; 27 frontend unit passed; 20 browser tests** that drive the real interface against a throwaway database in GitHub Actions; `ruff`, `tsc -b` and the production build clean. The Docker image is built and smoke-tested in GitHub Actions on every push (it must refuse a weak password, answer 401 without a token and 200 after sign-in), and the release archive is rebuilt with its checksum. Every screen in the sidebar is opened on desktop and mobile by the browser suite, and the CI workflow now runs it on every push, so it can no longer rot unnoticed. These are synthetic/local checks, not verification of your real databases, vendor accounts or a native Windows runtime.
+Current release verification: **559 backend tests collected, 0 failed, 29 skipped; 49 frontend unit passed; `ruff`, `tsc -b` and the production build clean; a headless Chromium run of the merged screens produced no page or console errors.** The Docker image and the 20-test browser suite are built and run in GitHub Actions on every push (the image must refuse a weak password, answer 401 without a token and 200 after sign-in), and the release archive is rebuilt with its checksum. These are synthetic/local checks, not verification of your real databases, vendor accounts or a native Windows runtime.
 
-> **ABSOLUTELY NO SELLER COMMUNICATION.** No SMS, email, calls, dialer, send controls, hidden outreach jobs or automated seller contact exists. Drafts are review/edit/copy only. CRM sync is strictly read-only. External lead creation, record edits/deletes, notes/status writes and public-form automation remain disabled.
+> **ABSOLUTELY NO SELLER COMMUNICATION.** No SMS, email, calls, dialer, send controls, hidden outreach jobs or automated seller contact exists. Drafts are review/edit/copy only. CRM sync is read-only. A separate CRM **create-one-lead** push exists, is off by default, searches for duplicates first and never edits, deletes or changes a CRM status.
 
 Keys previously pasted into chat were **not copied into source, used against an account, put in the ZIP or configured in the preview**. Rotate exposed keys, then enter replacements locally in **Settings → Connections & AI**. Real Groq and REsimpli account access has not been verified here; provider requests were tested with synthetic mocks.
 
@@ -211,13 +215,20 @@ Saved scheduler settings in SQLite take precedence over initial environment defa
 
 Four total attempts are allowed only for appropriate transient read failures; auth errors do not retry. `Retry-After` over 120 seconds stops rather than retrying early. Repeated pages, malformed totals/records, max-page exhaustion and resource failures are visible. Partial per-record commits are retained and re-reconciled by stable ID. Absence never deletes a record. Last attempt is separate from last **complete success**; failed/partial runs do not fake freshness. Full reconciliation can exceed 30 minutes on large accounts under vendor limits; freshness/capacity are not guaranteed without measurement.
 
-### External creation / public links
+### Reviewed CRM lead creation (opt-in, create-only)
 
-**No CRM write is operational**, including `/lead/add`, edits/deletes or status/note changes. New seller creation requires further verified supported implementation, exact account IDs/fields, downstream automation safety, explicit selected approval, creation confirmation and uncertain-timeout reconciliation—not blind retries. There is no hidden enable-write switch.
+The CRM stays **read-only for sync**. A separate push can **create one seller lead** at a time:
+
+- `CRM_WRITES_ENABLED=false` by default; a request is refused before any network call while it is false.
+- The account IDs (marketing campaign, market, pipeline, main status) are loaded from REsimpli in **Settings → CRM & AI** and saved locally.
+- **Preview** calls `/lead/list` by phone and address first; a plausible match blocks the push and records a conflict instead of creating a duplicate.
+- The write allowlist is exactly `{"/lead/add"}`. There is no edit, delete, status-change or note endpoint in REsimpli v6 Open API; notes are stored in a local outbox.
+- A single push requires typing `PUSH TO CRM`; a batch uses the same confirmation. A dry run writes nothing.
+- Every attempt, blocked reason and returned CRM id are stored in `crm_pushes` and `audit_log`.
 
 No company public lead URL was supplied/inspected. It is not assumed to be an API, auth-free, bulk-suitable or automatable; no access-control/CAPTCHA bypass is implemented.
 
-For now, use local import plus the reviewed **manual seller CSV handoff**. An authorized operator must use the company's approved REsimpli Leads import/mapping workflow/support and verify creation. The app does not upload/email the CSV; external status stays pending. [Official seller migration guidance](https://resimpli.com/blog/how-to-migrate-from-podio-to-resimpli-without-losing-data/) is a reference, not account verification. **List Stacking bulk upload is not represented as creating active seller leads.**
+Use the reviewed **manual seller CSV handoff** when you prefer the company's approved REsimpli import workflow. The app does not upload/email the CSV. [Official seller migration guidance](https://resimpli.com/blog/how-to-migrate-from-podio-to-resimpli-without-losing-data/) is a reference, not account verification.
 
 ## Screens and UI/UX
 
@@ -436,7 +447,7 @@ The browser runner uses a fresh temporary authenticated loopback DB and only fic
 - **Data limits:** one normalized primary phone/email, selected mapped CRM fields rather than every unknown payload/secondary-contact roster, no formal financial offer ledger or pre-import stage/revenue reconstruction. Source summaries are not full transcripts.
 - **Security/AI limits:** private plaintext local store, single-workspace auth, automatic redaction/quote checks not semantic/privacy certification, real account verification and human approval still necessary.
 
-**Exact next action:** extract this release into a new folder → run `START-ACQ.cmd` (Windows) or `./start-acq.sh` → open the printed address on your computer → create a backup from **Settings → Runtime & backups** before importing anything → import a reviewed seller CSV in **Import Center** and approve only explicit decisions. Configure rotated keys locally in **Settings → Connections & AI** if you need Groq or REsimpli. Keep seller communication and CRM writes disabled.
+**Exact next action:** extract this release into a new folder → run `START-ACQ.cmd` (Windows) or `./start-acq.sh` → open the printed address on your computer → create a backup from **Settings → Runtime & backups** before importing anything → import a reviewed seller CSV in **Import Center** and approve only explicit decisions. Configure rotated keys locally in **Settings → Connections & AI** if you need Groq or REsimpli. Keep seller communication off; enable `CRM_WRITES_ENABLED` only if you deliberately want the reviewed create-one-lead push.
 
 ## License
 

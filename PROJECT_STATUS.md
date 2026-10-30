@@ -1,8 +1,28 @@
-# Project status — Acquisitions Assistant AI 1.5.0
+# Project status — Acquisitions Assistant AI 1.6.0
 
-**Updated 2026-10-29.** Unified local-first seller-acquisitions application. **Release:
-`v1.5.0`** — see `docs/RELEASE_1_5.md`. Earlier releases (`v1.3.1`, `v1.2.9`, `v1.2.8`,
+**Updated 2026-10-30.** Unified local-first seller-acquisitions application. **Release:
+`v1.6.0`** — see `docs/RELEASE_1_6.md`. Earlier releases (`v1.5.0`, `v1.3.1`, `v1.2.9`, `v1.2.8`,
 `v1.2.3`, `v1.2.2`, `v1.2.1`) are retained unchanged; a published tag is never rewritten.
+
+## What is new in 1.6.0
+
+- **Call desk.** A lead profile has a **Calls** tab: record an outcome that already happened,
+  see the next step it implies, and create the local follow-up. Outcomes are deterministic;
+  a Do-Not-Contact outcome suppresses the phone locally and schedules nothing.
+- **Live call script.** A deterministic five-step script and objection handling built from the
+  lead's own property data. No model call and no invented ARV/repair numbers.
+- **Tags.** Local labels per lead, with an API and a profile panel; they never leave the machine
+  unless the operator exports them.
+- **Assignment rules.** State/city priority rules (with an optional fallback) fill
+  `leads.assigned_manager`. They never change a stage, restriction or contact permission.
+- **Automation engine.** Reviewed local rules (stale lead, warm lead, dead-lead archive) create
+  follow-ups, tags or a Dead stage change; every run is logged. No send, no dialer, no CRM write.
+- **CRM Push documented and verified.** The 1.5 tree already contained `crm_push.py`; the stale
+  "no CRM write" claims are replaced. Create-one-lead is off by default, searches for duplicates
+  first and never edits/deletes/changes a CRM status.
+- **Zero-cost, no-card deployment.** `render-free.yaml` + Neon PostgreSQL is the documented path;
+  the local Docker-free run and the merged screens were exercised here.
+- **Docs corrected:** test counts, version, CRM write boundary and the new screens.
 
 ## What the app is now
 
@@ -64,7 +84,7 @@
 - **The comparables range is never a dead end (1.2.8).** A property the CRM never gave a living
   area used to make the range impossible. `PATCH /api/leads/{id}/properties/{pid}` fills only an
   empty `square_feet`/`bedrooms`/`bathrooms`, is audited, and never replaces a source value.
-- **An installed Windows program (since 1.3.1).** `ACQ.exe` + `ACQ-Setup-1.5.0.exe` built by PyInstaller and
+- **An installed Windows program (since 1.3.1).** `ACQ.exe` + `ACQ-Setup-1.6.0.exe` built by PyInstaller and
   Inno Setup on a free GitHub Windows runner: no Python, no PowerShell, no console, a Desktop and
   Start Menu shortcut, one copy at a time, and a data folder (`%LOCALAPPDATA%\AcquisitionsAssistant`)
   that survives upgrade and uninstall. Running from source keeps the old layout and adopts an
@@ -74,23 +94,24 @@
   after a CRM sync — previously a local import left the table empty and looked like a broken sync.
 - Retained: conservative read-only REsimpli sync (stable IDs, pagination, bounded retries,
   truthful never/partial/failure/freshness) and optional, manually approved, redacted Groq
-  analysis. **No seller communication, no CRM writes, no automatic cloud batches.**
+  analysis. **No seller communication. CRM sync is read-only; the separate reviewed
+  create-one-lead push is off by default and never edits/deletes/changes status.**
 
 ## Current verification
 
 | Check | Result |
 |---|---|
-| Backend suite | **392 passed, 2 explicit live-account skips** |
-| Lint | `ruff check .` clean |
-| Frontend | **27 passed**, `tsc -b` + `vite build` clean |
-| Browser suite | **20 passed** in GitHub Actions: every sidebar screen on desktop and mobile, plus STOP → suppression, batch restriction review → tier drafts, and skip-trace apply |
-| Docker image | **built and run in GitHub Actions**: refuses a weak password, `/api/leads` 401 then 200 after login |
-| Release archive | `acq-1.5.0.zip`: 246 files, checksummed, extracted and booted from a path containing a space; comps routes, signature, built version and the packaged `frontend/dist` asserted from inside the ZIP |
-| Windows program | **built on the GitHub Windows runner and run before publishing**: `dist\ACQ.exe` and `dist\ACQ-Setup-1.5.0.exe`, `/api/health` answered from the packaged executable, interface served from inside it, database and `.env` created in the data folder, second copy stood down |
+| Backend suite | **559 collected, 0 failed, 29 skipped** |
+| Lint | `ruff check backend scripts` clean |
+| Frontend | **49 passed**, `tsc -b` + `vite build` clean |
+| Browser suite | **20 passed** in GitHub Actions; a local headless Chromium pass over the merged screens had no page/console errors |
+| Docker image | Dockerfile inspected; the local Docker daemon was not running, so the image was not rebuilt here. CI builds and smoke-tests it. |
+| Release archive | `acq-1.6.0.zip` to be rebuilt by the release job (version and schema bumped; `frontend/dist` rebuilt here) |
+| Windows program | built by the Windows release job; not rebuilt here |
 | Desktop program | `scripts/smoke_desktop_app.py`: first start creates password + database in the data folder, a second copy stands down, one seller imported through the API, restart reuses the password and keeps the seller |
-| Frozen layout | `scripts/test_frozen_layout.py`: bundle boots with `sys._MEIPASS`, migrations reach `i1j2k3l4m5n6`, interface served from the bundle, database written outside it |
+| Frozen layout | `scripts/test_frozen_layout.py`: bundle boots with `sys._MEIPASS`, migrations reach `k3l4m5n6o7p8`, interface served from the bundle, database written outside it |
 | Deploy scripts | `install.sh --help` works through a pipe, `--dry-run` complete, `--no-https` publishes the port without Caddy |
-| SQLite schema | 29 application tables, head `i1j2k3l4m5n6`, integrity `ok` |
+| SQLite schema | 34 application tables, head `k3l4m5n6o7p8`, integrity `ok` (verified on a temporary migrated database) |
 
 CI (`.github/workflows/ci.yml`) runs the five jobs above on every push and pull request;
 `scripts/check_references.py` additionally fails the build if a guide points at a file that
@@ -120,5 +141,5 @@ deployment target. Merging the two legacy databases is still documented in
 Extract the release → run `START-ACQ.cmd` (Windows) or `./start-acq.sh` → open the printed
 address → create a backup in **Settings → Runtime & backups** → import a reviewed CSV in
 **Import Center** and approve only explicit decisions. Configure rotated keys locally in
-**Settings → Connections & AI** if you need Groq or REsimpli. Keep seller communication and
-CRM writes disabled.
+**Settings → Connections & AI** if you need Groq or REsimpli. Keep seller communication off;
+enable `CRM_WRITES_ENABLED` only for the reviewed create-one-lead push.
