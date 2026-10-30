@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ClipboardCopy,
   Clock3,
+  MapPin,
   MessageSquareText,
   Phone,
   Search,
@@ -30,6 +31,23 @@ import {
 import type { FollowupWorkbench, FollowupWorkbenchItem } from "../types";
 
 const PAGE_SIZE = 30;
+const PLACEHOLDER_NAMES = new Set([
+  "owner",
+  "seller",
+  "homeowner",
+  "unknown",
+  "unknown owner",
+  "owner unknown",
+  "owner identity unknown",
+  "seller unknown",
+  "seller name not recorded",
+  "n a",
+  "na",
+  "none",
+  "null",
+  "not recorded",
+  "not available",
+]);
 
 type Filter = "all" | "ready" | "scheduled" | "restricted";
 
@@ -169,6 +187,8 @@ function FollowupCard({ item }: { item: FollowupWorkbenchItem }) {
   const [message, setMessage] = useState(() => createMessage(item));
   const [copied, setCopied] = useState<"phone" | "message" | "">("");
   const lead = item.lead;
+  const sellerName = getSellerName(lead);
+  const propertyAddress = getPropertyAddress(lead.properties[0]);
   const phone = lead.phones?.find((entry) => entry.is_primary)?.phone || lead.primary_phone || lead.phone2 || lead.phone3 || lead.phone4 || lead.phone5 || "";
   const eligible = canPrepare(item);
 
@@ -198,14 +218,27 @@ function FollowupCard({ item }: { item: FollowupWorkbenchItem }) {
   return (
     <article className={`followup-lead-card ${!eligible ? "blocked" : ""}`}>
       <header className="followup-lead-head">
-        <div className="followup-lead-title">
-          <div className="followup-avatar">{(lead.full_name || "?").slice(0, 1).toUpperCase()}</div>
-          <div>
-            <Link to={`/leads/${lead.id}`} className="followup-lead-name">{lead.full_name || "Owner identity unknown"}</Link>
-            <div className="followup-address">{lead.properties[0]?.street_address || "Property address not recorded"}{lead.properties[0]?.city ? ` · ${lead.properties[0].city}` : ""}{lead.properties[0]?.state ? `, ${lead.properties[0].state}` : ""}</div>
+        <div className="followup-identity-grid">
+          <div className="followup-identity-block followup-identity-seller">
+            <div className="followup-avatar">{sellerName?.slice(0, 1).toUpperCase() || "?"}</div>
+            <div className="followup-identity-copy">
+              <span className="followup-identity-label">SELLER</span>
+              <Link to={`/leads/${lead.id}`} className="followup-lead-name">
+                {sellerName || "Seller name not recorded"}
+              </Link>
+            </div>
+          </div>
+          <div className="followup-identity-block followup-identity-property">
+            <MapPin size={19} aria-hidden="true" />
+            <div className="followup-identity-copy">
+              <span className="followup-identity-label">PROPERTY ADDRESS</span>
+              <div className="followup-address">
+                {propertyAddress || "Property address not recorded"}
+              </div>
+            </div>
           </div>
         </div>
-        <div className="row wrap">
+        <div className="row wrap followup-status-badges">
           <StageBadge code={lead.stage_code} />
           <RestrictionBadge status={lead.restriction_status} />
           {item.sent_count > 0 && <Badge tone="green">{item.sent_count} logged touch{item.sent_count === 1 ? "" : "es"}</Badge>}
@@ -241,7 +274,7 @@ function FollowupCard({ item }: { item: FollowupWorkbenchItem }) {
       ) : (
         <section className="followup-message-section">
           <div className="followup-message-title"><div><div className="followup-section-label">SUGGESTED MESSAGE · EDIT BEFORE USE</div><span>{item.sent_count === 0 ? "First message: includes your name and role" : "Later touch: company included, your name omitted"}</span></div><Badge tone="purple">{item.last_activity ? "Context-aware draft" : "Starter draft"}</Badge></div>
-          <textarea aria-label={`Suggested follow-up message for ${lead.full_name}`} value={message} onChange={(event) => setMessage(event.target.value)} rows={7} />
+          <textarea aria-label={`Suggested follow-up message for ${sellerName || "seller"}`} value={message} onChange={(event) => setMessage(event.target.value)} rows={7} />
           <div className="followup-message-actions">
             <Button variant="secondary" disabled={!message.trim()} onClick={() => void copy(message, "message")}>
               {copied === "message" ? <Check size={16} /> : <ClipboardCopy size={16} />}
@@ -258,9 +291,10 @@ function FollowupCard({ item }: { item: FollowupWorkbenchItem }) {
   );
 }
 
-function createMessage(item: FollowupWorkbenchItem) {
+export function createMessage(item: FollowupWorkbenchItem) {
   const lead = item.lead;
-  const firstName = lead.first_name?.trim() || lead.full_name?.trim().split(/\s+/)[0] || "there";
+  const firstName = getSellerFirstName(lead) || "there";
+  const propertyAddress = getPropertyAddress(lead.properties[0]);
   const activity = item.last_activity;
   const opening = activity?.outcome === "Callback Requested"
     ? "You had asked me to follow up, so I wanted to check whether now is a good time to reconnect."
@@ -270,11 +304,43 @@ function createMessage(item: FollowupWorkbenchItem) {
         ? "Thanks for getting back to me. I wanted to follow up and see what would be most helpful for you."
         : activity?.activity_type === "call" && activity.outcome === "Connected"
           ? "I’m following up on our recent call. Do you have any questions I can help answer?"
-          : "I’m reaching out to see whether this is a good time to talk about the property.";
+          : "Would this be a good time to talk?";
   const introduction = item.sent_count === 0
     ? "I’m Jason Wade, the Acquisition Manager with GreenSeedTX LLC."
     : "I’m with GreenSeedTX LLC.";
-  return `Hi ${firstName},\n\n${introduction} ${opening}`;
+  const propertyReference = propertyAddress
+    ? `I’m following up about the property at ${propertyAddress}.`
+    : "I’m following up about your property.";
+  return `Hi ${firstName},\n\n${introduction} ${propertyReference} ${opening}`;
+}
+
+export function getSellerName(lead: FollowupWorkbenchItem["lead"]) {
+  const candidates = [
+    lead.full_name,
+    [lead.first_name, lead.last_name].filter(Boolean).join(" "),
+  ];
+  for (const candidate of candidates) {
+    const value = candidate?.replace(/\s+/g, " ").trim();
+    if (value && !isPlaceholderName(value)) return value;
+  }
+  return null;
+}
+
+function getSellerFirstName(lead: FollowupWorkbenchItem["lead"]) {
+  const firstName = lead.first_name?.replace(/\s+/g, " ").trim();
+  if (firstName && !isPlaceholderName(firstName)) return firstName;
+  return getSellerName(lead)?.split(/\s+/)[0] || null;
+}
+
+function isPlaceholderName(value: string) {
+  const normalized = value.toLowerCase().replace(/[._-]+/g, " ").trim();
+  return PLACEHOLDER_NAMES.has(normalized);
+}
+
+function getPropertyAddress(property: FollowupWorkbenchItem["lead"]["properties"][number] | undefined) {
+  if (!property) return null;
+  const locality = [property.city, property.state].filter(Boolean).join(", ");
+  return [property.street_address, locality, property.zip_code].filter(Boolean).join(", ") || null;
 }
 
 function canPrepare(item: FollowupWorkbenchItem) {
