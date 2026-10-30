@@ -134,6 +134,15 @@ def migrate():
 
 @asynccontextmanager
 async def lifespan(app):
+    # Route contract enforcement: refuse to boot on a duplicate or shadowed
+    # route registration so the mistake surfaces at launch instead of silently
+    # serving the wrong handler at request time (test_routes.py checks the
+    # same table during CI; this guards the process that actually serves it).
+    from .route_audit import route_problems
+
+    problems = route_problems(app)
+    if problems["duplicates"] or problems["shadowed"]:
+        raise RuntimeError(f"Route table problems: {problems}")
     settings = get_settings()
     if settings.app_host not in {"127.0.0.1", "localhost", "::1"} and len(settings.app_access_password) < 12:
         raise RuntimeError("Remote binding requires APP_ACCESS_PASSWORD of at least 12 characters")
