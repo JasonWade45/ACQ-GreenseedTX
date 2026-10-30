@@ -1,11 +1,12 @@
-# النشر على Hugging Face Spaces — مجاني وبدون كارت
+# النشر على Hugging Face Spaces — مجاني وبدون كارت (Gradio SDK)
 
-**البديل المعتمد بعد ما Render طلب كارت.** Hugging Face Spaces يشغّل Docker مجانًا
-(CPU Basic: 2 vCPU / 16 GB)، بلا كارت، والبيانات تبقى في Neon.
+**البديل المعتمد بعد ما Render طلب كارت، وبعد ما Docker Spaces ظهر عليها Paid في HF.**
+Hugging Face ما زال يوفّر **Gradio Spaces** مجانًا (CPU Basic)، و`app.py` في المشروع
+بيشغّل نفس FastAPI على المنفذ 7860 بدون أي واجهة Gradio. البيانات في Neon.
 
 > **أول حاجة — أمان:** رابط Neon اللي فيه كلمة السر اتكتب في الشات، فاعتبره مكشوفًا.
 > من Neon Console → المشروع → **Roles** → `neondb_owner` → **Reset password**،
-> وبعدها حدّث `DATABASE_URL` في أي منصة استخدمتها. لا تضع الرابط في الشات مرة تانية.
+> وبعدها حدّث `DATABASE_URL` في الـ Space. لا تضع الرابط في الشات مرة تانية.
 
 ---
 
@@ -14,39 +15,40 @@
 1. [huggingface.co/join](https://huggingface.co/join) — حساب بالإيميل أو GitHub، بلا كارت.
 2. بعد الدخول: **+ New → New Space**.
 3. املأ:
-   - **Owner:** اسم حسابك.
-   - **Space name:** `acq-assistant` (أو أي اسم).
+   - **Owner:** `jasonwade`.
+   - **Space name:** `acq-assistant`.
    - **License:** MIT.
-   - **Select the Space SDK:** **Docker** → **Blank**.
-   - **Space hardware:** `CPU basic · 2 vCPU · 16 GB · FREE`.
-   - **Make this Space public:** نعم (الـ private يحتاج PRO مدفوع).
+   - **Select the Space SDK:** **Gradio** (مش Docker — الـ Docker عليه Paid).
+   - **Gradio template:** **Blank**.
+   - **Space hardware:** **CPU basic · 2 vCPU · 16 GB · FREE** (لو مختار ZeroGPU بدّل لـ CPU Basic).
+   - **Storage Bucket:** None.
+   - **Visibility:** **Public** (Protected/Private يحتاجون PRO).
 4. **Create Space**.
 
 ## ٢) ارفع الكود
 
-من جهازك، داخل مجلد المشروع:
+من جهازك:
 
 ```powershell
 cd C:\Users\ATG\ACQ\_review\ACQ-GreenseedTX
 pwsh -File deploy\huggingface\publish.ps1 `
-  -SpaceUrl https://huggingface.co/spaces/<اسم-حسابك>/acq-assistant
+  -SpaceUrl https://huggingface.co/spaces/jasonwade/acq-assistant
 ```
 
-- أول مرة هيطلب منك **username** = اسم حساب HF، و**password** = توكن من
+- أول مرة هيطلب **username:** `jasonwade` و**password:** توكن من
   [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) بصلاحية **write**.
 - السكربت بيصدّر الملفات المسجّلة في git فقط (مش `.env` ولا `data/`)، ويستبدل
-  `README.md` بملف إعداد الـ Space، ثم يعمل push.
-- راقب تبويب **Logs** في الـ Space؛ البناء بياخد 3–6 دقايق.
+  `README.md` بإعداد الـ Space (`sdk: gradio`, `app_file: app.py`).
+- الـ Space هيبني ويشغّل `app.py`، اللي بيشغّل FastAPI على `PORT=7860`.
 
-## ٣) اضبط الأسرار (Secrets)
+## ٣) الأسرار (Secrets)
 
-من صفحة الـ Space → **Settings → Variables and secrets**. استخدم **Secrets** للحساس،
-و**Variables** للعادي:
+من **Settings → Variables and secrets**:
 
 | الاسم | النوع | القيمة |
 |---|---|---|
-| `APP_ACCESS_PASSWORD` | Secret | كلمة مرور قوية 12+ حرف |
-| `DATABASE_URL` | Secret | رابط Neon كامل مع `?sslmode=require` |
+| `APP_ACCESS_PASSWORD` | Secret | كلمة مرور 12+ حرف |
+| `DATABASE_URL` | Secret | رابط Neon الجديد مع `?sslmode=require` |
 | `SESSION_SECRET` | Secret | نص عشوائي طويل |
 | `APP_TIMEZONE` | Variable | `Africa/Cairo` |
 | `PORT` | Variable | `7860` |
@@ -55,51 +57,47 @@ pwsh -File deploy\huggingface\publish.ps1 `
 | `CRM_WRITES_ENABLED` | Variable | `false` |
 | `GROQ_ENABLED` | Variable | `false` |
 
-بعد الحفظ الـ Space يعيد التشغيل تلقائيًا.
+لو Neon رفض الاتصال: شيل `channel_binding=require` وسيب `?sslmode=require` فقط.
 
 ## ٤) افتح التطبيق
 
-- الصفحة: `https://huggingface.co/spaces/<user>/<space>`
-- رابط التطبيق: `https://<user>-<space>.hf.space`
-- الصحة: `https://<user>-<space>.hf.space/api/health`
+- الصفحة: `https://huggingface.co/spaces/jasonwade/acq-assistant`
+- التطبيق: `https://jasonwade-acq-assistant.hf.space`
+- الصحة: `https://jasonwade-acq-assistant.hf.space/api/health`
 
-لازم تشوف:
+لازم يظهر:
 
 ```json
 "database": "postgresql"
 ```
 
-لو ظهر `sqlite`، يبقى `DATABASE_URL` مش متسجّل أو الرابط غلط. راجع Secrets وأعد التشغيل.
+## ٥) حدود الخطة
 
-## ٥) حدود الخطة المجانية
+- Space **عام** والكود ظاهر؛ التطبيق محمي بكلمة المرور.
+- ينام بعد **48 ساعة** بدون زيارات؛ أول طلب بعده ~30 ثانية.
+- القرص مؤقت → قاعدة البيانات **لازم** Neon.
+- لا دومين مخصص في الخطة المجانية.
+- لا تضع مفاتيح REsimpli/Groq الحقيقية قبل ضبط كلمة مرور قوية.
 
-- الـ Space **عام** والكود ظاهر؛ الدخول للتطبيق محمي بكلمة المرور.
-- ينام بعد **48 ساعة** بدون زيارات (أفضل من Render)؛ أول طلب بعده 30–60 ثانية.
-- القرص مؤقت، ولذلك قاعدة البيانات **لازم** تكون Neon — لا تعتمد على SQLite.
-- لا يوجد دومين مخصص في الخطة المجانية؛ تقدر تضيفه لاحقًا (CNAME) لو حبيت.
-- لا تضع مفاتيح REsimpli/Groq الحقيقية إلا بعد ضبط كلمة مرور قوية.
+## لو ظهرت مشكلة
 
-## لو البناء فشل
+- **Build failed:** تبويب Logs. تأكد إن `app.py` و`requirements.txt` في جذر الـ Space.
+- **`ModuleNotFoundError`:** `requirements.txt` بيشير إلى `backend/requirements-lock.txt`؛
+  تأكد إن المجلد مرفوع.
+- **`APP_ACCESS_PASSWORD is required`:** أضف الـ Secret وأعد التشغيل.
+- **`database: sqlite`:** `DATABASE_URL` مش متسجل أو الرابط غلط.
 
-- **Logs** → آخر خطأ.
-- تأكد إن `frontend/dist/index.html` موجود في الـ commit (السكربت يتحقق قبل الرفع).
-- تأكد إن `Dockerfile` في جذر الـ Space (السكربت بينسخ المشروع كامل).
-- لو `ModuleNotFoundError`: راجع `backend/requirements-lock.txt`.
-
-## بديل سريع مؤقت (بدون أي حساب استضافة)
-
-لو عايز لينك عام في دقيقة من جهازك:
+## بديل مؤقت بدون أي حساب
 
 ```powershell
 winget install Cloudflare.cloudflared
 cloudflared tunnel --url http://127.0.0.1:8010
 ```
 
-هيديك رابط `https://xxx.trycloudflare.com` مجاني وبلا كارت، لكنه شغال فقط
-طالما جهازك مفتوح والتطبيق شغال — مش استضافة دائمة.
+لينك `https://xxx.trycloudflare.com` مجاني وبلا كارت، شغال فقط طالما جهازك مفتوح.
 
 ## مراجع
 
-- [Hugging Face Spaces — Docker](https://huggingface.co/docs/hub/spaces-sdks-docker)
-- [خطة Spaces المجانية](https://huggingface.co/pricing)
+- [Hugging Face Spaces — Gradio](https://huggingface.co/docs/hub/spaces-sdks-gradio)
+- [خطة Spaces](https://huggingface.co/pricing)
 - [Neon Free](https://neon.com/pricing)

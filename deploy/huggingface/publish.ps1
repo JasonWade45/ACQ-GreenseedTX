@@ -1,8 +1,8 @@
-# Publish the app to a Hugging Face Docker Space (free, no credit card).
+# Publish the app to a Hugging Face Gradio Space (free, no credit card).
 #
 # Prerequisites:
 #   1. A Hugging Face account and a write token: https://huggingface.co/settings/tokens
-#   2. A Docker Space created in the UI (SDK: Docker, Blank, CPU basic, public).
+#   2. A Space created in the UI (SDK: Gradio, Blank, CPU basic, public).
 #   3. The working tree committed; this script exports HEAD, not uncommitted files.
 #
 # Usage:

@@ -152,7 +152,7 @@ sudo bash /tmp/acq.sh --domain IP-السيرفر --no-https --port 8000
 | **Vercel** | نظام بقرص للقراءة فقط + نسخ متوازية ⇒ كل نسخة قاعدة منفصلة وكل كتابة تفشل. |
 | **Netlify / GitHub Pages** | استاتيك فقط، لا Python ولا SQLite. |
 | **Fly.io / Railway** | لم يبقَ فيهما استحقاق مجاني فعّال؛ يُطلب رصيد مدفوع. |
-| **Hugging Face Spaces** | مجاني، لكن التخزين مؤقت ما لم تُدفع مساحة دائمة. |
+| **Hugging Face Spaces (Gradio)** | مجاني بلا كارت (Docker أصبح Paid)؛ التخزين مؤقت، استخدم Neon. |
 | **Cloudflare Tunnel من جهازك** | مجاني ويعمل، لكنه **نشر على ويندوز/جهازك** — مرفوض صراحة. |
 
 ---

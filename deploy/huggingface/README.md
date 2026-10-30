@@ -3,8 +3,8 @@ title: Acquisitions Assistant
 emoji: 🏠
 colorFrom: green
 colorTo: gray
-sdk: docker
-app_port: 7860
+sdk: gradio
+app_file: app.py
 pinned: false
 license: mit
 ---
@@ -15,7 +15,8 @@ This README is the Space configuration file. It is copied over the repository
 README when publishing to Hugging Face; the full application documentation stays in
 the GitHub repository.
 
-- Docker Space, CPU Basic (2 vCPU / 16 GB), free and no credit card.
+- Gradio SDK (free; Docker Spaces now show a paid badge on some accounts).
+- `app.py` starts the FastAPI application on port `7860`; no Gradio UI is used.
 - The database must be an external PostgreSQL (Neon free tier) because a free Space
   has an ephemeral disk.
 - Set the app password and secrets in **Settings → Variables and secrets**:
