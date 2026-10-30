@@ -64,6 +64,8 @@ def test_live_script_is_local_and_has_the_five_steps(client, make_lead):
     assert len(script["steps"]) == 5
     assert script["key_objections"]
     assert "Dana" in script["steps"][0]["content"]
+    assert "Jason Wade" in script["steps"][0]["content"]
+    assert "GreenSeedTX LLC" in script["steps"][0]["content"]
 
 
 def test_tags_are_unique_listed_and_removable(client, db, make_lead):

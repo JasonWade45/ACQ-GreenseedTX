@@ -39,6 +39,7 @@ import { CrmQueuePage } from "./crm";
 import Leads from "./pages/Leads";
 import LeadDetail from "./pages/LeadDetail";
 import QueuePage from "./pages/QueuePage";
+import FollowupHub from "./pages/FollowupHub";
 import ImportsPage from "./pages/ImportsPage";
 import {
   AppointmentsPage,
@@ -61,7 +62,7 @@ const APP_VERSION = typeof __APP_VERSION__ === "undefined" ? "dev" : __APP_VERSI
 const navigation = [
   { label: "Dashboard", path: "/", icon: LayoutDashboard },
   { label: "Seller Leads", path: "/leads", icon: Users },
-  { label: "Daily Follow-ups", path: "/followups", icon: ClipboardList },
+  { label: "Follow-up Workspace", path: "/followups", icon: ClipboardList },
   { label: "Appointments", path: "/appointments", icon: CalendarDays },
   { label: "Import Center", path: "/imports", icon: Upload },
   { label: "Reports", path: "/reports", icon: ChartNoAxesCombined },
@@ -457,7 +458,8 @@ function Workspace({ onLogout }: { onLogout?: () => void }) {
               <Route path="/" element={<Dashboard />} />
               <Route path="/leads" element={<Leads />} />
               <Route path="/leads/:id" element={<LeadDetail />} />
-              <Route path="/followups" element={<QueuePage />} />
+              <Route path="/followups" element={<FollowupHub />} />
+              <Route path="/daily-queue" element={<QueuePage />} />
               <Route path="/appointments" element={<AppointmentsPage />} />
               <Route path="/imports" element={<ImportsPage />} />
               <Route path="/reports" element={<ReportsPage />} />

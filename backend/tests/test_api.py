@@ -10,6 +10,25 @@ def test_empty_dashboard_and_list(client):
     assert client.get("/api/sync").json()["health"] == "never"
 
 
+def test_lead_board_and_adjacent_navigation(client, make_lead):
+    make_lead(name="First Seller", phone="+12025550191")
+    make_lead(name="Second Seller", phone="+12025550192")
+    ordered = client.get("/api/leads?page_size=10").json()["items"]
+    board = client.get("/api/leads/board?limit_per_stage=10").json()
+    assert board["total"] == 2
+    new_stage = next(column for column in board["stages"] if column["code"] == "new")
+    assert new_stage["count"] == 2 and len(new_stage["items"]) == 2
+    first_neighbors = client.get(f"/api/leads/{ordered[0]['id']}/neighbors").json()
+    assert first_neighbors["previous"] is None
+    assert first_neighbors["next"]["id"] == ordered[1]["id"]
+    last_neighbors = client.get(f"/api/leads/{ordered[1]['id']}/neighbors").json()
+    assert last_neighbors["next"] is None
+    assert last_neighbors["previous"]["id"] == ordered[0]["id"]
+    client.post(f"/api/leads/{ordered[0]['id']}/conversations", json={"outcome": "connected", "notes": "Seller asked for a call next week"})
+    profile = client.get(f"/api/leads/{ordered[0]['id']}").json()
+    assert profile["calls"][0]["notes"] == "Seller asked for a call next week"
+
+
 def test_search_filters_pagination_and_profile(client, make_lead):
     lead = make_lead(source_status="Qualified")
     make_lead(name="Other Seller", phone="+12025550198")
@@ -71,6 +90,59 @@ def test_local_activities_and_stage_do_not_write_crm(client, make_lead):
     stage = client.patch(f"/api/leads/{lead.id}/stage", json={"stage_code": "qualified", "confirm": True})
     assert stage.status_code == 200 and stage.json()["source_status"] == "New"
     assert stage.json()["local_stage_override"]
+
+
+def test_followup_workbench_shows_all_leads_and_recent_activity(client, make_lead):
+    lead = make_lead(source_do_not_contact=False)
+    client.post(f"/api/leads/{lead.id}/activities", json={"summary": "Asked for a call next week", "activity_type": "note"})
+    payload = client.get("/api/followups/workbench?page_size=10").json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["lead"]["id"] == lead.id
+    assert payload["items"][0]["last_activity"]["summary"] == "Asked for a call next week"
+    assert payload["items"][0]["sent_count"] == 0
+
+
+def test_manual_followup_touch_is_logged_and_schedules_the_next_reminder(client, make_lead):
+    lead = make_lead(source_do_not_contact=False)
+    body = "Hi Seller,\n\nChecking in after our conversation.\n\nJason Wade | Acquisition manager\nGreenSeedTX LLC"
+    sent = client.post(
+        f"/api/followups/workbench/{lead.id}/sent",
+        json={"message": body, "confirm": True},
+    )
+    assert sent.status_code == 200
+    assert sent.json()["sent_count"] == 1 and sent.json()["next_touch_days"] == 2
+    profile = client.get(f"/api/leads/{lead.id}").json()
+    activity = profile["activities"][0]
+    assert activity["summary"] == body and activity["direction"] == "outbound"
+    assert activity["source_metadata"]["not_sent_by_app"] is True
+    assert profile["followups"][0]["creation_source"] == "followup_hub"
+
+    second = client.post(
+        f"/api/followups/workbench/{lead.id}/sent",
+        json={"message": "Checking back in.\nGreenSeedTX LLC", "confirm": True},
+    )
+    assert second.status_code == 200 and second.json()["sent_count"] == 2
+    name_again = client.post(
+        f"/api/followups/workbench/{lead.id}/sent",
+        json={"message": "Jason Wade\nGreenSeedTX LLC", "confirm": True},
+    )
+    assert name_again.status_code == 400
+
+
+def test_followup_hub_blocks_dnc_and_missing_company(client, make_lead):
+    restricted = make_lead(source_do_not_contact=True)
+    blocked = client.post(
+        f"/api/followups/workbench/{restricted.id}/sent",
+        json={"message": "Jason Wade\nGreenSeedTX LLC", "confirm": True},
+    )
+    assert blocked.status_code == 400 and "Do Not Contact" in blocked.json()["detail"]
+
+    clear = make_lead(name="Clear Seller", phone="+12025550222", source_do_not_contact=False)
+    missing_company = client.post(
+        f"/api/followups/workbench/{clear.id}/sent",
+        json={"message": "Jason Wade checking in", "confirm": True},
+    )
+    assert missing_company.status_code == 400
 
 
 def test_naive_followup_timestamps_rejected(client, make_lead):
