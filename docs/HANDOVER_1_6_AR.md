@@ -105,3 +105,10 @@
 - Playbook حسب النوع: Code Violation، Foreclosure، Inheritance/Probate، Tax Lien، Divorce، Lis Pendens، Tax Deed، HOA Lien، General.
 - الـ Brief بيتحط كـ `comment` عند إنشاء ليد جديد في REsimpli. الليدز اللي اتعملت قبل التحديث مينفعش يتضاف لها note من API (v6 ماعندهوش note endpoint)، لكن الـ brief موجود في تبويب Notes داخل التطبيق.
 - تم عمل backfill لـ 1,226 ليد.
+
+### CRM activity notes (2026-10-30)
+REsimpli أضاف `POST /activity/add` في تحديث 28 أكتوبر. تم استخدامه لإضافة الـ Brief كـ Activity على كل ليد موجود:
+- 1,221 ليد اتصاف لهم Activity بالـ Brief.
+- 5 ليدز لم يتم إرسالها: 4 بدون رقم هاتف + 1 ليد تجريبي محلي.
+- السكربت: `scripts/add_lead_brief_activities.py` (idempotent، workers، يتوقف ويعيد المحاولة عند rate limit).
+- الليدز الجديدة: الـ Brief يروح كـ comment عند الإنشاء، ويمكن إضافة Activity بنفس الطريقة لو مطلوب.
