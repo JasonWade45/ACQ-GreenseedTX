@@ -358,6 +358,7 @@ def lead_dict(lead):
         "restriction_status": lead.restriction_status,
         "properties": [property_dict(p) for p in lead.properties],
         "phones": [{"id": ph.id, "phone": ph.phone, "phone_normalized": ph.phone_normalized, "phone_type": ph.phone_type, "is_primary": ph.is_primary, "position": ph.position} for ph in getattr(lead, "phones", [])],
+        "tags": [{"id": tag.id, "tag": tag.tag} for tag in getattr(lead, "tags", [])],
         "missing_information": missing_information(lead),
     }
 

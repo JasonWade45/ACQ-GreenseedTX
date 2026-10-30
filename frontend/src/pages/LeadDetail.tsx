@@ -6,6 +6,7 @@ import {
 import { navigateTabs } from "../components";
 import { CloudWorkbench } from "../intelligence";
 import { LeadIntegrationCards } from "../crm";
+import { CallsPanel, TagsPanel } from "../calls";
 import { useState, useEffect } from "react";
 import type { FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -163,6 +164,7 @@ export default function LeadDetail() {
             `Follow-ups (${lead.followups.filter((f) => f.status === "pending").length})`,
           ],
           ["appointments", `Appointments (${lead.appointments.length})`],
+          ["calls", "Calls"],
           ["preparation", "Call preparation"],
           ["research", "Property research"],
           ["intelligence", "Analysis & drafts"],
@@ -185,11 +187,13 @@ export default function LeadDetail() {
         <LeadIntegrationCards leadId={lead.id} />
       )}
       {tab === "preparation" && <CallPreparation lead={lead} />}
+      {tab === "calls" && <CallsPanel leadId={lead.id} />}
       {tab === "research" && <PropertyResearch lead={lead} />}
       {tab === "overview" && (
         <div className="profile-grid">
           <div className="stack">
             <VendorContextPanel lead={lead} />
+            <TagsPanel leadId={lead.id} />
             <Panel
               title="Seller details"
               action={<Badge tone="neutral">Source + local review</Badge>}

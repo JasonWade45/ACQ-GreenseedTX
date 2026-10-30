@@ -97,6 +97,7 @@ from .services.sync import begin_sync, sync_run
 from .routes_crm import router as crm_router
 from .routes_intelligence import router as intelligence_router
 from .routes_unified import router as unified_router
+from .routes_merged import router as merged_router
 from .services.cloud_ai import cloud_status
 from .services.ai import analyze_lead, insight_dict, generate_draft, ollama_status, context_hash, context_for
 
@@ -2417,6 +2418,7 @@ def example_file(filename: str):
 app.include_router(intelligence_router)
 app.include_router(unified_router)
 app.include_router(crm_router)
+app.include_router(merged_router)
 
 # Frontend is bundled once and served by the same local process. No CDN or cloud dependency.
 frontend = ROOT / "frontend" / "dist"
