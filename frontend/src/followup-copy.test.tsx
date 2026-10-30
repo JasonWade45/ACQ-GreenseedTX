@@ -7,11 +7,13 @@ function makeItem({
   firstName = "Maria",
   lastName = "Lopez",
   sentCount = 0,
+  lastActivity = null,
 }: {
   fullName?: string;
   firstName?: string | null;
   lastName?: string | null;
   sentCount?: number;
+  lastActivity?: FollowupWorkbenchItem["last_activity"];
 } = {}): FollowupWorkbenchItem {
   return {
     lead: {
@@ -27,7 +29,7 @@ function makeItem({
         },
       ],
     },
-    last_activity: null,
+    last_activity: lastActivity,
     followup: null,
     sent_count: sentCount,
   } as unknown as FollowupWorkbenchItem;
@@ -56,12 +58,36 @@ describe("follow-up identity and message copy", () => {
     );
     expect(message).toContain("I’m Jason Wade, the Acquisition Manager");
     expect(message).toContain("GreenSeedTX LLC");
+    expect(message).toContain("Would you be open to selling the property at 6021 Driscoll Ln");
+    expect(message).not.toContain("still interested");
   });
 
-  it("keeps Jason's name out of later touches", () => {
+  it("keeps Jason's name out of later touches and asks whether they are still interested", () => {
     const message = createMessage(makeItem({ sentCount: 1 }));
     expect(message).toContain("GreenSeedTX LLC");
+    expect(message).toContain("Are you still interested in selling the property at 6021 Driscoll Ln");
     expect(message).not.toContain("Jason Wade");
     expect(message).not.toContain("Acquisition Manager");
+  });
+
+  it("keeps the still-interested question while using recorded outbound context", () => {
+    const message = createMessage(makeItem({
+      sentCount: 1,
+      lastActivity: {
+        id: 2,
+        external_id: null,
+        lead_id: 1,
+        activity_type: "message",
+        direction: "outbound",
+        outcome: null,
+        occurred_at: "2026-10-30T12:00:00Z",
+        recorded_at: "2026-10-30T12:00:00Z",
+        source: "followup_hub",
+        summary: "Initial outreach recorded",
+        source_metadata: { followup_hub_touch: true },
+      },
+    }));
+    expect(message).toContain("checking back on my last message");
+    expect(message).toContain("Are you still interested in selling the property at 6021 Driscoll Ln");
   });
 });
