@@ -52,17 +52,20 @@ class PushSettingsIn(StrictModel):
 
 class PreviewIn(StrictModel):
     include_note: bool = True
+    note: Optional[str] = Field(default=None, max_length=4000)
 
 
 class PushIn(StrictModel):
     confirmation: str = ""
     include_note: bool = True
+    note: Optional[str] = Field(default=None, max_length=4000)
 
 
 class BatchIn(StrictModel):
     lead_ids: list[int] = Field(min_length=1, max_length=200)
     confirmation: str = ""
     include_note: bool = True
+    note: Optional[str] = Field(default=None, max_length=4000)
 
 
 class LinkIn(StrictModel):
@@ -135,7 +138,9 @@ def _writer(settings):
         raise HTTPException(400, str(error)) from None
 
 
-def _note_text(db, lead, include_note):
+def _note_text(db, lead, include_note, custom=None):
+    if custom:
+        return custom[:4000]
     if not include_note:
         return None
     return crm_notes.note_for_new_lead(db, lead, crm_push.load_push_settings(db))
@@ -289,7 +294,7 @@ def crm_preview(lead_id: int, body: PreviewIn, db: DB):
     settings = _settings()
     reader = _reader(settings)
     try:
-        note = _note_text(db, lead, body.include_note)
+        note = _note_text(db, lead, body.include_note, body.note)
         plan = crm_push.plan_push(db, lead, reader, note=note, dry_run=True)
     finally:
         reader.close()
@@ -305,7 +310,7 @@ def crm_push_one(lead_id: int, body: PushIn, db: DB):
     writer = _writer(settings)
     reader = _reader(settings)
     try:
-        note = _note_text(db, lead, body.include_note)
+        note = _note_text(db, lead, body.include_note, body.note)
         outcome = crm_push.execute_push(
             db,
             lead,
@@ -344,7 +349,7 @@ def crm_push_batch(body: BatchIn, db: DB):
             reader=reader,
             writer=writer,
             settings=settings,
-            note_for=lambda lead: _note_text(db, lead, body.include_note),
+            note_for=lambda lead: _note_text(db, lead, body.include_note, body.note),
             confirmation=body.confirmation,
         )
     finally:

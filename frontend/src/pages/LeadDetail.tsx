@@ -6,7 +6,7 @@ import {
 import { navigateTabs } from "../components";
 import { CloudWorkbench } from "../intelligence";
 import { LeadIntegrationCards } from "../crm";
-import { CallsPanel, TagsPanel } from "../calls";
+import { CallsPanel, ScriptPanel, TagsPanel } from "../calls";
 import { useState, useEffect } from "react";
 import type { FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -165,6 +165,7 @@ export default function LeadDetail() {
           ],
           ["appointments", `Appointments (${lead.appointments.length})`],
           ["calls", "Calls"],
+          ["script", "Call script"],
           ["preparation", "Call preparation"],
           ["research", "Property research"],
           ["intelligence", "Analysis & drafts"],
@@ -188,6 +189,7 @@ export default function LeadDetail() {
       )}
       {tab === "preparation" && <CallPreparation lead={lead} />}
       {tab === "calls" && <CallsPanel leadId={lead.id} />}
+      {tab === "script" && <ScriptPanel leadId={lead.id} />}
       {tab === "research" && <PropertyResearch lead={lead} />}
       {tab === "overview" && (
         <div className="profile-grid">

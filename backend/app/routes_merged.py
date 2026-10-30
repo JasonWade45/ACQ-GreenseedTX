@@ -20,13 +20,23 @@ from .models import (
     AutomationLog,
     AutomationRule,
     CallLog,
+    ImportBatch,
+    ImportRow,
     Lead,
     LeadTag,
 )
 from .schemas import StrictModel
-from .services import assignment, automation, calls
+from .services import assignment, automation, calls, import_ai, scripts
 
 router = APIRouter(prefix="/api")
+
+
+class AiMapIn(StrictModel):
+    sheet: Optional[str] = Field(default=None, max_length=200)
+
+
+class ScriptIn(StrictModel):
+    save: bool = False
 
 
 class CallIn(StrictModel):
@@ -323,3 +333,44 @@ def automation_logs(limit: int = Query(default=50, ge=1, le=200), db: Session = 
 @router.get("/automation/stale-leads")
 def stale_leads(days: int = Query(default=14, ge=1, le=365), db: Session = Depends(get_db)):
     return automation.stale_leads(db, days)
+
+
+@router.post("/imports/{batch_id}/ai-map")
+def ai_map(batch_id: int, body: AiMapIn, db: Session = Depends(get_db)):
+    """Suggest a column mapping for one sheet. Falls back to local rules."""
+    batch = db.get(ImportBatch, batch_id)
+    if batch is None:
+        raise HTTPException(404, "Import batch not found")
+    sheets = batch.sheets or {}
+    sheet_name = body.sheet or next(iter(sheets), None)
+    if not sheet_name or sheet_name not in sheets:
+        raise HTTPException(400, "Sheet not found in this batch")
+    headers = list(sheets[sheet_name].get("headers") or [])
+    rows = db.scalars(
+        select(ImportRow)
+        .where(ImportRow.batch_id == batch.id, ImportRow.sheet == sheet_name)
+        .order_by(ImportRow.id)
+        .limit(5)
+    ).all()
+    result = import_ai.suggest_mapping(headers, [row.original for row in rows])
+    return {"sheet": sheet_name, "headers": headers, **result}
+
+
+@router.get("/leads/{lead_id}/script")
+def lead_script(lead_id: int, db: Session = Depends(get_db)):
+    lead = _lead(db, lead_id)
+    script = scripts.build_script(lead)
+    return {"script": script, "text": scripts.script_text(script)}
+
+
+@router.post("/leads/{lead_id}/script")
+def build_lead_script(lead_id: int, body: ScriptIn, db: Session = Depends(get_db)):
+    lead = _lead(db, lead_id)
+    script = scripts.build_script(lead)
+    text = scripts.script_text(script)
+    activity = scripts.save_as_note(db, lead, text) if body.save else None
+    return {
+        "script": script,
+        "text": text,
+        "saved_activity_id": activity.id if activity else None,
+    }

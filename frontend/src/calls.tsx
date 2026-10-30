@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { PhoneCall, Plus, Tag, X } from "lucide-react";
+import { Copy, PhoneCall, Plus, Send, Tag, X } from "lucide-react";
 import {
   Button,
   Field,
@@ -261,5 +261,140 @@ export function TagsPanel({ leadId }: { leadId: number }) {
         </Button>
       </form>
     </Panel>
+  );
+}
+
+
+type PreviewPlan = {
+  eligible: boolean;
+  reason: string | null;
+  message: string;
+  body: Record<string, unknown> | null;
+  matches: { full_name: string | null; address: string | null }[];
+};
+
+export function ScriptPanel({ leadId }: { leadId: number }) {
+  const query = useData<{ script: Script; text: string }>(
+    `script-${leadId}`,
+    `/leads/${leadId}/script`,
+  );
+  const action = useAction();
+  const [preview, setPreview] = useState<PreviewPlan | null>(null);
+  const [confirmation, setConfirmation] = useState("");
+
+  if (query.isPending) return <Loading />;
+  if (query.isError) return <ErrorState error={query.error} retry={() => query.refetch()} />;
+  const { script, text } = query.data;
+
+  async function previewPush() {
+    const result = await action.run(
+      () => post<PreviewPlan>(`/leads/${leadId}/crm/preview`, { include_note: true, note: text }),
+      "CRM preview ready",
+    );
+    if (result) setPreview(result);
+  }
+
+  async function push() {
+    const result = await action.run(
+      () =>
+        post(`/leads/${leadId}/crm/push`, {
+          include_note: true,
+          note: text,
+          confirmation,
+        }),
+      "Push attempted",
+    );
+    if (result) {
+      setPreview(null);
+      setConfirmation("");
+    }
+  }
+
+  return (
+    <div className="stack">
+      <Notice tone="info">
+        <strong>Call script.</strong> Built only from this lead's recorded facts; it never
+        invents an ARV, repair number or offer. Saving it creates a local note. Pushing
+        sends it only as the CRM lead-creation comment.
+      </Notice>
+      <Panel
+        title={script.objective}
+        action={
+          <div className="row" style={{ gap: "0.4rem" }}>
+            <Button
+              variant="secondary"
+              onClick={() => navigator.clipboard?.writeText(text)}
+            >
+              <Copy size={15} />
+              Copy
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() =>
+                action.run(() => post(`/leads/${leadId}/script`, { save: true }), "Script saved as a note")
+              }
+              disabled={action.busy}
+            >
+              Save as note
+            </Button>
+            <Button variant="secondary" onClick={previewPush} disabled={action.busy}>
+              <Send size={15} />
+              Preview CRM push
+            </Button>
+          </div>
+        }
+      >
+        {script.steps.map((step) => (
+          <div key={step.step_number} className="panel" style={{ padding: "0.9rem" }}>
+            <strong>
+              {step.step_number}. {step.title}
+            </strong>
+            <p>{step.content}</p>
+            <p className="muted">Tip: {step.tips}</p>
+          </div>
+        ))}
+        <h3>Likely objections</h3>
+        {script.key_objections.map((item) => (
+          <div key={item.objection}>
+            <strong>{item.objection}</strong>
+            <p>{item.response}</p>
+          </div>
+        ))}
+        <p className="panel-footnote">{script.next_step}</p>
+      </Panel>
+
+      {preview && (
+        <Panel title="CRM push preview" subtitle="Nothing is sent until you type the confirmation.">
+          <p>{preview.message}</p>
+          {preview.matches.length > 0 && (
+            <Notice tone="warning">
+              A matching CRM lead exists. Link it instead of creating a duplicate.
+            </Notice>
+          )}
+          {preview.body && (
+            <pre style={{ maxHeight: 240, overflow: "auto", fontSize: "0.75rem" }}>
+              {JSON.stringify(preview.body, null, 2)}
+            </pre>
+          )}
+          {preview.eligible ? (
+            <div className="row" style={{ gap: "0.5rem", marginTop: "0.75rem" }}>
+              <input
+                aria-label="CRM confirmation"
+                value={confirmation}
+                onChange={(e) => setConfirmation(e.target.value)}
+                placeholder="Type PUSH TO CRM"
+              />
+              <Button onClick={push} disabled={action.busy || confirmation !== "PUSH TO CRM"}>
+                Push this lead with the script
+              </Button>
+            </div>
+          ) : (
+            <p className="muted">
+              Reason: {preview.reason || "Not eligible"}. Configure the CRM push in CRM & AI first.
+            </p>
+          )}
+        </Panel>
+      )}
+    </div>
   );
 }

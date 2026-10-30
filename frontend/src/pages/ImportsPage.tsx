@@ -14,6 +14,7 @@ import {
   LockKeyhole,
   Play,
   ShieldCheck,
+  Sparkles,
   Upload,
 } from "lucide-react";
 import {
@@ -342,6 +343,7 @@ function BatchWorkspace({
     b.mapping_config.date_order || "reject",
   );
   const [templateName, setTemplateName] = useState("");
+  const [aiNote, setAiNote] = useState("");
   const [selected, setSelected] = useState<number[]>([]);
   const [resolutions, setResolutions] = useState<Record<string, string>>({});
   const [approve, setApprove] = useState(false);
@@ -501,6 +503,25 @@ function BatchWorkspace({
                   ))}
                 </select>
               </Field>
+              <Field label="AI mapping" hint="Reads headers plus five sample rows; falls back to local rules.">
+                <Button
+                  variant="secondary"
+                  onClick={async () => {
+                    const result = await action.run(
+                      () => post<{ mapping: Record<string, string>; provider: string; notes: string | null }>(`/imports/${b.id}/ai-map`, { sheet: sheets[0] }),
+                      "Mapping suggested",
+                    );
+                    if (result) {
+                      setMapping((m) => ({ ...m, ...result.mapping }));
+                      setAiNote(result.provider === "groq" ? "Mapped with Groq." : result.notes || "Mapped with local rules.");
+                    }
+                  }}
+                  disabled={action.busy}
+                >
+                  <Sparkles size={15} />
+                  Suggest mapping
+                </Button>
+              </Field>
               <Field label="Save mapping as (optional)">
                 <input
                   value={templateName}
@@ -509,6 +530,7 @@ function BatchWorkspace({
                 />
               </Field>
             </div>
+            {aiNote && <p className="panel-footnote">{aiNote}</p>}
             <Notice>
               Required locally: a first/full name and at least a phone, email,
               property address or external ID. Dates without years and invalid
