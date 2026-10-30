@@ -1,9 +1,10 @@
-"""Hugging Face Gradio-Space entrypoint.
+﻿"""Hugging Face Gradio-Space entrypoint.
 
-Hugging Face's Docker Spaces now require a paid plan on some accounts, while the
-Gradio SDK is still free. A Gradio Space simply runs ``python app.py`` and proxies
-port 7860, so this file starts the same FastAPI application with uvicorn instead of
-defining a Gradio UI. No Gradio import is required at runtime.
+Hugging Face's free Gradio hardware is ZeroGPU, and Docker Spaces now require a paid
+plan. The web application is FastAPI, so this file starts it with uvicorn on the port
+Hugging Face proxies, and starts a tiny Gradio app on a private port only so the
+ZeroGPU startup scan finds a ``@spaces.GPU`` event handler. The Gradio page is never
+used by a visitor.
 
 The database is Neon (``DATABASE_URL`` secret); the free Space disk is ephemeral.
 """
@@ -13,8 +14,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-# The FastAPI package lives in backend/app; put backend first so ``app.main`` wins
-# over this file's own name.
 sys.path.insert(0, str(ROOT / "backend"))
 os.chdir(ROOT)
 
@@ -24,6 +23,27 @@ PORT = int(os.environ.get("PORT", "7860"))
 
 if not os.environ.get("APP_ACCESS_PASSWORD"):
     raise SystemExit("APP_ACCESS_PASSWORD is required (set it as a Space secret)")
+
+# ZeroGPU refuses to start unless a Gradio event handler carries @spaces.GPU. Start a
+# minimal Gradio app on a private port; it is never linked from the product UI.
+try:
+    import gradio as gr
+    import spaces
+
+    @spaces.GPU
+    def _zerogpu_marker(text: str = "") -> str:
+        return "acquisitions-assistant"
+
+    _demo = gr.Interface(fn=_zerogpu_marker, inputs=gr.Textbox(), outputs=gr.Textbox())
+    _demo.launch(
+        server_name="127.0.0.1",
+        server_port=7861,
+        prevent_thread_lock=True,
+        quiet=True,
+        show_api=False,
+    )
+except Exception as exc:  # local runs do not have gradio/spaces
+    print(f"Gradio ZeroGPU marker not started: {exc}")
 
 import uvicorn  # noqa: E402
 
