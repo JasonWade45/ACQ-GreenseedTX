@@ -68,3 +68,32 @@
 2. ارفع الفرع/ادمجه.
 3. انشر Render + Neon بالخطوات أعلاه.
 4. سجّل مكالمة حقيقية واحدة، ثم جرّب Preview للـ CRM (بدون Push) قبل أي دفعة.
+
+---
+
+## تحديث 2026-10-30 (بعد النشر)
+
+### ترحيل البيانات القديمة
+تم ترحيل قاعدة `acquisition-crm-hub` إلى نفس مخطط التطبيق ثم إلى Neon:
+
+| العنصر | العدد |
+|---|---|
+| Leads | **852** |
+| Properties | 818 |
+| Phones | 851 |
+| Follow-ups | 1,505 |
+| Checklist items | 10,224 |
+| Stage history | 1,704 |
+| Tags | 1 |
+
+السكربت: `scripts/migrate_hub_to_unified.py` (dry-run افتراضيًا، idempotent). القاعدة القديمة لم تُعدّل.
+
+### AI Mapping + سكربت + CRM
+- **Import Center → Suggest mapping**: يقرأ الهيدرز و5 صفوف، ويستخدم Groq (`openai/gpt-oss-20b`) مع fallback للقواعد المحلية. لا يكتب أي شيء.
+- **Lead profile → Call script**: سكربت 5 خطوات + اعتراضات من بيانات الليد فقط، مع Save as note ونسخ.
+- **Preview CRM push**: يعرض body الذي سيُرسل، ويقبل نص السكربت كـ `comment` عند إنشاء الليد.
+- **CRM**: REsimpli API key + adapter + account defaults مضبوطة، و`CRM_WRITES_ENABLED=true`. الوضع `review` ويطلب كتابة `PUSH TO CRM`.
+- الليدز القديمة موجودة أصلًا في REsimpli؛ الـ preview سيقول `exists_in_crm` ويقترح Link بدل إنشاء نسخة ثانية. لا تعمل Batch push للـ 852.
+
+### تنبيه أمني
+كلمة سر Neon القديمة ظهرت في الشات. اعمل Reset من Neon → Roles → `neondb_owner`، وحدّث `DATABASE_URL` في HF Space → Settings → Variables and secrets.
