@@ -19,13 +19,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app import models  # noqa: F401
-from app.config import get_settings
-from app.db import SessionLocal
-from app.models import CrmPush, Lead
-from app.services import crm_push
-from app.services.resimpli import ResimpliClient
-from app.services.resimpli_write import ResimpliWriter
+from app import models  # noqa: F401, E402
+from app.config import get_settings  # noqa: E402
+from app.db import SessionLocal  # noqa: E402
+from app.models import CrmPush, Lead  # noqa: E402
+from app.services import crm_notes, crm_push  # noqa: E402
+from app.services.resimpli import ResimpliClient  # noqa: E402
+from app.services.resimpli_write import ResimpliWriter  # noqa: E402
 
 
 def main():
@@ -71,7 +71,7 @@ def main():
                     reader=reader,
                     writer=writer,
                     confirmation=crm_push.CONFIRMATION,
-                    note=None,
+                    note=crm_notes.note_for_new_lead(db, lead, crm_push.load_push_settings(db)),
                     settings=settings,
                 )
                 state = outcome.state

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from ..models import CrmNoteOutbox
 from .crm_push import NOTE_PREFIX, PushSettings
+from .lead_brief import build_playbook
 
 MAX_NOTE = 2000
 FLAG_LABELS = {
@@ -89,7 +90,7 @@ def skip_trace_line(lead) -> Optional[str]:
 
 
 def structured_note(lead, settings: PushSettings, *, ai_summary=None, skip_trace=None) -> str:
-    """Build the note text from the lead. Pure: same lead and settings, same string."""
+    """A short lead summary, the five questions and a type-specific playbook."""
     lines = [f"{NOTE_PREFIX} Green Seed lead record"]
     if lead.lead_type and settings.note_field("lead_type"):
         lines.append(f"Lead type: {lead.lead_type}")
@@ -117,7 +118,7 @@ def structured_note(lead, settings: PushSettings, *, ai_summary=None, skip_trace
     if ai_summary:
         lines.append(f"AI summary (draft, reviewed by a person): {ai_summary.strip()[:600]}")
     lines.append("Prepared by Green Seed from reviewed local data. No message was sent to the seller.")
-    text = "\n".join(lines)
+    text = "\n".join(lines) + build_playbook(lead)
     if len(text) > MAX_NOTE:
         text = text[: MAX_NOTE - 3].rstrip() + "..."
     return text
@@ -138,6 +139,11 @@ def ensure_note(db: Session, lead, settings: PushSettings, *, ai_summary=None, s
     db.add(row)
     db.flush()
     return row
+
+
+def ensure_local_brief(db: Session, lead):
+    """Create the brief as soon as a lead exists, before any CRM push."""
+    return ensure_note(db, lead, PushSettings(), source="import")
 
 
 def notes_for_lead(db: Session, lead_id) -> list[dict]:
