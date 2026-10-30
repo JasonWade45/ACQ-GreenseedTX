@@ -28,7 +28,7 @@
 
 ## أونلاين مجانًا وبدون كارت بنكي
 
-المسار الموصى به: **Render Free + Neon Free** (كلاهما لا يطلب كارتًا).
+**تنبيه:** Render قد يطلب كارتًا لبعض الحسابات. البديل الموصى به الآن: **Hugging Face Spaces + Neon** (بلا كارت) — `deploy/huggingface/PUBLISH_AR.md`. مسار Render مذكور كبديل.
 
 1. ارفع الفرع `merge/acquisition-os-1.6` إلى GitHub ثم ادمجه في `main` (أو ادفع `main` مباشرة).
 2. Neon: أنشئ حسابًا بـ GitHub → مشروعًا → انسخ connection string وأضف `?sslmode=require`.
