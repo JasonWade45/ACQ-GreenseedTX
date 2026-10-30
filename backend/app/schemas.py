@@ -61,6 +61,11 @@ class FollowupAction(StrictModel):
         return v
 
 
+class FollowupSentIn(StrictModel):
+    message: str = Field(min_length=1, max_length=8000)
+    confirm: bool = False
+
+
 class StageIn(StrictModel):
     stage_code: str
     confirm: bool

@@ -127,6 +127,8 @@ export interface MessageDraft {
   lead_id: number;
   body: string;
   status: string;
+  classification?: string | null;
+  direction: string;
   template_id: number | null;
   variant: string | null;
   validator_result: { ok: boolean; reasons: string[] };
@@ -314,14 +316,28 @@ export interface Lead {
   user_edited_fields?: string[];
   import_batch_id?: string | null;
 }
+export interface CallHistoryItem {
+  id: number;
+  lead_id: number;
+  outcome: string;
+  label: string;
+  direction: string;
+  duration_seconds: number | null;
+  notes: string | null;
+  next_step: string | null;
+  occurred_at: string;
+  followup_id: number | null;
+}
 export interface LeadProfile extends Lead {
   activities: Activity[];
   followups: Followup[];
+  calls?: CallHistoryItem[];
   appointments: Appointment[];
   audit: Audit[];
   source_data: Record<string, unknown>;
   insight: Insight | null;
   insight_stale: boolean;
+  priority?: { score: number; factors: string[]; followup_id?: number | null };
   draft: Draft | null;
   draft_stale?: boolean;
   external_url: string | null;
@@ -335,6 +351,30 @@ export interface LeadProfile extends Lead {
 }
 export interface LeadPage {
   items: Lead[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+export interface LeadBoard {
+  stages: { code: string; label: string; count: number; items: Lead[] }[];
+  total: number;
+  limit_per_stage: number;
+  truncated: boolean;
+}
+export interface LeadNeighbors {
+  position: number;
+  total: number;
+  previous: { id: number; name: string } | null;
+  next: { id: number; name: string } | null;
+}
+export interface FollowupWorkbenchItem {
+  lead: Lead;
+  last_activity: Activity | null;
+  followup: Followup | null;
+  sent_count: number;
+}
+export interface FollowupWorkbench {
+  items: FollowupWorkbenchItem[];
   total: number;
   page: number;
   page_size: number;

@@ -335,7 +335,7 @@ def build_live_script(lead: Lead) -> dict:
                 "step_number": 1,
                 "title": "Opening",
                 "content": (
-                    f"Hi {name}, this is Jason with GreenSeedTX. I'm calling about {address}. "
+                    f"Hi {name}, this is Jason Wade, the Acquisition Manager with GreenSeedTX LLC. I'm calling about {address}. "
                     "Is now still a good time for two minutes?"
                 ),
                 "tips": "If it is not a good time, ask for a specific callback window instead of pushing.",

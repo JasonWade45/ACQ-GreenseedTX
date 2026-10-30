@@ -6,6 +6,7 @@ import App from "./App";
 import "./styles.css";
 import "./workspace-v2.css";
 import "./unified.css";
+import "./followups.css";
 const client = new QueryClient({
   defaultOptions: {
     queries: { retry: 1, staleTime: 15000, refetchOnWindowFocus: false },

@@ -3,7 +3,7 @@ import hmac
 import logging
 import shutil
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func, text, or_
 from sqlalchemy.orm import Session
 from .config import get_settings, ROOT
 from .version import APP_VERSION
@@ -23,6 +23,7 @@ from .models import (
     Lead,
     PipelineStage,
     Activity,
+    CallLog,
     Followup,
     Appointment,
     AIInsight,
@@ -47,6 +48,7 @@ from .schemas import (
     NoteIn,
     FollowupIn,
     FollowupAction,
+    FollowupSentIn,
     StageIn,
     RestrictionIn,
     AppointmentIn,
@@ -89,6 +91,7 @@ from .services.leads import (
     update_next_followup,
 )
 from .services.operations import daily_queue, complete_followup, priority_for
+from .services.calls import call_dict
 from .services.operations import day_bounds as _day_bounds
 from .services.reporting import dashboard, reports, count_query
 from .services.normalization import FIELDS, csv_bytes
@@ -518,6 +521,64 @@ def list_leads(
     }
 
 
+@app.get("/api/leads/board")
+def lead_board(
+    request: Request,
+    db: DB,
+    limit_per_stage: int = Query(40, ge=5, le=200),
+):
+    """Kanban data with exact stage counts and a bounded first slice per column."""
+    query = lead_query(filter_params(request), get_settings().app_timezone)
+    records = db.scalars(query.order_by(Lead.updated_at.desc().nullslast(), Lead.id)).all()
+    stages = db.scalars(select(PipelineStage).where(PipelineStage.active.is_(True)).order_by(PipelineStage.position)).all()
+    columns = {stage.code: {"code": stage.code, "label": stage.label, "count": 0, "items": []} for stage in stages}
+    for lead_record in records:
+        column = columns.setdefault(
+            lead_record.stage_code,
+            {"code": lead_record.stage_code, "label": lead_record.stage_code.replace("_", " ").title(), "count": 0, "items": []},
+        )
+        column["count"] += 1
+        if len(column["items"]) < limit_per_stage:
+            column["items"].append(lead_dict(lead_record))
+    return {
+        "stages": list(columns.values()),
+        "total": len(records),
+        "limit_per_stage": limit_per_stage,
+        "truncated": any(column["count"] > limit_per_stage for column in columns.values()),
+    }
+
+
+@app.get("/api/leads/{lead_id}/neighbors")
+def lead_neighbors(lead_id: int, request: Request, db: DB):
+    """Adjacent records in the same stable filter/sort context as the Leads list."""
+    lead_record = found(db, Lead, lead_id)
+    filters = filter_params(request)
+    query = lead_query(filters, get_settings().app_timezone)
+    allowed_sorts = {
+        "full_name", "original_created_at", "updated_at", "next_followup_at", "stage_code",
+        "lead_source", "last_contact_at", "score", "heat", "equity_pct", "lead_type", "county",
+        "recorded_date", "priority_rank", "priority_tier",
+    }
+    sort = request.query_params.get("sort", "updated_at")
+    direction = request.query_params.get("direction", "desc")
+    if sort not in allowed_sorts or direction not in {"asc", "desc"}:
+        raise ValueError("Invalid lead navigation sort")
+    order_column = getattr(Lead, sort)
+    order = order_column.asc() if direction == "asc" else order_column.desc()
+    ids = list(db.scalars(query.with_only_columns(Lead.id).order_by(order.nullslast(), Lead.id)))
+    if lead_record.id not in ids:
+        ids = list(db.scalars(select(Lead.id).order_by(Lead.updated_at.desc().nullslast(), Lead.id)))
+    position = ids.index(lead_record.id)
+    previous = db.get(Lead, ids[position - 1]) if position > 0 else None
+    following = db.get(Lead, ids[position + 1]) if position + 1 < len(ids) else None
+    return {
+        "position": position + 1,
+        "total": len(ids),
+        "previous": {"id": previous.id, "name": previous.full_name} if previous else None,
+        "next": {"id": following.id, "name": following.full_name} if following else None,
+    }
+
+
 @app.get("/api/leads/export")
 def export_leads(request: Request, db: DB):
     records = db.scalars(lead_query(filter_params(request), get_settings().app_timezone)).all()
@@ -589,6 +650,12 @@ def lead_profile(lead_id: int, db: DB):
             followup_dict(f)
             for f in db.scalars(
                 select(Followup).where(Followup.lead_id == lead_record.id).order_by(Followup.due_at.asc().nullslast())
+            )
+        ],
+        "calls": [
+            call_dict(call)
+            for call in db.scalars(
+                select(CallLog).where(CallLog.lead_id == lead_record.id).order_by(CallLog.occurred_at.desc(), CallLog.id.desc())
             )
         ],
         "appointments": [
@@ -860,6 +927,160 @@ def add_activity(lead_id: int, body: NoteIn, db: DB):
 @app.get("/api/queue")
 def queue(db: DB, section: str | None = None, page: int = Query(1, ge=1), page_size: int = Query(30, ge=1, le=100)):
     return daily_queue(db, get_settings().app_timezone, section, page, page_size)
+
+
+@app.get("/api/followups/workbench")
+def followup_workbench(
+    db: DB,
+    search: str = "",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(30, ge=1, le=100),
+):
+    """Every lead, latest recorded context, sent-touch count and next local task."""
+    query = select(Lead)
+    term = search.strip().lower()
+    if term:
+        pattern = f"%{term}%"
+        query = query.where(
+            or_(
+                func.lower(Lead.full_name).like(pattern),
+                func.lower(func.coalesce(Lead.primary_phone, "")).like(pattern),
+                func.lower(func.coalesce(Lead.email, "")).like(pattern),
+                func.lower(func.coalesce(Lead.lead_source, "")).like(pattern),
+            )
+        )
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    leads = db.scalars(
+        query.order_by(Lead.next_followup_at.asc().nullslast(), Lead.updated_at.desc(), Lead.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    ids = [lead.id for lead in leads]
+    activities = (
+        db.scalars(
+            select(Activity)
+            .where(Activity.lead_id.in_(ids))
+            .order_by(Activity.occurred_at.desc().nullslast(), Activity.id.desc())
+        ).all()
+        if ids
+        else []
+    )
+    latest, sent_counts = {}, {}
+    for activity in activities:
+        latest.setdefault(activity.lead_id, activity)
+        if (activity.source_metadata or {}).get("followup_hub_touch") is True:
+            sent_counts[activity.lead_id] = sent_counts.get(activity.lead_id, 0) + 1
+    pending = (
+        db.scalars(
+            select(Followup)
+            .where(Followup.lead_id.in_(ids), Followup.status == "pending")
+            .order_by(Followup.due_at.asc().nullslast(), Followup.id)
+        ).all()
+        if ids
+        else []
+    )
+    next_by_lead = {}
+    for task in pending:
+        next_by_lead.setdefault(task.lead_id, task)
+    return {
+        "items": [
+            {
+                "lead": lead_dict(lead),
+                "last_activity": activity_dict(latest[lead.id]) if lead.id in latest else None,
+                "followup": followup_dict(next_by_lead[lead.id]) if lead.id in next_by_lead else None,
+                "sent_count": sent_counts.get(lead.id, 0),
+            }
+            for lead in leads
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@app.post("/api/followups/workbench/{lead_id}/sent")
+def record_followup_message_sent(lead_id: int, body: FollowupSentIn, db: DB):
+    """Record a user-confirmed manual send and schedule the next review; never sends."""
+    if not body.confirm:
+        raise ValueError("Confirm that you already sent this message yourself")
+    message = body.message.strip()
+    if "GreenSeedTX LLC" not in message:
+        raise ValueError("Every follow-up message must include the exact company name: GreenSeedTX LLC")
+    lead = found(db, Lead, lead_id)
+    if lead.do_not_contact:
+        raise ValueError("This lead is marked Do Not Contact; no follow-up can be recorded here")
+    if lead.restriction_status != "reviewed_clear":
+        raise ValueError("Review and clear contact eligibility before preparing or recording outreach")
+    has_phone = bool(lead.primary_phone or lead.phone2 or lead.phone3 or lead.phone4 or lead.phone5 or lead.phones)
+    if lead.needs_skip_trace or not has_phone:
+        raise ValueError("A phone number is required for this follow-up workflow")
+    prior_activities = db.scalars(select(Activity).where(Activity.lead_id == lead.id)).all()
+    sent_count = sum(1 for a in prior_activities if (a.source_metadata or {}).get("followup_hub_touch") is True)
+    if sent_count == 0 and "Jason Wade" not in message:
+        raise ValueError("The first follow-up message for a lead must identify Jason Wade")
+    if sent_count > 0 and "jason wade" in message.lower():
+        raise ValueError("Use Jason Wade's name only in the first follow-up message for this lead")
+
+    now = utcnow()
+    # Complete only the prior task created by this hub. Existing manually scheduled work
+    # remains untouched and visible to the operator.
+    prior_hub_tasks = db.scalars(
+        select(Followup).where(
+            Followup.lead_id == lead.id,
+            Followup.status == "pending",
+            Followup.creation_source == "followup_hub",
+        )
+    ).all()
+    for task in prior_hub_tasks:
+        task.status = "completed"
+        task.completed_at = now
+        task.completion_outcome = "Message sent manually"
+
+    db.add(
+        Activity(
+            lead_id=lead.id,
+            activity_type="note",
+            direction="outbound",
+            occurred_at=now,
+            source="local",
+            summary=message,
+            source_metadata={
+                "followup_hub_touch": True,
+                "recorded_by_user": True,
+                "not_sent_by_app": True,
+                "sequence_number": sent_count + 1,
+            },
+        )
+    )
+    lead.last_contact_at = now
+    if lead.contact_status in {"unknown", "not_contacted"}:
+        lead.contact_status = "attempted"
+
+    cadence_days = [2, 4, 7, 14, 30, 60]
+    delay = cadence_days[min(sent_count, len(cadence_days) - 1)]
+    next_due = now + timedelta(days=delay)
+    db.add(
+        Followup(
+            lead_id=lead.id,
+            due_at=next_due,
+            priority=50,
+            reason=f"Follow-up strategy: touch {sent_count + 2} review after {delay} days.",
+            suggested_action="Review the seller's latest response and recorded context; edit the next message before sending.",
+            status="pending",
+            creation_source="followup_hub",
+            ai_suggested=False,
+        )
+    )
+    db.add(
+        AuditLog(
+            lead_id=lead.id,
+            action="followup_message_marked_sent",
+            details={"sequence_number": sent_count + 1, "next_touch_days": delay, "sent_by_app": False},
+        )
+    )
+    update_next_followup(db, lead)
+    db.commit()
+    return {"lead_id": lead.id, "sent_count": sent_count + 1, "next_due_at": next_due, "next_touch_days": delay}
 
 
 @app.post("/api/followups")

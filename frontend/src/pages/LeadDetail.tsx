@@ -9,12 +9,14 @@ import { LeadIntegrationCards } from "../crm";
 import { CallsPanel, TagsPanel } from "../calls";
 import { useState, useEffect } from "react";
 import type { FormEvent } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   CalendarDays,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clipboard,
   Clock3,
   FileText,
@@ -24,6 +26,7 @@ import {
   MessageSquareText,
   MoreHorizontal,
   NotebookPen,
+  PhoneCall,
   Plus,
   RefreshCw,
   ShieldAlert,
@@ -62,14 +65,20 @@ import type {
   Followup,
   Insight,
   LeadProfile,
+  LeadNeighbors,
   LeadSequence,
+  MessageDraft,
   SuggestedAction,
   TemplateSelection,
 } from "../types";
 
 export default function LeadDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const listQuery = (location.state as { leadListQuery?: string } | null)?.leadListQuery || "";
   const data = useData<LeadProfile>("profile", `/leads/${id}`);
+  const neighbors = useData<LeadNeighbors>("lead-neighbors", `/leads/${id}/neighbors${listQuery ? `?${listQuery}` : ""}`);
   const [params] = useSearchParams();
   const [tab, setTab] = useState(
     params.get("view") === "intelligence" ? "intelligence" : "overview",
@@ -106,16 +115,33 @@ export default function LeadDetail() {
             : "Property information has not been supplied."
         }
         actions={
-          <>
+          <div className="lead-profile-header-actions">
+            <div className="lead-record-navigation" aria-label="Move through leads">
+              <Button
+                variant="secondary"
+                disabled={!neighbors.data?.previous}
+                title={neighbors.data?.previous ? `Previous: ${neighbors.data.previous.name}` : "First lead in the list"}
+                onClick={() => neighbors.data?.previous && navigate(`/leads/${neighbors.data.previous.id}`, { state: location.state })}
+              >
+                <ChevronLeft size={16} /> Previous
+              </Button>
+              <span>{neighbors.data ? `${neighbors.data.position} / ${neighbors.data.total}` : "…"}</span>
+              <Button
+                variant="secondary"
+                disabled={!neighbors.data?.next}
+                title={neighbors.data?.next ? `Next: ${neighbors.data.next.name}` : "Last lead in the list"}
+                onClick={() => neighbors.data?.next && navigate(`/leads/${neighbors.data.next.id}`, { state: location.state })}
+              >
+                Next <ChevronRight size={16} />
+              </Button>
+            </div>
             <Button variant="secondary" onClick={() => setDialog("note")}>
-              <NotebookPen size={16} />
-              Record activity
+              <NotebookPen size={16} /> Record activity
             </Button>
             <Button onClick={() => setDialog("followup")}>
-              <Plus size={17} />
-              Schedule follow-up
+              <Plus size={17} /> Schedule follow-up
             </Button>
-          </>
+          </div>
         }
       />
       <div className="profile-statusbar">
@@ -158,15 +184,15 @@ export default function LeadDetail() {
       >
         {[
           ["overview", "Overview"],
-          ["timeline", `Timeline (${lead.activities.length})`],
+          ["timeline", "Full history"],
           [
             "followups",
             `Follow-ups (${lead.followups.filter((f) => f.status === "pending").length})`,
           ],
           ["appointments", `Appointments (${lead.appointments.length})`],
-          ["calls", "Calls"],
+          ["calls", "Calls & script"],
           ["preparation", "Call preparation"],
-          ["research", "Property research"],
+          ["research", "Property & comps"],
           ["intelligence", "Analysis & drafts"],
           ["audit", "Audit trail"],
           ["source", "Source records"],
@@ -184,7 +210,13 @@ export default function LeadDetail() {
         ))}
       </div>
       {tab === "overview" && (
-        <LeadIntegrationCards leadId={lead.id} />
+        <>
+          <LeadCommandOverview lead={lead} onTab={setTab} />
+          <details className="lead-integrations-details">
+            <summary>Workflow, checklists, AI assistance and CRM status</summary>
+            <LeadIntegrationCards leadId={lead.id} />
+          </details>
+        </>
       )}
       {tab === "preparation" && <CallPreparation lead={lead} />}
       {tab === "calls" && <CallsPanel leadId={lead.id} />}
@@ -204,9 +236,9 @@ export default function LeadDetail() {
                 </Info>
                 <Info label="Phone numbers">
                   {(() => {
-                    const phones: any[] = (lead as any).phones || [];
+                    const phones = lead.phones || [];
                     if (phones.length) {
-                      return phones.map((p: any) => (
+                      return phones.map((p) => (
                         <div key={p.id || p.position} style={{ marginBottom: 2 }}>
                           {p.phone}
                           {p.phone_type ? ` (${p.phone_type})` : ""}
@@ -239,7 +271,7 @@ export default function LeadDetail() {
                       ? "Attempt recorded, no verified connection"
                       : "No verified contact evidence"}
                 </Info>
-                <Info label="Last verified contact">
+                <Info label="Last recorded contact event">
                   <Timestamp value={lead.last_contact_at} />
                 </Info>
                 <Info label="Last recorded contact outcome">
@@ -406,20 +438,7 @@ export default function LeadDetail() {
           </div>
         </div>
       )}
-      {tab === "timeline" && (
-        <Panel
-          title="Activity timeline"
-          subtitle="Summaries, user-entered notes and source metadata. These are not complete conversation transcripts."
-          action={
-            <Button variant="secondary" onClick={() => setDialog("note")}>
-              <Plus size={15} />
-              Record activity
-            </Button>
-          }
-        >
-          <Timeline lead={lead} />
-        </Panel>
-      )}
+      {tab === "timeline" && <FullHistoryTimeline lead={lead} onRecord={() => setDialog("note")} />}
       {tab === "followups" && <CadencePanel lead={lead} />}
       {tab === "followups" && (
         <Panel
@@ -661,6 +680,87 @@ export default function LeadDetail() {
     </>
   );
 }
+function LeadCommandOverview({
+  lead,
+  onTab,
+}: {
+  lead: LeadProfile;
+  onTab: (tab: string) => void;
+}) {
+  const property = lead.properties[0];
+  const activity = lead.activities[0];
+  const call = lead.calls?.[0];
+  const callIsNewer = Boolean(call && (!activity?.occurred_at || new Date(call.occurred_at) >= new Date(activity.occurred_at)));
+  const latestText = callIsNewer ? call?.notes || call?.next_step || call?.label : activity?.summary;
+  const latestDate = callIsNewer ? call?.occurred_at : activity?.occurred_at;
+  return (
+    <section className="lead-command-overview" aria-label="Lead command overview">
+      <Panel
+        title="Seller & contact"
+        subtitle="Verified profile details"
+        action={<RestrictionBadge status={lead.restriction_status} />}
+      >
+        <div className="lead-command-contact">
+          <div className="lead-command-avatar">{(lead.full_name || "?").slice(0, 1).toUpperCase()}</div>
+          <div><strong>{lead.full_name || "Owner identity unknown"}</strong><span>{lead.assigned_manager || "Unassigned"}</span></div>
+        </div>
+        <div className="lead-command-info">
+          <Info label="Primary phone">{lead.primary_phone || lead.phones?.find((phone) => phone.is_primary)?.phone || "Not recorded"}</Info>
+          <Info label="Email">{lead.email || "Not recorded"}</Info>
+          <Info label="Last recorded contact"><Timestamp value={lead.last_contact_at} /></Info>
+        </div>
+        <div className="lead-command-actions">
+          <Button variant="secondary" onClick={() => onTab("calls")}><PhoneCall size={15} /> Calls & script</Button>
+          <Button variant="secondary" onClick={() => onTab("followups")}><Clock3 size={15} /> Follow-ups</Button>
+        </div>
+      </Panel>
+
+      <Panel
+        title="Recent conversation & history"
+        subtitle="From recorded CRM activity and local call logs"
+        action={<Badge tone="neutral">{lead.activities.length + (lead.calls?.length || 0)} records</Badge>}
+      >
+        {latestText ? (
+          <div className="lead-command-latest">
+            <div className="row wrap">
+              <Badge tone={callIsNewer ? "green" : "blue"}>{callIsNewer ? "Call log" : human(activity?.activity_type || "Activity")}</Badge>
+              <small><Timestamp value={latestDate || null} /></small>
+            </div>
+            <p dir="auto">{latestText}</p>
+            <small>Source notes may be summaries rather than a verbatim transcript.</small>
+          </div>
+        ) : (
+          <Empty title="No conversation history yet" description="Record or sync an activity to keep the full lead timeline in one place." />
+        )}
+        <div className="lead-command-actions">
+          <Button variant="secondary" onClick={() => onTab("timeline")}><History size={15} /> Open full history</Button>
+          <Button variant="ghost" onClick={() => onTab("preparation")}><FileText size={15} /> Prepare call</Button>
+        </div>
+      </Panel>
+
+      <Panel
+        title="Property & acquisition"
+        subtitle="Recorded facts, stage and comps"
+        action={<StageBadge code={lead.stage_code} />}
+      >
+        <div className="lead-command-property">
+          <MapPin size={17} />
+          <div><strong>{property?.street_address || "Property address not recorded"}</strong><span>{[property?.city, property?.state, property?.zip_code].filter(Boolean).join(", ") || "Location not recorded"}</span></div>
+        </div>
+        <div className="lead-command-property-metrics">
+          <Info label="Asking price">{currency(property?.asking_price)}</Info>
+          <Info label="Recorded value">{currency(property?.estimated_value)}</Info>
+          <Info label="Next follow-up"><Timestamp value={lead.next_followup_at} dateOnly /></Info>
+        </div>
+        <div className="lead-command-actions">
+          <Button variant="secondary" onClick={() => onTab("research")}><House size={15} /> Property & comps</Button>
+          <Button variant="ghost" onClick={() => onTab("source")}><History size={15} /> Source history</Button>
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
 function Timeline({ lead }: { lead: LeadProfile }) {
   return lead.activities.length ? (
     <div className="timeline">
@@ -709,6 +809,107 @@ function Timeline({ lead }: { lead: LeadProfile }) {
     />
   );
 }
+type HistoryCategory = "conversation" | "follow-up" | "appointment" | "stage" | "audit";
+type HistoryEvent = { id: string; category: HistoryCategory; title: string; detail: string; date: string; source: string };
+
+function FullHistoryTimeline({ lead, onRecord }: { lead: LeadProfile; onRecord: () => void }) {
+  const { meta } = useWorkspace();
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const calls = lead.calls || [];
+  const events: HistoryEvent[] = [
+    ...lead.activities
+      .filter((activity) => !(
+        activity.activity_type === "call" && calls.some((call) =>
+          call.occurred_at === activity.occurred_at && call.label === activity.outcome && call.direction === activity.direction,
+        )
+      ))
+      .map((activity) => ({
+        id: `activity-${activity.id}`,
+        category: "conversation" as const,
+        title: `${activity.direction ? human(activity.direction) + " · " : ""}${human(activity.activity_type)}${activity.outcome ? ` · ${activity.outcome}` : ""}`,
+        detail: activity.summary || "No activity summary was recorded.",
+        date: activity.occurred_at || activity.recorded_at,
+        source: activity.source,
+      })),
+    ...calls.map((call) => ({
+      id: `call-${call.id}`,
+      category: "conversation" as const,
+      title: `${human(call.direction)} call · ${call.label}`,
+      detail: [call.notes, call.next_step ? `Promised next step: ${call.next_step}` : null, call.duration_seconds != null ? `Duration: ${Math.round(call.duration_seconds / 60)} min` : null].filter(Boolean).join("\n") || "Call outcome recorded; no notes supplied.",
+      date: call.occurred_at,
+      source: "local call log",
+    })),
+    ...lead.followups.map((followup) => ({
+      id: `followup-${followup.id}`,
+      category: "follow-up" as const,
+      title: `Follow-up ${human(followup.status)}${followup.completion_outcome ? ` · ${followup.completion_outcome}` : ""}`,
+      detail: `${followup.reason}${followup.due_at ? `\nDue: ${dateTime(followup.due_at, meta.timezone)}` : "\nNo due date was recorded."}${followup.suggested_action ? `\nNext action: ${followup.suggested_action}` : ""}`,
+      date: followup.completed_at || followup.created_at,
+      source: followup.creation_source,
+    })),
+    ...lead.appointments.map((appointment) => ({
+      id: `appointment-${appointment.id}`,
+      category: "appointment" as const,
+      title: `Appointment · ${human(appointment.status)}${appointment.local_result ? ` · ${human(appointment.local_result)}` : ""}`,
+      detail: appointment.notes || appointment.source_status || "Appointment record; no notes supplied.",
+      date: appointment.starts_at,
+      source: appointment.source,
+    })),
+    ...lead.stage_history.map((stage, index) => ({
+      id: `stage-${index}-${stage.changed_at}`,
+      category: "stage" as const,
+      title: `${stage.from_stage ? `${human(stage.from_stage)} → ` : "Stage set to "}${human(stage.to_stage)}`,
+      detail: `Pipeline stage change recorded from ${stage.source}.`,
+      date: stage.changed_at,
+      source: stage.source,
+    })),
+    ...lead.audit
+      .filter((audit) => ![
+        "activity_recorded", "appointment_recorded", "appointment_result_recorded", "call_logged", "stage_changed",
+      ].includes(audit.action) && !audit.action.startsWith("followup_"))
+      .map((audit) => ({
+      id: `audit-${audit.id}`,
+      category: "audit" as const,
+      title: human(audit.action),
+      detail: Object.entries(audit.details || {}).slice(0, 8).map(([key, value]) => `${human(key)}: ${typeof value === "string" ? value : JSON.stringify(value)}`).join(" · ") || "Local audit event recorded.",
+      date: audit.created_at,
+      source: audit.actor || "local audit",
+    })),
+  ].sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime());
+  const visible = events.filter((event) =>
+    (filter === "all" || event.category === filter) &&
+    (!search || `${event.title} ${event.detail} ${event.source}`.toLowerCase().includes(search.toLowerCase())),
+  );
+  return (
+    <Panel
+      title={`Full lead history (${events.length})`}
+      subtitle="Conversations, calls, tasks, appointments, pipeline changes and local audit entries — newest first. Imported summaries are not verbatim transcripts."
+      action={<Button variant="secondary" onClick={onRecord}><Plus size={15} /> Record activity</Button>}
+    >
+      <div className="history-controls">
+        <label><span>Event type</span><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">All history</option><option value="conversation">Conversations & calls</option><option value="follow-up">Follow-ups</option><option value="appointment">Appointments</option><option value="stage">Stage history</option><option value="audit">Audit log</option></select></label>
+        <label className="history-search"><span>Search this lead's history</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search notes, outcomes, actions…" /></label>
+        <Badge tone="neutral">{visible.length} shown</Badge>
+      </div>
+      {visible.length ? (
+        <div className="full-history-timeline">
+          {visible.map((event) => (
+            <article className={`full-history-event history-${event.category.replaceAll("-", "_")}`} key={event.id}>
+              <span className="full-history-marker" />
+              <div className="full-history-body">
+                <header><strong>{event.title}</strong><Badge tone={event.category === "conversation" ? "blue" : event.category === "audit" ? "neutral" : event.category === "follow-up" ? "amber" : "green"}>{human(event.category)}</Badge><span className="full-history-date">{dateTime(event.date, meta.timezone)}</span></header>
+                <p dir="auto">{event.detail}</p>
+                <small>Source · {event.source}</small>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : <Empty title="No matching history" description="Change the event filter or search text. The full record stays saved on this lead." />}
+    </Panel>
+  );
+}
+
 function ActivityDialog({
   lead,
   onClose,
@@ -1315,7 +1516,7 @@ function ReplyCapture({ lead }: { lead: LeadProfile }) {
   async function submit(e: FormEvent) {
     e.preventDefault();
     const response = await action.run(
-      () => post<any>(`/leads/${lead.id}/reply`, { text }),
+      () => post<NonNullable<typeof result>>(`/leads/${lead.id}/reply`, { text }),
       "Reply recorded. Nothing was sent.",
     );
     if (response) {
@@ -1368,7 +1569,7 @@ function LeadMessages({ lead }: { lead: LeadProfile }) {
   const client = useQueryClient();
   const messages = useQuery({
     queryKey: ["messages", lead.id],
-    queryFn: () => api<any[]>(`/messages?lead_id=${lead.id}`),
+    queryFn: () => api<MessageDraft[]>(`/messages?lead_id=${lead.id}`),
   });
   const suggestions = useQuery({
     queryKey: ["suggested-actions", lead.id],
@@ -1481,9 +1682,7 @@ function LeadMessages({ lead }: { lead: LeadProfile }) {
 
 function VendorContextPanel({ lead }: { lead: LeadProfile }) {
   const flags = Object.entries(lead.ds_flags || {}).filter(([, v]) => v);
-  const priority = (lead as any).priority as
-    | { score: number; factors: string[] }
-    | undefined;
+  const priority = lead.priority;
   const hasContext =
     lead.score !== null ||
     lead.heat ||

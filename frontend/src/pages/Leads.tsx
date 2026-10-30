@@ -7,6 +7,8 @@ import {
   Bookmark,
   Check,
   Filter,
+  LayoutGrid,
+  List,
   Plus,
   Search,
   ShieldAlert,
@@ -33,7 +35,7 @@ import {
   useWorkspace,
 } from "../components";
 import { dateTime, download, human, post } from "../api";
-import type { LeadPage } from "../types";
+import type { Lead, LeadBoard, LeadPage } from "../types";
 
 export default function Leads() {
   const { meta, toast } = useWorkspace();
@@ -55,9 +57,18 @@ export default function Leads() {
   });
   const page = Number(params.get("page") || 1);
   const pageSize = 25;
+  const boardMode = params.get("view") === "board";
+  const [boardLimit, setBoardLimit] = useState(40);
   const query = new URLSearchParams(params);
   query.set("page_size", String(pageSize));
-  const data = useData<LeadPage>("leads", "/leads?" + query.toString());
+  const data = useData<LeadPage>("leads", "/leads?" + query.toString(), !boardMode);
+  const boardQuery = new URLSearchParams(params);
+  boardQuery.delete("page");
+  boardQuery.delete("view");
+  boardQuery.delete("sort");
+  boardQuery.delete("direction");
+  boardQuery.set("limit_per_stage", String(boardLimit));
+  const board = useData<LeadBoard>("lead-board", "/leads/board?" + boardQuery.toString(), boardMode);
   useEffect(() => {
     const timer = setTimeout(() => {
       if (search !== (params.get("search") || "")) {
@@ -65,6 +76,7 @@ export default function Leads() {
         if (search) p.set("search", search);
         else p.delete("search");
         p.delete("page");
+        setBoardLimit(40);
         setParams(p, { replace: true });
       }
     }, 300);
@@ -78,6 +90,7 @@ export default function Leads() {
     if (value) p.set(key, value);
     else p.delete(key);
     p.delete("page");
+    if (key !== "view") setBoardLimit(40);
     setParams(p);
   }
   const [saveName, setSaveName] = useState("");
@@ -97,7 +110,7 @@ export default function Leads() {
     <>
       <PageHeader
         eyebrow="SELLER RELATIONSHIPS"
-        title="Seller leads"
+        title={boardMode ? `Active leads (${board.data?.total ?? "…"})` : `Seller leads (${data.data?.total ?? "…"})`}
         description="Every seller. Every property. All the context in one place."
         actions={
           <>
@@ -166,6 +179,22 @@ export default function Leads() {
             <Filter size={15} />
             More filters
           </Button>
+          <div className="lead-view-toggle" role="group" aria-label="Lead layout">
+            <Button
+              variant={boardMode ? "secondary" : "ghost"}
+              aria-pressed={boardMode}
+              onClick={() => filter("view", "board")}
+            >
+              <LayoutGrid size={15} /> Board
+            </Button>
+            <Button
+              variant={!boardMode ? "secondary" : "ghost"}
+              aria-pressed={!boardMode}
+              onClick={() => filter("view", "")}
+            >
+              <List size={15} /> List
+            </Button>
+          </div>
           <Button
             variant="ghost"
             aria-label="Save current filter"
@@ -333,7 +362,7 @@ export default function Leads() {
         <div className="filter-chips">
           {[...params.entries()]
             .filter(
-              ([k]) => !["page", "sort", "direction", "search"].includes(k),
+              ([k]) => !["page", "sort", "direction", "search", "view"].includes(k),
             )
             .map(([k, v]) => (
               <button key={k} onClick={() => filter(k, "")}>
@@ -390,7 +419,39 @@ export default function Leads() {
             <span>No CRM writes</span>
           </div>
         )}
-        {data.isPending ? (
+        {boardMode ? (
+          board.isPending ? (
+            <Loading />
+          ) : board.isError ? (
+            <ErrorState error={board.error} retry={() => board.refetch()} />
+          ) : (
+            <div className="lead-board-wrap">
+              <div className="lead-board-summary">
+                <div><strong>{board.data.total}</strong> matching leads across the pipeline</div>
+                <span>Drag-free local view · open a lead to update its stage safely</span>
+              </div>
+              <div className="lead-board-columns">
+                {board.data.stages.map((stage) => (
+                  <section className="lead-board-column" key={stage.code}>
+                    <header>
+                      <span className={`lead-board-dot stage-${stage.code}`} />
+                      <strong>{stage.label}</strong>
+                      <span className="lead-board-count">{stage.count}</span>
+                    </header>
+                    <div className="lead-board-cards">
+                      {stage.items.length ? stage.items.map((lead) => <BoardLeadCard key={lead.id} lead={lead} listQuery={params.toString()} />) : <div className="lead-board-empty">No leads in this stage</div>}
+                    </div>
+                    {stage.count > stage.items.length && (
+                      <Button variant="ghost" className="lead-board-more" onClick={() => setBoardLimit((value) => Math.min(200, value + 40))}>
+                        Load more · showing {stage.items.length} of {stage.count}
+                      </Button>
+                    )}
+                  </section>
+                ))}
+              </div>
+            </div>
+          )
+        ) : data.isPending ? (
           <Loading />
         ) : data.isError ? (
           <ErrorState error={data.error} retry={() => data.refetch()} />
@@ -487,7 +548,7 @@ export default function Leads() {
                         />
                       </td>
                       <td>
-                        <Link className="seller-cell" to={`/leads/${l.id}`}>
+                        <Link className="seller-cell" to={`/leads/${l.id}`} state={{ leadListQuery: params.toString() }}>
                           <span className={`seller-avatar color-${i % 4}`}>
                             {(l.full_name || "?")
                               .split(" ")
@@ -610,6 +671,7 @@ export default function Leads() {
                         <Link
                           className="table-arrow"
                           to={`/leads/${l.id}`}
+                          state={{ leadListQuery: params.toString() }}
                           aria-label={`Open ${l.full_name || "Owner identity unknown"}`}
                         >
                           <ArrowRight size={16} />
@@ -668,6 +730,29 @@ export default function Leads() {
     </>
   );
 }
+function BoardLeadCard({ lead, listQuery }: { lead: Lead; listQuery: string }) {
+  const address = lead.properties[0]?.street_address || "Property address not recorded";
+  return (
+    <article className="lead-board-card">
+      <Link to={`/leads/${lead.id}`} state={{ leadListQuery: listQuery }} className="lead-board-card-link">
+        <div className="lead-board-card-top">
+          <span>{lead.full_name || "Owner identity unknown"}</span>
+          {lead.heat && lead.heat !== "NONE" ? <Badge tone={lead.heat === "VERY_HOT" ? "red" : "amber"}>{lead.heat === "VERY_HOT" ? "Very hot" : "Hot"}</Badge> : null}
+        </div>
+        <p>{address}</p>
+        <div className="lead-board-card-meta">
+          <span>{lead.primary_phone || lead.phone2 || "Phone missing"}</span>
+          {lead.priority_tier ? <Badge>{lead.priority_tier}</Badge> : null}
+        </div>
+        <div className="lead-board-card-footer">
+          <span>{lead.next_followup_at ? <>Next · <Timestamp value={lead.next_followup_at} dateOnly /></> : "No follow-up date"}</span>
+          {lead.do_not_contact ? <RestrictionBadge status={lead.restriction_status} /> : null}
+        </div>
+      </Link>
+    </article>
+  );
+}
+
 function BulkStage({ ids, onClose }: { ids: number[]; onClose: () => void }) {
   const { meta } = useWorkspace();
   const action = useAction();
@@ -784,7 +869,15 @@ function BulkRestrictionReview({
             e.preventDefault();
             const r = await action.run(
               () =>
-                post<any>("/leads/restrictions/bulk", {
+                post<{
+                  reviewed: number;
+                  already_reviewed: number;
+                  blocked: { id: number; reason: string }[];
+                  missing: number[];
+                  restricted: boolean;
+                  evidence: string;
+                  never_sent: boolean;
+                }>("/leads/restrictions/bulk", {
                   lead_ids: ids,
                   restricted,
                   evidence: evidence.trim(),
