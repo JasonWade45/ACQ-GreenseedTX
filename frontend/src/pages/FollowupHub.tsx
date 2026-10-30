@@ -273,7 +273,7 @@ function FollowupCard({ item }: { item: FollowupWorkbenchItem }) {
         <div className="followup-blocker"><ShieldAlert size={18} /><div><strong>Outreach draft blocked</strong><p>{lead.do_not_contact ? "This lead is marked Do Not Contact." : lead.restriction_status !== "reviewed_clear" ? "Contact permission is not marked reviewed and clear." : lead.needs_skip_trace ? "Complete skip trace before outreach." : "A phone number is needed for this workflow."} Review the lead profile and your approved contact rules.</p></div></div>
       ) : (
         <section className="followup-message-section">
-          <div className="followup-message-title"><div><div className="followup-section-label">SUGGESTED MESSAGE · EDIT BEFORE USE</div><span>{item.sent_count === 0 ? "First message: includes your name and role" : "Later touch: company included, your name omitted"}</span></div><Badge tone="purple">{item.last_activity ? "Context-aware draft" : "Starter draft"}</Badge></div>
+          <div className="followup-message-title"><div><div className="followup-section-label">SUGGESTED MESSAGE · EDIT BEFORE USE</div><span>{item.sent_count === 0 ? "First outreach: asks if they’re open to selling" : "Later touch: company included, your name omitted"}</span></div><Badge tone="purple">{item.last_activity ? "Context-aware draft" : "Starter draft"}</Badge></div>
           <textarea aria-label={`Suggested follow-up message for ${sellerName || "seller"}`} value={message} onChange={(event) => setMessage(event.target.value)} rows={7} />
           <div className="followup-message-actions">
             <Button variant="secondary" disabled={!message.trim()} onClick={() => void copy(message, "message")}>
@@ -293,10 +293,18 @@ function FollowupCard({ item }: { item: FollowupWorkbenchItem }) {
 
 export function createMessage(item: FollowupWorkbenchItem) {
   const lead = item.lead;
+  const firstTouch = item.sent_count === 0;
   const firstName = getSellerFirstName(lead) || "there";
   const propertyAddress = getPropertyAddress(lead.properties[0]);
   const activity = item.last_activity;
-  const opening = activity?.outcome === "Callback Requested"
+  const saleQuestion = firstTouch
+    ? propertyAddress
+      ? `Would you be open to selling the property at ${propertyAddress}?`
+      : "Would you be open to selling your property?"
+    : propertyAddress
+      ? `Are you still interested in selling the property at ${propertyAddress}?`
+      : "Are you still interested in selling your property?";
+  const activityOpening = activity?.outcome === "Callback Requested"
     ? "You had asked me to follow up, so I wanted to check whether now is a good time to reconnect."
     : activity?.source_metadata?.followup_hub_touch === true || activity?.direction === "outbound"
       ? "I’m checking back on my last message. Would you prefer a quick call or a text reply?"
@@ -304,14 +312,15 @@ export function createMessage(item: FollowupWorkbenchItem) {
         ? "Thanks for getting back to me. I wanted to follow up and see what would be most helpful for you."
         : activity?.activity_type === "call" && activity.outcome === "Connected"
           ? "I’m following up on our recent call. Do you have any questions I can help answer?"
-          : "Would this be a good time to talk?";
-  const introduction = item.sent_count === 0
+          : saleQuestion;
+  const introduction = firstTouch
     ? "I’m Jason Wade, the Acquisition Manager with GreenSeedTX LLC."
     : "I’m with GreenSeedTX LLC.";
-  const propertyReference = propertyAddress
-    ? `I’m following up about the property at ${propertyAddress}.`
-    : "I’m following up about your property.";
-  return `Hi ${firstName},\n\n${introduction} ${propertyReference} ${opening}`;
+  const opening = firstTouch || !activity ? saleQuestion : activityOpening;
+  const propertyReference = !firstTouch && activity && propertyAddress && activityOpening !== saleQuestion
+    ? ` I’m following up about the property at ${propertyAddress}.`
+    : "";
+  return `Hi ${firstName},\n\n${introduction}${propertyReference} ${opening}`;
 }
 
 export function getSellerName(lead: FollowupWorkbenchItem["lead"]) {

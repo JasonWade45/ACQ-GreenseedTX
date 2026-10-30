@@ -56,11 +56,14 @@ describe("follow-up identity and message copy", () => {
     );
     expect(message).toContain("I’m Jason Wade, the Acquisition Manager");
     expect(message).toContain("GreenSeedTX LLC");
+    expect(message).toContain("Would you be open to selling the property at 6021 Driscoll Ln");
+    expect(message).not.toContain("still interested");
   });
 
   it("keeps Jason's name out of later touches", () => {
     const message = createMessage(makeItem({ sentCount: 1 }));
     expect(message).toContain("GreenSeedTX LLC");
+    expect(message).toContain("Are you still interested in selling the property at 6021 Driscoll Ln");
     expect(message).not.toContain("Jason Wade");
     expect(message).not.toContain("Acquisition Manager");
   });
