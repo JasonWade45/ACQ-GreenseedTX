@@ -304,23 +304,20 @@ export function createMessage(item: FollowupWorkbenchItem) {
     : propertyAddress
       ? `Are you still interested in selling the property at ${propertyAddress}?`
       : "Are you still interested in selling your property?";
-  const activityOpening = activity?.outcome === "Callback Requested"
-    ? "You had asked me to follow up, so I wanted to check whether now is a good time to reconnect."
+  const activityContext = activity?.outcome === "Callback Requested"
+    ? "You had asked me to follow up."
     : activity?.source_metadata?.followup_hub_touch === true || activity?.direction === "outbound"
-      ? "I’m checking back on my last message. Would you prefer a quick call or a text reply?"
+      ? "I’m checking back on my last message."
       : activity?.direction === "inbound"
-        ? "Thanks for getting back to me. I wanted to follow up and see what would be most helpful for you."
+        ? "Thanks for getting back to me."
         : activity?.activity_type === "call" && activity.outcome === "Connected"
-          ? "I’m following up on our recent call. Do you have any questions I can help answer?"
-          : saleQuestion;
+          ? "I’m following up on our recent call."
+          : "";
   const introduction = firstTouch
     ? "I’m Jason Wade, the Acquisition Manager with GreenSeedTX LLC."
     : "I’m with GreenSeedTX LLC.";
-  const opening = firstTouch || !activity ? saleQuestion : activityOpening;
-  const propertyReference = !firstTouch && activity && propertyAddress && activityOpening !== saleQuestion
-    ? ` I’m following up about the property at ${propertyAddress}.`
-    : "";
-  return `Hi ${firstName},\n\n${introduction}${propertyReference} ${opening}`;
+  const opening = `${activityContext ? `${activityContext} ` : ""}${saleQuestion}`;
+  return `Hi ${firstName},\n\n${introduction} ${opening}`;
 }
 
 export function getSellerName(lead: FollowupWorkbenchItem["lead"]) {
