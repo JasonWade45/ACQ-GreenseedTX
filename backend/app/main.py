@@ -55,6 +55,7 @@ from .schemas import (
     AppointmentResult,
     MappingIn,
     ImportApproval,
+    ImportBatchPurge,
     DraftRequest,
     DraftEdit,
     BulkIn,
@@ -1252,6 +1253,73 @@ def eligible_import_ids(batch_id: int, db: DB):
         select(ImportRow.id).where(*base, ImportRow.duplicate_kind == "data_syndicate_refresh")
     )
     return {"row_ids": list(ids), "update_row_ids": list(refresh)}
+
+
+@app.delete("/api/imports/{batch_id}/purge")
+def purge_import_batch(batch_id: int, body: ImportBatchPurge, db: DB):
+    """Back up, then remove one reviewed import batch and only leads it created.
+
+    Explicitly linked pre-existing leads are preserved. Every created lead must still
+    carry this batch's provenance, and no row from another batch may refer to it.
+    """
+    expected = f"DELETE IMPORT BATCH {batch_id}"
+    if body.confirmation != expected:
+        raise HTTPException(400, f'Type "{expected}" to confirm this reset')
+    batch = found(db, ImportBatch, batch_id)
+    if batch.state == "importing":
+        raise HTTPException(409, "Wait for the local import to finish before resetting this batch")
+
+    rows = db.scalars(select(ImportRow).where(ImportRow.batch_id == batch.id)).all()
+    imported_rows = [row for row in rows if row.state == "imported"]
+    if any(row.lead_id is None for row in imported_rows):
+        raise HTTPException(409, "An imported row has no linked local lead; reset was stopped safely")
+    lead_ids = sorted({row.lead_id for row in imported_rows if row.lead_id is not None})
+    leads = [db.get(Lead, lead_id) for lead_id in lead_ids]
+    if any(lead is None or lead.import_batch_id != str(batch.id) for lead in leads):
+        raise HTTPException(409, "A batch lead no longer has matching import provenance; reset was stopped safely")
+    if lead_ids:
+        referenced_elsewhere = db.scalar(
+            select(func.count(ImportRow.id)).where(
+                ImportRow.batch_id != batch.id,
+                ImportRow.lead_id.in_(lead_ids),
+            )
+        )
+        if referenced_elsewhere:
+            raise HTTPException(409, "Another import batch refers to one of these leads; reset was stopped safely")
+
+    try:
+        safety_backup = backup_service.create_backup(get_settings().database_url, reason="manual")
+    except Exception as error:
+        logger.exception("Could not create a safety backup before import reset")
+        raise HTTPException(500, "Safety backup failed; no import data was deleted") from error
+
+    # Preserve the audit trail while detaching it from leads about to be removed.
+    audit_entries = db.scalars(select(AuditLog).where(AuditLog.lead_id.in_(lead_ids))).all() if lead_ids else []
+    for entry in audit_entries:
+        entry.lead_id = None
+    for row in rows:
+        db.delete(row)
+    db.flush()
+    for lead in leads:
+        db.delete(lead)
+    db.delete(batch)
+    db.add(
+        AuditLog(
+            action="import_batch_purged",
+            details={
+                "batch_id": batch_id,
+                "deleted_rows": len(rows),
+                "deleted_created_leads": len(leads),
+                "safety_backup": safety_backup.name,
+            },
+        )
+    )
+    db.commit()
+    return {
+        "deleted_rows": len(rows),
+        "deleted_created_leads": len(leads),
+        "safety_backup": safety_backup.name,
+    }
 
 
 @app.post("/api/imports/{batch_id}/preview")

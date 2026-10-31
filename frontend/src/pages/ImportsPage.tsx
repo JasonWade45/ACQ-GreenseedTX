@@ -14,6 +14,7 @@ import {
   LockKeyhole,
   Play,
   ShieldCheck,
+  Trash2,
   Upload,
 } from "lucide-react";
 import {
@@ -97,7 +98,14 @@ export default function ImportsPage() {
             <ArrowLeft size={14} />
             Import history & upload
           </button>
-          <BatchView key={batchId} id={Number(batchId)} />
+          <BatchView
+            key={batchId}
+            id={Number(batchId)}
+            onDeleted={() => {
+              setParams({});
+              void batches.refetch();
+            }}
+          />
         </>
       ) : (
         <>
@@ -305,7 +313,7 @@ export default function ImportsPage() {
     </>
   );
 }
-function BatchView({ id }: { id: number }) {
+function BatchView({ id, onDeleted }: { id: number; onDeleted: () => void }) {
   const [page, setPage] = useState(1);
   const data = useData<ImportBatch>(
     "import-batch",
@@ -314,16 +322,25 @@ function BatchView({ id }: { id: number }) {
   if (data.isPending) return <Loading />;
   if (data.isError)
     return <ErrorState error={data.error} retry={() => data.refetch()} />;
-  return <BatchWorkspace batch={data.data} page={page} setPage={setPage} />;
+  return (
+    <BatchWorkspace
+      batch={data.data}
+      page={page}
+      setPage={setPage}
+      onDeleted={onDeleted}
+    />
+  );
 }
 function BatchWorkspace({
   batch: b,
   page,
   setPage,
+  onDeleted,
 }: {
   batch: ImportBatch;
   page: number;
   setPage: (p: number) => void;
+  onDeleted: () => void;
 }) {
   const { meta } = useWorkspace();
   const action = useAction();
@@ -350,6 +367,8 @@ function BatchWorkspace({
   const [selectionFeedback, setSelectionFeedback] = useState("");
   const [mappingOpen, setMappingOpen] = useState(b.state === "uploaded");
   const [rowDetail, setRowDetail] = useState<BatchRow | null>(null);
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [purgeConfirmation, setPurgeConfirmation] = useState("");
   const headers = [...new Set(sheets.flatMap((s) => b.sheets[s].headers))];
   const rows = b.rows || [];
   const readied = b.state !== "uploaded";
@@ -412,6 +431,23 @@ function BatchWorkspace({
         : `No unmatched new rows are available to select. ${duplicates} row(s) are duplicate candidates, not new leads. For an exact same-seller match, select that row, choose Link, and opt into filling empty local fields; keep different sellers separate.`,
     );
   }
+  async function purgeBatch() {
+    const result = await action.run(() =>
+      api<{ deleted_rows: number; deleted_created_leads: number; safety_backup: string }>(
+        `/imports/${b.id}/purge`,
+        {
+          method: "DELETE",
+          body: JSON.stringify({ confirmation: purgeConfirmation }),
+        },
+      ),
+      "Batch reset complete; a safety backup was created",
+    );
+    if (result) {
+      setPurgeOpen(false);
+      setPurgeConfirmation("");
+      onDeleted();
+    }
+  }
   return (
     <>
       <div className="batch-title">
@@ -427,9 +463,19 @@ function BatchWorkspace({
             </p>
           </div>
         </div>
-        <Badge tone={b.state === "completed" ? "green" : "blue"}>
-          {human(b.state)}
-        </Badge>
+        <div className="row wrap">
+          <Badge tone={b.state === "completed" ? "green" : "blue"}>
+            {human(b.state)}
+          </Badge>
+          <Button
+            variant="danger"
+            onClick={() => setPurgeOpen(true)}
+            disabled={action.busy}
+          >
+            <Trash2 size={15} />
+            Reset this import batch
+          </Button>
+        </div>
       </div>
       <div className="stepper">
         {[
@@ -974,6 +1020,58 @@ function BatchWorkspace({
               <Button busy={action.busy} type="submit">
                 <Check size={16} />
                 Approve local writes
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+      {purgeOpen && (
+        <Modal
+          title="Reset this import batch"
+          subtitle={`Batch #${b.id} · ${b.row_count.toLocaleString()} source rows`}
+          onClose={() => setPurgeOpen(false)}
+        >
+          <form
+            className="form-stack"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void purgeBatch();
+            }}
+          >
+            <Notice tone="danger">
+              This permanently removes this batch and the {b.counts.imported || 0} local seller records it created for GreenSeedTX LLC. Any linked existing leads are preserved; activities, follow-ups, and other history attached to the deleted leads are removed too. A database backup is created first. Nothing is sent to REsimpli.
+            </Notice>
+            <p>
+              All {b.row_count.toLocaleString()} batch review rows, including
+              duplicate candidates, will be deleted. Other batches and leads
+              are left untouched.
+            </p>
+            <Field label={`Type DELETE IMPORT BATCH ${b.id} to confirm`}>
+              <input
+                autoFocus
+                required
+                value={purgeConfirmation}
+                onChange={(e) => setPurgeConfirmation(e.target.value)}
+                placeholder={`DELETE IMPORT BATCH ${b.id}`}
+              />
+            </Field>
+            {action.error && <Notice tone="danger">{action.error}</Notice>}
+            <div className="modal-actions">
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => setPurgeOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                busy={action.busy}
+                type="submit"
+                disabled={purgeConfirmation !== `DELETE IMPORT BATCH ${b.id}`}
+              >
+                <Trash2 size={16} />
+                Create backup & reset batch
               </Button>
             </div>
           </form>

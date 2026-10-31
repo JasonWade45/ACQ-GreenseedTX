@@ -115,6 +115,10 @@ class ImportApproval(StrictModel):
     destination: Literal["local"] = "local"
 
 
+class ImportBatchPurge(StrictModel):
+    confirmation: str = Field(min_length=1, max_length=100)
+
+
 class DraftIn(StrictModel):
     regenerate: bool = False
 

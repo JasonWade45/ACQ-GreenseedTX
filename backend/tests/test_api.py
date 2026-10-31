@@ -181,6 +181,51 @@ def test_csv_and_xlsx_import_preview_and_approval(client):
         assert client.post(f"/api/imports/{batch['id']}/external").status_code == 409
 
 
+def test_import_batch_reset_backs_up_and_removes_only_batch_created_leads(client, make_lead, monkeypatch, tmp_path):
+    from app.main import backup_service
+
+    backup_path = tmp_path / "safety-copy.sqlite"
+    monkeypatch.setattr(backup_service, "create_backup", lambda *args, **kwargs: backup_path)
+    protected = make_lead(name="Pre-existing Seller", phone="+12025550999")
+    filename = "sample-seller-leads.csv"
+    uploaded = client.post(
+        "/api/imports/upload",
+        files={"file": (filename, (ROOT / "examples" / filename).read_bytes())},
+    )
+    batch = uploaded.json()
+    mapping = batch["sheets"]["CSV"]["suggested_mapping"]
+    preview = client.post(
+        f"/api/imports/{batch['id']}/preview",
+        json={"sheets": ["CSV"], "mapping": mapping},
+    )
+    assert preview.status_code == 200
+    row_ids = client.get(f"/api/imports/{batch['id']}/eligible-ids").json()["row_ids"]
+    approved = client.post(
+        f"/api/imports/{batch['id']}/approve",
+        json={"row_ids": row_ids, "confirmation": "IMPORT LOCAL"},
+    )
+    assert approved.status_code == 200
+
+    rejected = client.request(
+        "DELETE",
+        f"/api/imports/{batch['id']}/purge",
+        json={"confirmation": "DELETE IMPORT BATCH 999"},
+    )
+    assert rejected.status_code == 400
+    result = client.request(
+        "DELETE",
+        f"/api/imports/{batch['id']}/purge",
+        json={"confirmation": f"DELETE IMPORT BATCH {batch['id']}"},
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["deleted_created_leads"] == 6
+    assert result.json()["deleted_rows"] == batch["row_count"]
+    assert result.json()["safety_backup"] == backup_path.name
+    assert client.get(f"/api/imports/{batch['id']}").status_code == 404
+    assert client.get("/api/leads").json()["total"] == 1
+    assert client.get(f"/api/leads/{protected.id}").status_code == 200
+
+
 def test_import_rejected_export_is_formula_safe(client):
     content = b'Name,Phone,Notes\n,invalid,=WEBSERVICE("x")\n'
     b = client.post("/api/imports/upload", files={"file": ("bad.csv", content)}).json()
