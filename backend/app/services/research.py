@@ -20,19 +20,53 @@ def display_name(lead):
     )
 
 
+def _placeholder_seller_name(value):
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    if normalized in {
+        "owner",
+        "seller",
+        "homeowner",
+        "unknown",
+        "unknown owner",
+        "owner unknown",
+        "owner identity unknown",
+        "seller unknown",
+        "seller name not recorded",
+        "not recorded",
+        "not available",
+        "n a",
+        "na",
+        "none",
+        "null",
+    }:
+        return True
+    # Older imports sometimes stored the display fallback as "Owner — <address>".
+    return bool(re.match(r"^(?:owner|seller|homeowner)(?: unknown)?\s+\d{1,6}\b", normalized))
+
+
 def fill_empty_fields(db, lead, data, provenance):
     # A property match is not proof of the same person. Never fill across a known identity conflict.
+    name_fields = {"full_name", "first_name", "last_name"}
     for field in ("full_name", "primary_phone", "email"):
         old, new = getattr(lead, field), data.get(field)
-        if old and new and re.sub(r"\W", "", old.lower()) != re.sub(r"\W", "", str(new).lower()):
+        old_is_missing_name = field in name_fields and _placeholder_seller_name(old)
+        new_is_missing_name = field in name_fields and _placeholder_seller_name(new)
+        if old and not old_is_missing_name and new and not new_is_missing_name and re.sub(r"\W", "", old.lower()) != re.sub(r"\W", "", str(new).lower()):
             raise ValueError("Conflicting seller identity: review separately; missing fields were not filled")
     enriched = deepcopy(lead.source_data.get("local_enrichment", {}))
     changed = []
     for field in ("full_name", "first_name", "last_name", "primary_phone", "email", "lead_source", "assigned_manager"):
-        if not getattr(lead, field) and data.get(field) not in (None, ""):
-            setattr(lead, field, data[field])
-            enriched[field] = {"value": data[field], "provenance": provenance, "recorded_at": utcnow().isoformat()}
+        current, incoming = getattr(lead, field), data.get(field)
+        current_is_missing_name = field in name_fields and _placeholder_seller_name(current)
+        incoming_is_missing_name = field in name_fields and _placeholder_seller_name(incoming)
+        if (not current or current_is_missing_name) and incoming not in (None, "") and not incoming_is_missing_name:
+            setattr(lead, field, incoming)
+            enriched[field] = {"value": incoming, "provenance": provenance, "recorded_at": utcnow().isoformat()}
             changed.append(field)
+    if lead.needs_skip_trace and lead.full_name and lead.primary_phone:
+        lead.needs_skip_trace = False
+        enriched["needs_skip_trace"] = {"value": False, "provenance": provenance, "recorded_at": utcnow().isoformat()}
+        changed.append("needs_skip_trace")
     for field in ("seller_motivation", "notes"):
         if data.get(field) and not lead.source_data.get("normalized", {}).get(field) and field not in enriched:
             enriched[field] = {"value": data[field], "provenance": provenance, "recorded_at": utcnow().isoformat()}

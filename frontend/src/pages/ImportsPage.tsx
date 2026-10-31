@@ -347,6 +347,7 @@ function BatchWorkspace({
   const [approve, setApprove] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [fillMissing, setFillMissing] = useState(false);
+  const [selectionFeedback, setSelectionFeedback] = useState("");
   const [mappingOpen, setMappingOpen] = useState(b.state === "uploaded");
   const [rowDetail, setRowDetail] = useState<BatchRow | null>(null);
   const headers = [...new Set(sheets.flatMap((s) => b.sheets[s].headers))];
@@ -386,6 +387,30 @@ function BatchWorkspace({
       setConfirmation("");
       setSelected([]);
     }
+  }
+  async function selectAllNewRecords() {
+    setSelectionFeedback("");
+    const result = await action.run(() =>
+      api<{ row_ids: number[]; update_row_ids: number[] }>(
+        `/imports/${b.id}/eligible-ids`,
+      ),
+    );
+    if (!result) return;
+    setSelected(result.row_ids);
+    if (result.row_ids.length) {
+      setSelectionFeedback(
+        `${result.row_ids.length} unmatched new record(s) selected. Existing matches stay unselected for review.`,
+      );
+      return;
+    }
+    const duplicates = b.counts.duplicates || 0;
+    const refreshable = result.update_row_ids.length;
+    setSelectionFeedback(
+      refreshable
+        ? `No new rows are eligible. ${refreshable} Data Syndicate refresh row(s) need an explicit per-row update resolution. ` +
+            "For a matching existing seller, select its row, choose the correct duplicate resolution, then opt into filling empty local fields."
+        : `No unmatched new rows are available to select. ${duplicates} row(s) are duplicate candidates, not new leads. For an exact same-seller match, select that row, choose Link, and opt into filling empty local fields; keep different sellers separate.`,
+    );
   }
   return (
     <>
@@ -618,14 +643,8 @@ function BatchWorkspace({
               <div className="row">
                 <Button
                   variant="ghost"
-                  onClick={async () => {
-                    const result = await action.run(() =>
-                      api<{ row_ids: number[] }>(
-                        `/imports/${b.id}/eligible-ids`,
-                      ),
-                    );
-                    if (result) setSelected(result.row_ids);
-                  }}
+                  busy={action.busy}
+                  onClick={() => void selectAllNewRecords()}
                 >
                   Select all new records
                 </Button>
@@ -633,6 +652,13 @@ function BatchWorkspace({
               </div>
             }
           >
+            {selectionFeedback && (
+              <div aria-live="polite" className="import-selection-feedback">
+                <Notice tone={selected.length ? "info" : "warning"}>
+                  {selectionFeedback}
+                </Notice>
+              </div>
+            )}
             <div className="table-wrap import-preview">
               <table>
                 <thead>
