@@ -212,6 +212,35 @@ def test_reviewed_empty_field_fill_is_provenanced_not_overwrite(db, make_lead, s
         fill_empty_fields(db, lead, {"full_name": "Different Person", "county": "Different"}, {})
 
 
+def test_reviewed_import_replaces_owner_placeholder_with_recorded_name(db, make_lead):
+    lead = make_lead(name="Owner — 711 Rowe St", phone=None)
+    lead.first_name = "Owner"
+    lead.needs_skip_trace = True
+    prop = lead.properties[0]
+    db.commit()
+
+    changed = fill_empty_fields(
+        db,
+        lead,
+        {
+            "full_name": "Martha Brown",
+            "first_name": "Martha",
+            "last_name": "Brown",
+            "primary_phone": "+12025550124",
+            "normalized_address": prop.normalized_address,
+        },
+        {"batch_id": 44, "row_id": 9},
+    )
+    db.commit()
+
+    assert lead.full_name == "Martha Brown"
+    assert lead.first_name == "Martha"
+    assert lead.last_name == "Brown"
+    assert lead.primary_phone == "+12025550124"
+    assert lead.needs_skip_trace is False
+    assert {"full_name", "first_name", "last_name", "primary_phone", "needs_skip_trace"}.issubset(changed)
+
+
 def test_merge_backup_first_no_auto_writes_and_idempotency(db, tmp_path, make_lead):
     existing = make_lead(name="Current Example", phone="+12025550192")
     source = legacy_database(tmp_path / "source.db")
