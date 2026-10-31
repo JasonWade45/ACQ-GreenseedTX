@@ -48,6 +48,24 @@ describe("follow-up identity and message copy", () => {
         makeItem({ fullName: "Owner", firstName: "Maria", lastName: "Lopez" }).lead,
       ),
     ).toBe("Maria Lopez");
+    expect(
+      getSellerName(
+        makeItem({
+          fullName: "Owner — 1320 Beech Chapel Rd",
+          firstName: "Owner",
+          lastName: null,
+        }).lead,
+      ),
+    ).toBeNull();
+    expect(
+      createMessage(
+        makeItem({
+          fullName: "Owner — 1320 Beech Chapel Rd",
+          firstName: "Owner",
+          lastName: null,
+        }),
+      ).startsWith("Hi there,\n"),
+    ).toBe(true);
   });
 
   it("greets the seller before naming the property and uses the approved first-touch identity", () => {

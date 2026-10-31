@@ -22,6 +22,7 @@ import {
   Empty,
   ErrorState,
   Loading,
+  Notice,
   PageHeader,
   RestrictionBadge,
   StageBadge,
@@ -274,6 +275,7 @@ function FollowupCard({ item }: { item: FollowupWorkbenchItem }) {
       ) : (
         <section className="followup-message-section">
           <div className="followup-message-title"><div><div className="followup-section-label">SUGGESTED MESSAGE · EDIT BEFORE USE</div><span>{item.sent_count === 0 ? "First outreach: asks if they’re open to selling" : "Later touch: company included, your name omitted"}</span></div><Badge tone="purple">{item.last_activity ? "Context-aware draft" : "Starter draft"}</Badge></div>
+          {!sellerName && <Notice tone="warning">The seller’s real name is not recorded. This draft uses a neutral greeting instead of treating “Owner” as a name; add a verified name from your source if available.</Notice>}
           <textarea aria-label={`Suggested follow-up message for ${sellerName || "seller"}`} value={message} onChange={(event) => setMessage(event.target.value)} rows={7} />
           <div className="followup-message-actions">
             <Button variant="secondary" disabled={!message.trim()} onClick={() => void copy(message, "message")}>
@@ -339,8 +341,13 @@ function getSellerFirstName(lead: FollowupWorkbenchItem["lead"]) {
 }
 
 function isPlaceholderName(value: string) {
-  const normalized = value.toLowerCase().replace(/[._-]+/g, " ").trim();
-  return PLACEHOLDER_NAMES.has(normalized);
+  const raw = value.toLowerCase().trim();
+  const normalized = raw.replace(/[._–—-]+/g, " ").replace(/\s+/g, " ").trim();
+  return (
+    PLACEHOLDER_NAMES.has(normalized) ||
+    /^(?:owner|seller|homeowner)(?: unknown)?\s+\d{1,6}\b/.test(normalized) ||
+    /^(?:owner|seller|homeowner)\s*[-–—]\s*\S/.test(raw)
+  );
 }
 
 function getPropertyAddress(property: FollowupWorkbenchItem["lead"]["properties"][number] | undefined) {
