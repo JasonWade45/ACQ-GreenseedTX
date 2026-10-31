@@ -47,6 +47,7 @@ from .schemas import (
     NoteIn,
     FollowupIn,
     FollowupAction,
+    FollowupSentIn,
     StageIn,
     RestrictionIn,
     AppointmentIn,
@@ -90,6 +91,7 @@ from .services.leads import (
 )
 from .services.operations import daily_queue, complete_followup, priority_for
 from .services.operations import day_bounds as _day_bounds
+from .services import followup_strategy
 from .services.reporting import dashboard, reports, count_query
 from .services.normalization import FIELDS, csv_bytes
 from .services.imports import upload_batch, preview_batch, approve_batch
@@ -874,6 +876,23 @@ def create_followup(body: FollowupIn, db: DB):
     update_next_followup(db, lead_record)
     db.commit()
     return followup_dict(f)
+
+
+@app.post("/api/followups/{followup_id}/sent")
+def mark_followup_sent(followup_id: int, body: FollowupSentIn, db: DB):
+    if not body.confirm:
+        raise HTTPException(400, "Explicit confirmation is required")
+    f = found(db, Followup, followup_id)
+    try:
+        result = followup_strategy.mark_sent(db, f, body.message, body.channel)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {
+        "followup": followup_dict(result["followup"]),
+        "next_due": result["next_due"],
+        "completed_count": result["completed_count"],
+        "copy_only": True,
+    }
 
 
 @app.post("/api/followups/{followup_id}/action")

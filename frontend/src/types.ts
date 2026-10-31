@@ -345,10 +345,21 @@ export interface QueueItem {
   last_activity: Activity | null;
   reason: string;
   suggested_action: string;
+  suggested_message: string | null;
+  message_basis: string;
+  message_first: boolean;
+  message_channel: string;
+  conversation: string | null;
   priority: number;
   priority_factors: string[];
   evidence_quality: string;
   draft_available: boolean;
+}
+export interface FollowupStrategy {
+  name: string;
+  cadence_days: number[];
+  channels: string[];
+  rules: string[];
 }
 export interface Queue {
   sections: Record<string, QueueItem[]>;
@@ -358,6 +369,7 @@ export interface Queue {
   timezone: string;
   excluded_dnc: number;
   definition: string;
+  strategy: FollowupStrategy;
 }
 export interface Breakdown {
   label: string;

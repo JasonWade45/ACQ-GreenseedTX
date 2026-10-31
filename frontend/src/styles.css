@@ -10,7 +10,7 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  font-size: 13px;
+  font-size: 16px;
   --green: #27765c;
   --dark: #183c2d;
   --muted: #67765f;
@@ -5459,4 +5459,31 @@ td {
   .section-hint {
     display: none;
   }
+}
+
+/* Follow-up message + copy controls (larger, readable queue) */
+.followup-message {
+  margin-top: 0.85rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f7faf7;
+}
+.followup-message > p {
+  margin: 0.45rem 0 0.8rem;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: #1f3327;
+  white-space: pre-wrap;
+}
+.copy-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: 0.35rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--green);
+  font-size: 0.8rem;
 }

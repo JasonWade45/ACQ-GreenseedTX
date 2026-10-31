@@ -46,6 +46,12 @@ class FollowupIn(StrictModel):
     property_id: int | None = None
 
 
+class FollowupSentIn(StrictModel):
+    message: str = Field(min_length=5, max_length=1000)
+    channel: Literal["SMS", "Email", "Call note"] = "SMS"
+    confirm: bool = False
+
+
 class FollowupAction(StrictModel):
     action: Literal["complete", "reschedule", "cancel"]
     outcome: str | None = None

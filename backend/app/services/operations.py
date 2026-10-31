@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select, func
 from ..models import Lead, Activity, Followup, Appointment, AppSetting, AuditLog
 from ..db import utcnow
+from . import followup_strategy
 from .leads import (
     lead_dict,
     activity_dict,
@@ -108,7 +109,12 @@ def priority_for(lead, followup, rules, start, zone="America/New_York"):
 def daily_queue(db, zone, section=None, page=1, page_size=30):
     start, end = day_bounds(zone)
     rules = db.get(AppSetting, "priority_rules").value
-    leads = db.scalars(select(Lead).where(outreach_allowed_clause())).all()
+    leads = db.scalars(
+        select(Lead).where(
+            outreach_allowed_clause(),
+            Lead.stage_code.notin_({"dead", "closed", "under_contract"}),
+        )
+    ).all()
     activities = db.scalars(
         select(Activity).order_by(Activity.occurred_at.desc().nullslast(), Activity.id.desc())
     ).all()
@@ -118,6 +124,20 @@ def daily_queue(db, zone, section=None, page=1, page_size=30):
         if a.activity_type == "offer":
             latest_offer.setdefault(a.lead_id, a.outcome)
     follows = db.scalars(select(Followup).where(Followup.status == "pending")).all()
+    completed_counts = dict(
+        db.execute(
+            select(Followup.lead_id, func.count())
+            .where(Followup.status == "completed")
+            .group_by(Followup.lead_id)
+        ).all()
+    )
+    message_counts = dict(
+        db.execute(
+            select(Activity.lead_id, func.count())
+            .where(Activity.activity_type == "message")
+            .group_by(Activity.lead_id)
+        ).all()
+    )
     by_lead = {}
     for f in follows:
         by_lead.setdefault(f.lead_id, []).append(f)
@@ -141,12 +161,19 @@ def daily_queue(db, zone, section=None, page=1, page_size=30):
             score, factors = priority_for(lead, f, rules, start, zone)
             if lead.restriction_status == "unknown":
                 action = "Review contact permissions before any outreach. " + action
+            first = not completed_counts.get(lead.id) and not message_counts.get(lead.id)
+            message = followup_strategy.build_message(lead, last, first=first)
             return {
                 "lead": payload,
                 "followup": followup_dict(f) if f else None,
                 "last_activity": activity_dict(last) if last else None,
                 "reason": reason,
                 "suggested_action": (f.suggested_action if f and f.suggested_action else action),
+                "suggested_message": message["text"],
+                "message_basis": message["basis"],
+                "message_first": message["first_message"],
+                "message_channel": message["channel"],
+                "conversation": message["conversation"],
                 "priority": score,
                 "priority_factors": factors,
                 "evidence_quality": "Source/user data; deterministic rule",
@@ -266,6 +293,7 @@ def daily_queue(db, zone, section=None, page=1, page_size=30):
         "rules": rules,
         "timezone": zone,
         "excluded_dnc": db.scalar(select(func.count()).select_from(Lead).where(~outreach_allowed_clause())),
+        "strategy": followup_strategy.STRATEGY,
         "definition": "Overdue means a pending explicit due date before today’s local midnight. Today includes the entire local day. Unscheduled is never overdue. Leads with no verified owner name or phone appear only under Needs skip trace.",
     }
 

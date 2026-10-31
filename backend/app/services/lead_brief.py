@@ -219,3 +219,8 @@ def build_brief(lead, *, ai_summary: Optional[str] = None) -> str:
     if len(text) > MAX_BRIEF:
         text = text[: MAX_BRIEF - 3].rstrip() + "..."
     return text
+
+
+def playbook_for(lead):
+    """The public playbook entry (label, opening, ask-first, avoid) for this lead type."""
+    return PLAYBOOKS[_playbook_key(lead)]

@@ -12,11 +12,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app import models  # noqa: F401
-from app.db import SessionLocal
-from app.models import CrmNoteOutbox, Lead
-from app.services.crm_notes import structured_note
-from app.services.crm_push import PushSettings
+from app import models  # noqa: F401, E402
+from app.db import SessionLocal  # noqa: E402
+from app.models import CrmNoteOutbox, Lead  # noqa: E402
+from app.services.crm_notes import structured_note  # noqa: E402
+from app.services.crm_push import PushSettings  # noqa: E402
 
 REASON = "REsimpli's v6 Open API has no note endpoint; the brief is available in the app"
 

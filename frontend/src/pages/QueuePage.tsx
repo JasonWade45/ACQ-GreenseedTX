@@ -4,7 +4,10 @@ import {
   ArrowRight,
   CalendarClock,
   Check,
+  CheckCircle2,
   ChevronRight,
+  Copy,
+  Phone,
   Clock3,
   MessageSquareText,
   Plus,
@@ -30,10 +33,11 @@ import {
   RestrictionBadge,
   StageBadge,
   Timestamp,
+  useAction,
   useData,
   useWorkspace,
 } from "../components";
-import { human } from "../api";
+import { human, post } from "../api";
 import type { Followup, LeadPage, Queue, QueueItem } from "../types";
 
 export default function QueuePage() {
@@ -50,6 +54,7 @@ export default function QueuePage() {
     mode: "complete" | "reschedule" | "cancel";
   } | null>(null);
   const [rules, setRules] = useState(false);
+  const [strategy, setStrategy] = useState(false);
   const [add, setAdd] = useState(false);
   return (
     <>
@@ -62,6 +67,10 @@ export default function QueuePage() {
             <Button variant="secondary" onClick={() => setRules(!rules)}>
               <SlidersHorizontal size={16} />
               Priority rules
+            </Button>
+            <Button variant="secondary" onClick={() => setStrategy(!strategy)}>
+              <CalendarClock size={16} />
+              Follow-up strategy
             </Button>
             <Button onClick={() => setAdd(true)}>
               <Plus size={16} />
@@ -105,6 +114,25 @@ export default function QueuePage() {
               AI date is silently scheduled.{" "}
               <Link to="/settings">Configure rules</Link>
             </p>
+          </div>
+        </Notice>
+      )}
+      {strategy && data.data?.strategy && (
+        <Notice>
+          <div className="rules-list">
+            <strong>{data.data.strategy.name}</strong>
+            <p>
+              Cadence:{" "}
+              {data.data.strategy.cadence_days
+                .map((day) => `Day ${day}`)
+                .join(" → ")}{" "}
+              · Channels: {data.data.strategy.channels.join(", ")}
+            </p>
+            <ul>
+              {data.data.strategy.rules.map((rule) => (
+                <li key={rule}>{rule}</li>
+              ))}
+            </ul>
           </div>
         </Notice>
       )}
@@ -225,6 +253,26 @@ function TaskCard({
   onAction: (f: Followup, mode: "complete" | "reschedule" | "cancel") => void;
 }) {
   const l = item.lead;
+  const action = useAction();
+  const [copied, setCopied] = useState("");
+  async function copy(value: string | null | undefined, kind: string) {
+    if (!value) return;
+    await navigator.clipboard?.writeText(value);
+    setCopied(kind);
+    window.setTimeout(() => setCopied(""), 1500);
+  }
+  async function markSent() {
+    if (!item.followup || !item.suggested_message) return;
+    await action.run(
+      () =>
+        post(`/followups/${item.followup!.id}/sent`, {
+          message: item.suggested_message,
+          channel: item.message_channel || "SMS",
+          confirm: true,
+        }),
+      "Marked sent — the next cadence touch was scheduled",
+    );
+  }
   return (
     <article className={`task-card ${item.priority >= 75 ? "task-high" : ""}`}>
       <div className="task-card-heading">
@@ -276,6 +324,17 @@ function TaskCard({
       <div className="task-metadata">
         <span>
           Phone <strong>{l.primary_phone || "Missing"}</strong>
+          {l.primary_phone && (
+            <button
+              type="button"
+              className="copy-mini"
+              aria-label="Copy phone number"
+              onClick={() => copy(l.primary_phone, "phone")}
+            >
+              <Copy size={13} />
+              {copied === "phone" ? "Copied" : ""}
+            </button>
+          )}
         </span>
         {typeof l.equity_pct === "number" ? (
           <span>
@@ -311,6 +370,43 @@ function TaskCard({
           <p>{item.suggested_action}</p>
         </div>
       </div>
+      {item.suggested_message && (
+        <div className="followup-message">
+          <div className="row" style={{ justifyContent: "space-between", gap: "0.5rem" }}>
+            <span className="mini-label">
+              SUGGESTED MESSAGE · {item.message_basis}
+              {item.message_first ? " · first touch" : " · follow-up"}
+            </span>
+            {item.message_first ? (
+              <Badge tone="blue">Includes Jason Wade</Badge>
+            ) : (
+              <Badge tone="neutral">GreenSeedTX LLC</Badge>
+            )}
+          </div>
+          <p>{item.suggested_message}</p>
+          <div className="row wrap" style={{ gap: "0.4rem" }}>
+            <Button variant="secondary" onClick={() => copy(item.suggested_message, "message")}>
+              <Copy size={15} />
+              {copied === "message" ? "Copied" : "Copy message"}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => copy(l.primary_phone, "phone")}
+              disabled={!l.primary_phone}
+            >
+              <Phone size={15} />
+              {copied === "phone" ? "Copied" : "Copy phone"}
+            </Button>
+            {item.followup && (
+              <Button onClick={markSent} disabled={action.busy}>
+                <CheckCircle2 size={15} />
+                {action.busy ? "Saving…" : "Sent — remove"}
+              </Button>
+            )}
+          </div>
+          {action.error && <p className="form-error">{action.error}</p>}
+        </div>
+      )}
       {item.last_activity && (
         <details className="task-activity">
           <summary>
